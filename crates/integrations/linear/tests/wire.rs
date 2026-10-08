@@ -36,7 +36,7 @@ async fn resolve(socket: &Socket, key: &ConnectionKey, input: &str) -> socketkit
 
 #[tokio::test]
 async fn passes_the_conformance_suite() {
-    conformance::all(provider(), build).await;
+    conformance::all(provider(), build, "ENG").await;
 }
 
 #[tokio::test]
@@ -120,4 +120,21 @@ async fn bad_input_is_refused_without_calling_linear() {
         ErrorKind::InvalidInput
     );
     assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_team_other_than_the_one_asked_for_is_refused() {
+    let wrong = json!({ "data": { "teams": { "nodes": [{ "id": "team-ops", "key": "OPS", "name": "Operations" }] } } });
+    let (_server, socket, key) = linear(ok(wrong)).await;
+    assert_eq!(
+        resolve(&socket, &key, "ENG").await.unwrap_err().kind(),
+        ErrorKind::Decode
+    );
+
+    let blank = json!({ "data": { "teams": { "nodes": [{ "id": "", "key": "ENG", "name": "Engineering" }] } } });
+    let (_server, socket, key) = linear(ok(blank)).await;
+    assert_eq!(
+        resolve(&socket, &key, "ENG").await.unwrap_err().kind(),
+        ErrorKind::Decode
+    );
 }

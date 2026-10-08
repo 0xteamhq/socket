@@ -164,7 +164,8 @@ impl Slack {
     /// The account the connection is authorised as.
     pub async fn identity(&self, connection: &Connection) -> Result<Account> {
         let body = connection.request(RawRequest::get("auth.test")).await?.body;
-        let (Some(id), Some(name)) = (body["user_id"].as_str(), body["user"].as_str()) else {
+        let filled = |value: &Value| value.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+        let (Some(id), Some(name)) = (filled(&body["user_id"]), filled(&body["user"])) else {
             return Err(
                 Error::new(ErrorKind::Decode, "slack answered without an account").with_provider(self.spec.id.clone())
             );
@@ -194,7 +195,9 @@ impl Slack {
     async fn channel_by_id(&self, connection: &Connection, id: &str) -> Result<Value> {
         let request = RawRequest::get("conversations.info").with_query("channel", id);
         match connection.request(request).await {
-            Ok(response) => Ok(response.body["channel"].clone()),
+            Ok(response) if response.body["channel"]["id"] == id => Ok(response.body["channel"].clone()),
+            Ok(_) => Err(Error::new(ErrorKind::Decode, "slack answered with a different channel")
+                .with_provider(self.spec.id.clone())),
             Err(e) if e.kind() == ErrorKind::NotFound => Err(self.not_found(&format!("Slack channel {id}"))),
             Err(e) => Err(e),
         }

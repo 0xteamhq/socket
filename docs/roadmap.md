@@ -9,7 +9,7 @@ The order of work. The [design spec](./superpowers/specs/2026-10-08-socket-proje
 
 | Phase | Outcome | Language reach | Catalogue |
 | --- | --- | --- | --- |
-| 1. Core | OAuth, refresh, transport, generic request and call-by-name work in Rust for six providers | Rust | Wave 1 authorised |
+| 1. Core | OAuth, refresh, transport, generic request and call-by-name work in Rust for six providers. Built; not yet run against the real services. | Rust | Wave 1 authorised |
 | 2. Operations and first release | Typed operations for GitHub, Slack and Linear; 0.1.0 on crates.io | Rust | Wave 1 partly verified |
 | 3. Webhooks | Verified events from GitHub, Slack and Linear | Rust | |
 | 4. Local server and MCP | A program with no Rust in it authorises and calls operations | Every language, through the server | |
@@ -23,19 +23,28 @@ Phase 6 is new in this roadmap: the spec lists bindings under "later", and they 
 | Plan | Builds | Ends with | Status |
 | --- | --- | --- | --- |
 | 1A. Core foundation | Workspace, errors, secrets, providers, token store, operations, the `Socket` handle and `invoke` | An example that registers an integration and invokes an operation by name with JSON, with no network | [Done](./superpowers/plans/2026-10-08-phase-1a-core-foundation.md), on branch `phase-1a-core-foundation` |
-| 1B. Transport | One HTTP client, host allowlist, retry with `Retry-After`, response classification, cursor pagination, the generic request, `socketkit-testkit` wire server | A generic request against the wire server that attaches the token only to allowed hosts and maps throttling and refusal to the right errors | To write after 1A lands |
-| 1C. Authorisation | OAuth begin and complete with signed state and PKCE, token-response parsing hook, single-flight refresh, reconnect-required | A full connect and an expired-token refresh against the wire server, with two concurrent calls causing one refresh | To write after 1B lands |
-| 1D. Providers and facade | Six provider crates with `Identity` and `Resolve`, the conformance suite, the facade, CI with `cargo hack` and `cargo deny` | Phase 1's "done when" list in the spec | To write after 1C lands |
+| 1B. Transport | One HTTP client, host allowlist, retry with `Retry-After`, response classification, the generic request, `socketkit-testkit` | A generic request that attaches the token only to allowed hosts and maps throttling and refusal to the right errors | Done |
+| 1C. Authorisation | OAuth begin and complete with signed state and PKCE, token-response parsing hook, single-flight refresh, reconnect-required | A full connect and an expired-token refresh against a local server, with concurrent calls never spending a refresh token twice | Done |
+| 1D. Providers and facade | Six provider crates with identity and resource lookup, the conformance suite, the facade | Every provider passes the conformance suite against a local server | Done, except live tests |
+
+1B to 1D were built directly, test first, without a written plan each; the code and its tests are the record.
+
+## What phase 1 has not done
+
+- **Nothing has been run against a real service.** Every test uses a local server that answers the way the provider's documentation and the earlier private code say it does. The spec's phase 1 criterion, a real consumer running connect, refresh and lookup against the real providers, is still open. It needs an OAuth app and a test account for each of the six.
+- **PKCE is switched off for all six providers**, matching the code they were ported from. Each should be switched on once it is confirmed against the real provider.
+- **Zoom's `user:read:user` scope is new.** The earlier code did not ask for it; `zoom.identity.get` needs it.
 
 Plans 1B to 1D are written one at a time, each after the one before it has landed, because each depends on the exact types the earlier one produced.
 
-## Carried forward from the review of 1A
+## Carried forward from reviews
 
-- Decide before 1D whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.
-- 1C: treat an empty access token as reconnect-required; make `TokenSet::is_expired` safe against overflow.
-- 1B: keep secrets out of `Error`'s `Debug` once HTTP errors are wrapped; a query-string API key would appear in a URL.
-- 1D: validate `allowed_hosts` entries and the characters allowed in operation names; enforce the dependency rules in CI.
-
-## Open before 1C
-
-Decision 4 in the spec (seed the OAuth code from the existing private crate, or write it fresh) does not affect 1A or 1B. It must be settled before 1C is written.
+- Decide before the first release whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.
+- Retrying is decided by HTTP method. The spec says the provider's classifier should decide; Slack accepts GET for some writes, so this matters before Slack gets write operations in phase 2.
+- A renamed GitHub repository answers with a redirect, which is not followed, so it reports an unexpected error instead of the new name.
+- Notion and Zoom treat any 400 on a lookup as "not found", including a 400 that means something else.
+- Slack channel lookup by name reports "not found" after 20 pages even if the workspace has more.
+- A request path may climb out of `api_base` with `..` to another path on the same allowed host.
+- An application-supplied HTTP client builder is trusted apart from redirects: a shared cookie store or default headers would apply to every tenant.
+- Single-flight refresh is per process. Two instances of an application can still refresh the same connection at once.
+- Enforce the dependency rules in CI; add `cargo hack --each-feature` and `cargo deny`.

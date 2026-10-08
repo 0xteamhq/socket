@@ -175,8 +175,24 @@ pub fn provider_message(body: &Value) -> String {
     ]
     .into_iter()
     .find_map(Value::as_str)
-    .map(str::to_owned)
-    .unwrap_or_else(|| "no reason given".into())
+    .map_or_else(
+        || "no reason given".into(),
+        |text| shortened(text, MAX_PROVIDER_MESSAGE),
+    )
+}
+
+/// The most of a provider's own words that is copied into an error message.
+const MAX_PROVIDER_MESSAGE: usize = 300;
+/// The largest response body the transport will read.
+const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
+
+/// `text`, cut to at most `limit` characters.
+pub(crate) fn shortened(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        text.to_owned()
+    } else {
+        format!("{}…", text.chars().take(limit).collect::<String>())
+    }
 }
 
 /// The one HTTP path every request takes.
@@ -286,6 +302,19 @@ impl Transport {
         for (name, value) in caller {
             headers.insert(name.clone(), value.clone());
         }
+        let body = match &request.body {
+            Some(body) => {
+                let bytes = serde_json::to_vec(body).map_err(|e| {
+                    Error::new(ErrorKind::InvalidInput, "request body is not valid JSON").with_source(e)
+                })?;
+                // The caller's own content type wins; there is never more than one.
+                headers
+                    .entry(reqwest::header::CONTENT_TYPE)
+                    .or_insert(HeaderValue::from_static("application/json"));
+                Some(bytes)
+            }
+            None => None,
+        };
         let mut builder = self.client.request(method.clone(), url).headers(headers);
         builder = match &spec.auth {
             AuthScheme::OAuth2(_) => builder.bearer_auth(secret),
@@ -297,13 +326,14 @@ impl Transport {
                 KeyPlacement::Query { .. } => builder,
             },
         };
-        if let Some(body) = &request.body {
-            let bytes = serde_json::to_vec(body)
-                .map_err(|e| Error::new(ErrorKind::InvalidInput, "request body is not valid JSON").with_source(e))?;
-            builder = builder.header("content-type", "application/json").body(bytes);
+        if let Some(bytes) = body {
+            builder = builder.body(bytes);
         }
         let response = read(spec, builder).await?;
-        classifier.classify(&spec.id, &response)?;
+        // A provider may echo the request, credential included, in its error text.
+        classifier
+            .classify(&spec.id, &response)
+            .map_err(|e| e.map_message(|m| m.replace(secret, "[redacted]")))?;
         Ok(response)
     }
 
@@ -373,8 +403,10 @@ fn caller_headers(spec: &ProviderSpec, requested: &[(String, String)]) -> Result
     };
     let mut headers = HeaderMap::new();
     for (name, value) in requested {
-        let reserved = RESERVED_HEADERS.iter().any(|r| name.eq_ignore_ascii_case(r))
-            || key_header.is_some_and(|key| name.eq_ignore_ascii_case(key));
+        // Some servers treat `_` and `-` in a header name as the same character.
+        let folded = |s: &str| s.trim().to_ascii_lowercase().replace('_', "-");
+        let reserved = RESERVED_HEADERS.iter().any(|r| folded(name) == *r)
+            || key_header.is_some_and(|key| folded(name) == folded(key));
         if reserved {
             return Err(invalid(format!(
                 "the header {name:?} is set by Socket and cannot be supplied"
@@ -437,17 +469,30 @@ async fn read(spec: &ProviderSpec, builder: reqwest::RequestBuilder) -> Result<R
             .with_retry(Retry::Later)
             .with_source(e.without_url())
     };
-    let response = builder.send().await.map_err(|e| transport("reach", e))?;
+    let mut response = builder.send().await.map_err(|e| transport("reach", e))?;
     let status = response.status().as_u16();
     let headers = response
         .headers()
         .iter()
         .filter_map(|(name, value)| Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned())))
         .collect();
-    let text = response
-        .text()
+    // Read in pieces so a broken or hostile provider cannot fill memory.
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|e| transport("read the response from", e))?;
+        .map_err(|e| transport("read the response from", e))?
+    {
+        if bytes.len() + chunk.len() > MAX_BODY_BYTES {
+            return Err(Error::new(
+                ErrorKind::Decode,
+                format!("{} answered with a response too large to read", spec.id),
+            )
+            .with_provider(spec.id.clone()));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let text = String::from_utf8_lossy(&bytes);
     let body = if text.trim().is_empty() {
         Value::Null
     } else {

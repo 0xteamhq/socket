@@ -21,7 +21,7 @@ async fn github() -> (MockServer, socketkit_core::Socket, socketkit_core::Connec
 
 #[tokio::test]
 async fn passes_the_conformance_suite() {
-    conformance::all(provider(), build).await;
+    conformance::all(provider(), build, "acme/api").await;
 }
 
 #[tokio::test]
@@ -159,4 +159,35 @@ async fn bad_input_is_refused_without_calling_github() {
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
     }
     assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_200_that_names_no_single_repository_or_account_is_refused() {
+    let (server, socket, key) = github().await;
+    for full_name in [json!(""), json!("no-slash"), json!("a/b/c"), json!("acme/.."), json!(7)] {
+        server.reset().await;
+        Mock::given(path("/repos/acme/api"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "full_name": full_name })))
+            .mount(&server)
+            .await;
+        let err = socket
+            .invoke(
+                key.clone(),
+                "github.resource.resolve".into(),
+                json!({ "input": "acme/api" }),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Decode, "{full_name}");
+    }
+    server.reset().await;
+    Mock::given(path("/user"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": 7, "login": "" })))
+        .mount(&server)
+        .await;
+    let err = socket
+        .invoke(key, "github.identity.get".into(), json!({}))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Decode);
 }

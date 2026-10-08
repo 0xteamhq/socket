@@ -153,10 +153,21 @@ impl Notion {
     /// `None` when Notion says the id is not an object of this kind: it
     /// answers 404, or 400 when the id belongs to the other kind.
     async fn fetch(&self, connection: &Connection, kind: &str, id: &str) -> Result<Option<Value>> {
-        match connection.request(Self::request(format!("{kind}/{id}"))).await {
-            Ok(response) => Ok(Some(response.body)),
-            Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::InvalidInput) => Ok(None),
-            Err(e) => Err(e),
+        let body = match connection.request(Self::request(format!("{kind}/{id}"))).await {
+            Ok(response) => response.body,
+            Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::InvalidInput) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        // `pages` answers with a page object, `databases` with a database object.
+        // Anything else in a 200 is not Notion confirming the id.
+        let expected = kind.trim_end_matches('s');
+        if body["object"] == expected {
+            Ok(Some(body))
+        } else {
+            Err(
+                Error::new(ErrorKind::Decode, format!("notion answered without a {expected}"))
+                    .with_provider(self.spec.id.clone()),
+            )
         }
     }
 }

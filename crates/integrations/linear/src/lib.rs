@@ -149,7 +149,8 @@ impl Linear {
     pub async fn identity(&self, connection: &Connection) -> Result<Account> {
         let data = self.graphql(connection, VIEWER, json!({})).await?;
         let viewer = &data["viewer"];
-        let (Some(id), Some(name)) = (viewer["id"].as_str(), viewer["name"].as_str()) else {
+        let filled = |value: &Value| value.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+        let (Some(id), Some(name)) = (filled(&viewer["id"]), filled(&viewer["name"])) else {
             return Err(self.decode("an account"));
         };
         Ok(Account {
@@ -175,7 +176,16 @@ impl Linear {
                     .with_provider(self.spec.id.clone()),
             );
         };
-        let id = team["id"].as_str().ok_or_else(|| self.decode("a team id"))?;
+        if !team["key"]
+            .as_str()
+            .is_some_and(|returned| returned.eq_ignore_ascii_case(&key))
+        {
+            return Err(self.decode("the team that was asked for"));
+        }
+        let id = team["id"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| self.decode("a team id"))?;
         let name = team["name"].as_str().unwrap_or(&key);
         Ok(Resource::new(id, format!("{name} ({key})"), "Linear team"))
     }

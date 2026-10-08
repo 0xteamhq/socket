@@ -31,7 +31,7 @@ async fn resolve(socket: &Socket, key: &ConnectionKey, input: &str) -> socketkit
 
 #[tokio::test]
 async fn passes_the_conformance_suite() {
-    conformance::all(provider(), build).await;
+    conformance::all(provider(), build, "C0123ABCD").await;
 }
 
 #[tokio::test]
@@ -179,4 +179,28 @@ async fn bad_input_is_refused_without_calling_slack() {
         ErrorKind::InvalidInput
     );
     assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_lookup_that_answers_with_another_channel_or_a_blank_account_is_refused() {
+    let (server, socket, key) = slack().await;
+    Mock::given(path("/api/conversations.info"))
+        .respond_with(ok(
+            json!({ "ok": true, "channel": { "id": "C9999ZZZZ", "name": "other" } }),
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/auth.test"))
+        .respond_with(ok(json!({ "ok": true, "user_id": "", "user": "ada" })))
+        .mount(&server)
+        .await;
+    assert_eq!(
+        resolve(&socket, &key, "C0123ABCD").await.unwrap_err().kind(),
+        ErrorKind::Decode
+    );
+    let err = socket
+        .invoke(key, "slack.identity.get".into(), json!({}))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Decode);
 }

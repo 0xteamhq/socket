@@ -134,8 +134,8 @@ impl ProviderSpec {
     ///
     /// One exception serves local development and tests: plain `http` to a
     /// loopback address is allowed when the list names that address with its
-    /// port, for example `"127.0.0.1:8080"`. Credentials sent there never
-    /// leave the machine.
+    /// port, for example `"127.0.0.1:8080"`. Use it only for tests and local
+    /// development: a configured HTTP proxy would still receive such a request.
     pub fn allows_host(&self, url: &Url) -> bool {
         let Some(host) = url.host_str() else {
             return false;

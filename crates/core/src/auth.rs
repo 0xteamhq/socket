@@ -32,6 +32,16 @@ pub struct OAuthClient {
 
 /// What the application keeps, server-side, between sending a person to the
 /// provider and receiving the callback.
+///
+/// Two rules are the application's to keep, because only it knows who is asking:
+///
+/// - **Tie the record to the session of the person who started the flow**, and
+///   at the callback look it up by that session, never by the `state` value
+///   in the URL. Otherwise someone can start a connection, send the link to a
+///   victim, and have the victim's account stored under their own tenant.
+/// - **Use it once.** Delete the record when the callback arrives. Socket
+///   checks that the state is genuine and unexpired; it holds no memory of
+///   which states were already used.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingAuthorization {
     pub key: ConnectionKey,
@@ -232,7 +242,7 @@ mod tests {
     fn two_states_for_the_same_connection_differ() {
         let a = sign_state(&key("slack", "acme"), SECRET, at(1_000)).unwrap();
         let b = sign_state(&key("slack", "acme"), SECRET, at(1_000)).unwrap();
-        assert_ne!(a, b, "the nonce makes each state single-use in practice");
+        assert_ne!(a, b, "a state cannot be predicted from an earlier one");
     }
 
     #[test]
@@ -271,6 +281,26 @@ mod tests {
         for junk in ["", "no-dot", ".", "a.b", "!!.!!"] {
             assert!(verify_state(junk, SECRET, at(1_000), &ours).is_err(), "{junk:?}");
         }
+    }
+
+    #[test]
+    fn debug_output_of_the_oauth_types_never_shows_a_secret() {
+        let client = OAuthClient {
+            client_id: "public-id".into(),
+            client_secret: SecretString::new("client-shh"),
+            redirect_uri: Url::parse("https://app.example.test/cb").unwrap(),
+        };
+        let pending = PendingAuthorization {
+            key: key("slack", "acme"),
+            state: "state-value".into(),
+            pkce_verifier: Some(SecretString::new("verifier-shh")),
+        };
+        let shown = format!("{client:?} {pending:?}");
+        assert!(shown.contains("public-id") && shown.contains("state-value"));
+        assert!(
+            !shown.contains("client-shh") && !shown.contains("verifier-shh"),
+            "{shown}"
+        );
     }
 
     #[test]

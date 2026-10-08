@@ -10,7 +10,7 @@ use crate::error::{Error, ErrorKind, Result, Retry};
 use crate::http::{Classifier, RawRequest, RawResponse, RetryPolicy, StandardClassifier, Transport};
 use crate::operation::{Connection, Integration, OperationInfo};
 use crate::provider::{AuthScheme, ClientAuth, OAuth2Spec, ProviderId, ProviderSpec};
-use crate::secret::TokenSet;
+use crate::secret::{SecretString, TokenSet};
 use crate::store::{ConnectionKey, TokenStore};
 
 /// A token this close to its expiry is refreshed before it is used.
@@ -38,8 +38,15 @@ impl Registered {
     }
 }
 
-/// The most recent refresh for one connection. Waiters read it instead of refreshing again.
-type RefreshSlot = Arc<tokio::sync::Mutex<Option<TokenSet>>>;
+/// Tokens a refresh obtained that are not yet in the store.
+struct Unsaved {
+    /// The refresh token that was spent to get them.
+    spent: SecretString,
+    tokens: TokenSet,
+}
+
+/// One connection's refresh lock, and what a refresh left unsaved.
+type RefreshSlot = Arc<tokio::sync::Mutex<Option<Unsaved>>>;
 
 /// The handle an application builds once and shares.
 pub struct Socket {
@@ -205,24 +212,22 @@ impl Socket {
         }
         let now = SystemTime::now();
         let response = self.token_request(registered, oauth, client, form).await?;
-        let refusal = match response.status {
-            200..=299 => auth::grant_refusal(&response.body),
-            400..=499 => Some(auth::grant_refusal(&response.body).unwrap_or_else(|| "refused".into())),
-            status => {
-                return Err(
-                    Error::new(ErrorKind::Unexpected, format!("{provider} returned HTTP {status}"))
-                        .with_provider(provider.clone())
-                        .with_retry(Retry::Later),
-                );
-            }
-        };
-        if let Some(code) = refusal {
+        if let Some(code) = token_outcome(provider, &response)? {
             return Err(invalid(format!(
                 "{provider} refused the authorization code ({code}); start the connection again"
             )));
         }
         let tokens = registered.parse_token_response(response.body, now)?;
-        self.store.save(pending.key, tokens.clone()).await?;
+        // Under the connection's refresh lock, so a refresh that was in flight
+        // for the previous authorization cannot save its tokens over these.
+        let slot = self.refresh_slot(&pending.key);
+        let saved = {
+            let mut unsaved = slot.lock().await;
+            *unsaved = None;
+            self.store.save(pending.key.clone(), tokens.clone()).await
+        };
+        self.release_slot(&pending.key, &slot);
+        saved?;
         Ok(tokens)
     }
 
@@ -277,15 +282,14 @@ impl Socket {
     /// The connection's tokens, refreshed first when they have expired.
     async fn tokens_for(&self, key: &ConnectionKey, registered: &Registered) -> Result<TokenSet> {
         let provider = &registered.spec.id;
-        let reconnect =
-            |message: String| Error::new(ErrorKind::ReconnectRequired, message).with_provider(provider.clone());
         let Some(tokens) = self.store.load(key.clone()).await? else {
-            return Err(reconnect(format!("no stored connection for {provider}")));
+            return Err(reconnect(provider, format!("no stored connection for {provider}")));
         };
         if tokens.access_token.expose().is_empty() {
-            return Err(reconnect(format!(
-                "the stored connection for {provider} has no access token"
-            )));
+            return Err(reconnect(
+                provider,
+                format!("the stored connection for {provider} has no access token"),
+            ));
         }
         if !tokens.is_expired(SystemTime::now(), EXPIRY_SKEW) {
             return Ok(tokens);
@@ -293,8 +297,57 @@ impl Socket {
         let AuthScheme::OAuth2(oauth) = &registered.spec.auth else {
             return Ok(tokens);
         };
-        let Some(refresh_token) = tokens.refresh_token.clone() else {
-            return Err(reconnect(format!("the authorization for {provider} has expired")));
+        let slot = self.refresh_slot(key);
+        let refreshed = {
+            let mut unsaved = slot.lock().await;
+            self.refresh_under_lock(key, registered, oauth, &mut unsaved).await
+        };
+        self.release_slot(key, &slot);
+        refreshed
+    }
+
+    /// Refreshes one connection while holding its lock.
+    ///
+    /// One refresh at a time per connection: a provider that rotates refresh
+    /// tokens invalidates the old one on use, so spending it twice breaks the
+    /// connection. Everything is re-read from the store inside the lock, so a
+    /// caller that waited sees what the caller before it saved.
+    ///
+    /// The lock is an async one and is held across the store's `load` and
+    /// `save` for this connection. A store must not call back into Socket for
+    /// the same connection from inside those methods.
+    async fn refresh_under_lock(
+        &self,
+        key: &ConnectionKey,
+        registered: &Registered,
+        oauth: &OAuth2Spec,
+        unsaved: &mut Option<Unsaved>,
+    ) -> Result<TokenSet> {
+        let provider = &registered.spec.id;
+        let Some(mut current) = self.store.load(key.clone()).await? else {
+            *unsaved = None;
+            return Err(reconnect(provider, format!("no stored connection for {provider}")));
+        };
+        // Tokens from an earlier refresh whose save failed or was cancelled.
+        // They are still the connection's only valid tokens, provided the
+        // store has not been given a different authorization since.
+        if let Some(pending) = unsaved.take() {
+            if current.refresh_token.as_ref() == Some(&pending.spent) {
+                if let Err(e) = self.store.save(key.clone(), pending.tokens.clone()).await {
+                    *unsaved = Some(pending);
+                    return Err(e);
+                }
+                current = pending.tokens;
+            }
+        }
+        if !current.is_expired(SystemTime::now(), EXPIRY_SKEW) {
+            return Ok(current);
+        }
+        let Some(refresh_token) = current.refresh_token.clone() else {
+            return Err(reconnect(
+                provider,
+                format!("the authorization for {provider} has expired"),
+            ));
         };
         let client = self.oauth_clients.get(provider).ok_or_else(|| {
             Error::new(
@@ -303,37 +356,33 @@ impl Socket {
             )
             .with_provider(provider.clone())
         })?;
-
-        // One refresh at a time per connection: a provider that rotates refresh
-        // tokens invalidates the old one on use, so a second refresh would
-        // break the connection. The lock covers only the call to the provider;
-        // the store is never called while it is held.
-        let slot = self.refresh_slot(key);
-        let (fresh, refreshed_here) = {
-            let mut latest = slot.lock().await;
-            match latest
-                .as_ref()
-                .filter(|t| !t.is_expired(SystemTime::now(), EXPIRY_SKEW))
-            {
-                Some(already) => (already.clone(), false),
-                None => {
-                    let fresh = self
-                        .refresh(registered, oauth, client, &tokens, refresh_token.expose())
-                        .await?;
-                    *latest = Some(fresh.clone());
-                    (fresh, true)
-                }
-            }
-        };
-        if refreshed_here {
-            self.store.save(key.clone(), fresh.clone()).await?;
-        }
+        let fresh = self
+            .refresh(registered, oauth, client, &current, refresh_token.expose())
+            .await?;
+        // Remembered before the save is awaited: if the save fails, or the
+        // caller stops waiting, the rotated token is not lost.
+        *unsaved = Some(Unsaved {
+            spent: refresh_token,
+            tokens: fresh.clone(),
+        });
+        self.store.save(key.clone(), fresh.clone()).await?;
+        *unsaved = None;
         Ok(fresh)
     }
 
     fn refresh_slot(&self, key: &ConnectionKey) -> RefreshSlot {
         let mut slots = self.refreshes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         slots.entry(key.clone()).or_default().clone()
+    }
+
+    /// Forgets a connection's slot once nobody is using it and it holds nothing.
+    fn release_slot(&self, key: &ConnectionKey, slot: &RefreshSlot) {
+        let mut slots = self.refreshes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Two holders means the map and this caller: no other task is waiting.
+        let idle = Arc::strong_count(slot) == 2 && slot.try_lock().is_ok_and(|unsaved| unsaved.is_none());
+        if idle {
+            slots.remove(key);
+        }
     }
 
     async fn refresh(
@@ -348,24 +397,12 @@ impl Socket {
         let form = vec![("grant_type", "refresh_token"), ("refresh_token", refresh_token)];
         let now = SystemTime::now();
         let response = self.token_request(registered, oauth, client, form).await?;
-        let refused = match response.status {
-            200..=299 => auth::grant_refusal(&response.body).is_some(),
-            400..=499 => true,
-            status => {
-                return Err(
-                    Error::new(ErrorKind::Unexpected, format!("{provider} returned HTTP {status}"))
-                        .with_provider(provider.clone())
-                        .with_retry(Retry::Later),
-                );
-            }
-        };
-        if refused {
+        if token_outcome(provider, &response)?.is_some() {
             // Distinct from a transient failure: only the person can fix this.
-            return Err(Error::new(
-                ErrorKind::ReconnectRequired,
+            return Err(reconnect(
+                provider,
                 format!("{provider} no longer accepts the stored authorization"),
-            )
-            .with_provider(provider.clone()));
+            ));
         }
         let mut fresh = registered.parse_token_response(response.body, now)?;
         // Providers that do not rotate omit the refresh token and often the scopes.
@@ -376,6 +413,51 @@ impl Socket {
             fresh.scopes = old.scopes.clone();
         }
         Ok(fresh)
+    }
+}
+
+fn reconnect(provider: &ProviderId, message: String) -> Error {
+    Error::new(ErrorKind::ReconnectRequired, message).with_provider(provider.clone())
+}
+
+/// Reads the token endpoint's answer.
+///
+/// `Ok(None)` means tokens were granted. `Ok(Some(code))` means the provider
+/// declined this code or refresh token, which only the person can fix.
+/// Everything else is an error that is not the person's to fix: throttling, a
+/// rejected OAuth client, or a failing provider.
+fn token_outcome(provider: &ProviderId, response: &RawResponse) -> Result<Option<String>> {
+    let error = |kind, message: String| Error::new(kind, message).with_provider(provider.clone());
+    let refusal = auth::grant_refusal(&response.body).map(|code| crate::http::shortened(&code, 80));
+    let client_rejected = matches!(refusal.as_deref(), Some("invalid_client" | "unauthorized_client"));
+    if response.status == 429 {
+        let retry = match response
+            .header("retry-after")
+            .and_then(|v| v.trim().parse::<u64>().ok())
+        {
+            Some(secs) => Retry::After(Duration::from_secs(secs)),
+            None => Retry::Later,
+        };
+        return Err(error(ErrorKind::RateLimited, format!("{provider} is rate limiting requests")).with_retry(retry));
+    }
+    if response.status == 401 || client_rejected {
+        return Err(error(
+            ErrorKind::Config,
+            format!("{provider} rejected the application's OAuth client; check its client id and secret"),
+        ));
+    }
+    match response.status {
+        200..=299 => Ok(refusal),
+        408 | 500..=599 => Err(error(
+            ErrorKind::Unexpected,
+            format!("{provider} returned HTTP {}", response.status),
+        )
+        .with_retry(Retry::Later)),
+        400..=499 => Ok(Some(refusal.unwrap_or_else(|| "refused".into()))),
+        status => Err(error(
+            ErrorKind::Unexpected,
+            format!("{provider} returned HTTP {status}"),
+        )),
     }
 }
 
@@ -437,6 +519,9 @@ impl SocketBuilder {
     }
 
     /// Uses the application's own HTTP client settings: proxies, timeouts, certificates.
+    ///
+    /// Set a timeout on the builder. Without one a provider that never answers
+    /// holds the call open; the client Socket builds by default allows 30 seconds.
     ///
     /// Socket takes a builder, not a finished client, because it always turns
     /// redirect-following off: a redirect would carry an API key in a header
@@ -527,9 +612,16 @@ impl SocketBuilder {
                 ));
             }
         }
+        // An application that supplies no client still gets timeouts: a
+        // provider that accepts a connection and never answers must not hang a
+        // caller, or hold a connection's refresh lock, for ever.
         let client = self
             .http_client
-            .unwrap_or_else(reqwest::Client::builder)
+            .unwrap_or_else(|| {
+                reqwest::Client::builder()
+                    .connect_timeout(Duration::from_secs(10))
+                    .timeout(Duration::from_secs(30))
+            })
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| {

@@ -29,7 +29,7 @@ async fn resolve(socket: &Socket, key: &ConnectionKey, input: &str) -> socketkit
 
 #[tokio::test]
 async fn passes_the_conformance_suite() {
-    conformance::all(provider(), build).await;
+    conformance::all(provider(), build, "1AbC_dEf-GhIjKlMnOpQrStUvWxYz012345").await;
 }
 
 #[tokio::test]
@@ -125,4 +125,32 @@ async fn bad_input_is_refused_without_calling_google() {
         ErrorKind::InvalidInput
     );
     assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_file_other_than_the_one_asked_for_is_refused() {
+    let (server, socket, key) = google().await;
+    Mock::given(path(format!("/drive/v3/files/{FILE}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "id": "another-file-id-0000", "name": "Other" })),
+        )
+        .mount(&server)
+        .await;
+    assert_eq!(
+        resolve(&socket, &key, FILE).await.unwrap_err().kind(),
+        ErrorKind::Decode
+    );
+}
+
+#[tokio::test]
+async fn the_docs_and_sheets_hosts_may_receive_the_token_and_no_other_google_host_may() {
+    let spec = provider();
+    let allows = |u: &str| spec.allows_host(&u.parse().unwrap());
+    assert!(allows("https://docs.googleapis.com/v1/documents/x"));
+    assert!(allows("https://sheets.googleapis.com/v4/spreadsheets/x"));
+    assert!(
+        !allows("https://accounts.google.com/"),
+        "the browser goes there, the token does not"
+    );
+    assert!(!allows("https://storage.googleapis.com/"));
 }

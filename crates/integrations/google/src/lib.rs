@@ -24,7 +24,13 @@ pub fn provider() -> ProviderSpec {
         display_name: "Google".into(),
         api_base: "https://www.googleapis.com/".parse().expect("a valid URL"),
         // oauth2.googleapis.com serves the token endpoint.
-        allowed_hosts: vec!["www.googleapis.com".into(), "oauth2.googleapis.com".into()],
+        allowed_hosts: vec![
+            "www.googleapis.com".into(),
+            "oauth2.googleapis.com".into(),
+            // The Docs and Sheets APIs, which the default scopes cover, live on their own hosts.
+            "docs.googleapis.com".into(),
+            "sheets.googleapis.com".into(),
+        ],
         auth: AuthScheme::OAuth2(OAuth2Spec {
             authorize_url: "https://accounts.google.com/o/oauth2/v2/auth"
                 .parse()
@@ -142,7 +148,7 @@ impl Google {
             }
             Err(e) => return Err(e),
         };
-        if body["id"].as_str().is_none() {
+        if body["id"] != id.as_str() {
             return Err(
                 Error::new(ErrorKind::Decode, "google answered without a file").with_provider(self.spec.id.clone())
             );

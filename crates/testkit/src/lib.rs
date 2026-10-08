@@ -81,8 +81,9 @@ pub mod conformance {
 
     use super::{connect, point_at};
 
-    /// Runs every check below.
-    pub async fn all<F>(real: ProviderSpec, build: F)
+    /// Runs every check below. `resolvable` is an input `resource.resolve`
+    /// accepts for this provider, such as `"acme/api"` for GitHub.
+    pub async fn all<F>(real: ProviderSpec, build: F, resolvable: &str)
     where
         F: Fn(ProviderSpec) -> Arc<dyn Integration>,
     {
@@ -90,6 +91,7 @@ pub mod conformance {
         a_rejected_token_requires_reconnect(&real, &build).await;
         throttling_is_reported_with_the_wait(&real, &build).await;
         an_empty_success_is_not_an_account(&real, &build).await;
+        a_success_without_the_resource_is_not_a_resource(&real, &build, resolvable).await;
     }
 
     /// The real definition is valid, uses https throughout, and the
@@ -195,5 +197,35 @@ pub mod conformance {
             "{}: {err}",
             real.id
         );
+    }
+
+    /// A 200 that does not carry the resource asked for is an error, never a
+    /// resource: an empty object, or the provider's error written in a 200.
+    pub async fn a_success_without_the_resource_is_not_a_resource<F>(real: &ProviderSpec, build: &F, resolvable: &str)
+    where
+        F: Fn(ProviderSpec) -> Arc<dyn Integration>,
+    {
+        let operation = format!("{}.resource.resolve", real.id);
+        for body in [
+            json!({}),
+            json!({ "code": 124, "message": "Invalid access token." }),
+            json!({ "object": "error" }),
+        ] {
+            let server = MockServer::start().await;
+            Mock::given(wiremock::matchers::any())
+                .respond_with(ResponseTemplate::new(200).set_body_json(body.clone()))
+                .mount(&server)
+                .await;
+            let (socket, key) = connect(build(point_at(real.clone(), &server)), "a-token").await;
+            let outcome = socket
+                .invoke(key, operation.clone(), json!({ "input": resolvable }))
+                .await;
+            assert!(
+                outcome.is_err(),
+                "{}: {body} was accepted as {:?}",
+                real.id,
+                outcome.ok()
+            );
+        }
     }
 }

@@ -122,6 +122,12 @@ impl Zoom {
         // The `@` and `+` of an email are legal in a path segment; nothing else gets this far.
         let request = RawRequest::get(format!("users/{user}/recordings")).with_query("page_size", "1");
         match connection.request(request).await {
+            // A recordings list carries a `meetings` array, empty or not. A 200
+            // without one is not Zoom confirming that the list can be read.
+            Ok(response) if !response.body["meetings"].is_array() => {
+                Err(Error::new(ErrorKind::Decode, "zoom answered without a recordings list")
+                    .with_provider(self.spec.id.clone()))
+            }
             Ok(_) => {
                 let label = if user == "me" {
                     "My Zoom recordings".to_owned()

@@ -70,14 +70,18 @@ impl GitHub {
     pub async fn identity(&self, connection: &Connection) -> Result<Account> {
         let body = connection.request(Self::request("user".into())).await?.body;
         // GitHub ids are numbers; the login is the stable name people recognise.
-        let (Some(id), Some(login)) = (body["id"].as_u64(), body["login"].as_str()) else {
+        let (Some(id), Some(login)) = (body["id"].as_u64(), body["login"].as_str().filter(|l| !l.is_empty())) else {
             return Err(
                 Error::new(ErrorKind::Decode, "github answered without an account").with_provider(self.spec.id.clone())
             );
         };
         Ok(Account {
             id: id.to_string(),
-            name: body["name"].as_str().unwrap_or(login).to_owned(),
+            name: body["name"]
+                .as_str()
+                .filter(|n| !n.is_empty())
+                .unwrap_or(login)
+                .to_owned(),
             email: body["email"].as_str().map(str::to_owned),
         })
     }
@@ -103,9 +107,16 @@ impl GitHub {
                     e
                 }
             })?;
-        let full_name = response.body["full_name"].as_str().ok_or_else(|| {
-            Error::new(ErrorKind::Decode, "github answered without a repository").with_provider(self.spec.id.clone())
-        })?;
+        // GitHub may answer with different casing, or a new name after a rename,
+        // so the name is not compared with the input; it must still be one repository's name.
+        let is_full_name = |name: &&str| name.split('/').count() == 2 && name.split('/').all(is_name);
+        let full_name = response.body["full_name"]
+            .as_str()
+            .filter(is_full_name)
+            .ok_or_else(|| {
+                Error::new(ErrorKind::Decode, "github answered without a repository")
+                    .with_provider(self.spec.id.clone())
+            })?;
         Ok(Resource::new(full_name, full_name, "GitHub repository"))
     }
 }

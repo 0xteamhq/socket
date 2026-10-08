@@ -27,7 +27,7 @@ async fn resolve(socket: &Socket, key: &ConnectionKey, input: &str) -> socketkit
 
 #[tokio::test]
 async fn passes_the_conformance_suite() {
-    conformance::all(provider(), build).await;
+    conformance::all(provider(), build, "me").await;
 }
 
 #[tokio::test]
