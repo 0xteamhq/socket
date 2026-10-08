@@ -6,10 +6,12 @@ mod error;
 mod operation;
 mod provider;
 mod secret;
+mod socket;
 mod store;
 
 pub use error::{Error, ErrorKind, Result, Retry, WireError};
 pub use operation::{Connection, Effect, Integration, OperationInfo};
 pub use provider::{ApiKeySpec, AuthScheme, KeyPlacement, OAuth2Spec, ProviderId, ProviderSpec};
 pub use secret::{SecretString, TokenSet};
+pub use socket::{Socket, SocketBuilder};
 pub use store::{ConnectionKey, MemoryTokenStore, TokenStore};
