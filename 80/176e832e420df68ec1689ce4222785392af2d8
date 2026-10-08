@@ -1,0 +1,16 @@
+crates/core/src/lib.rs
+  h_7bb0b8336911f0 8,13
+crates/core/src/store.rs
+  h_7bb0b8336911f0 1-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "80176e832e420df68ec1689ce4222785392af2d8",
+  "prompts": {},
+  "humans": {
+    "h_7bb0b8336911f0": {
+      "author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
