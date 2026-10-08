@@ -214,7 +214,11 @@ impl Transport {
         }) = &spec.auth
         {
             // A second value under the key's own name could be read in place of the real one.
-            if url.query_pairs().any(|(given, _)| given == name.as_str()) {
+            // Servers differ on case and stray whitespace, so any spelling of the name is refused.
+            if url
+                .query_pairs()
+                .any(|(given, _)| given.trim().eq_ignore_ascii_case(name.trim()))
+            {
                 return Err(invalid(format!(
                     "the query parameter {name:?} carries the credentials and cannot be set"
                 )));
@@ -316,6 +320,13 @@ impl Transport {
         if !spec.allows_host(url) {
             return Err(refused(spec, url));
         }
+        if !url.username().is_empty() || url.password().is_some() {
+            return Err(Error::new(
+                ErrorKind::Config,
+                format!("the token URL of {} must not carry a username or password", spec.id),
+            )
+            .with_provider(spec.id.clone()));
+        }
         // Built in its own block: the serializer is not `Send` and must not live across the await.
         let body = {
             let mut body = url::form_urlencoded::Serializer::new(String::new());
@@ -406,6 +417,11 @@ fn resolve_url(spec: &ProviderSpec, path: &str) -> Result<Url> {
         base.join(path.trim_start_matches('/'))
             .map_err(|_| invalid(format!("{path:?} is not a valid path")))?
     };
+    // An HTTP client turns `user:password@host` into a Basic `Authorization`
+    // header, which would travel beside or in place of the stored credentials.
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(invalid("a request URL must not carry a username or password".into()));
+    }
     if !spec.allows_host(&url) {
         return Err(refused(spec, &url));
     }

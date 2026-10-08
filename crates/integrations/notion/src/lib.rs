@@ -1,7 +1,244 @@
 //! Socket integration for Notion.
 //!
-//! Skeleton only: the provider definition, `Identity` and `Resolve` arrive in
-//! plan 1D, typed operations in phase 2. See `docs/roadmap.md`.
+//! Offers the provider definition, `notion.identity.get` and
+//! `notion.resource.resolve` (a page or database).
+
+use async_trait::async_trait;
+use serde_json::Value;
+use socketkit_core::{
+    Account, AuthScheme, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec, OperationInfo, ProviderId,
+    ProviderSpec, RawRequest, Resource, Result, identity_operation, resolve_input, resolve_operation, to_output,
+};
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "notion";
+
+/// The Notion API version every request declares.
+pub const NOTION_VERSION: &str = "2022-06-28";
+
+/// Notion's definition: where its API lives and how it authenticates.
+///
+/// # Panics
+/// Never in practice: the URLs are constants that parse.
+pub fn provider() -> ProviderSpec {
+    ProviderSpec {
+        id: ProviderId::new(PROVIDER_ID).expect("a valid provider id"),
+        display_name: "Notion".into(),
+        api_base: "https://api.notion.com/v1/".parse().expect("a valid URL"),
+        allowed_hosts: vec!["api.notion.com".into()],
+        auth: AuthScheme::OAuth2(OAuth2Spec {
+            authorize_url: "https://api.notion.com/v1/oauth/authorize"
+                .parse()
+                .expect("a valid URL"),
+            token_url: "https://api.notion.com/v1/oauth/token".parse().expect("a valid URL"),
+            // Notion has no scopes: the person picks pages when they approve.
+            default_scopes: Vec::new(),
+            scope_separator: " ".into(),
+            pkce: false,
+            client_auth: ClientAuth::Basic,
+            extra_authorize_params: vec![("owner".into(), "user".into())],
+        }),
+    }
+}
+
+/// Reads a page or database URL, or a bare id with or without dashes, and
+/// returns the dashed UUID the API expects.
+pub fn parse_id(input: &str) -> Result<String> {
+    let trimmed = input.trim();
+    let path = trimmed.split(['?', '#']).next().unwrap_or_default();
+    let segment = path.trim_end_matches('/').rsplit('/').next().unwrap_or_default();
+    let compact: String = segment.chars().filter(|c| *c != '-').collect();
+    // A URL's last segment is `Title-<32 hex>`; the id is its tail. Slicing by
+    // characters keeps a title with non-ASCII letters from splitting a character.
+    let tail: String = {
+        let chars: Vec<char> = compact.chars().collect();
+        chars[chars.len().saturating_sub(32)..].iter().collect()
+    };
+    if tail.len() == 32 && tail.chars().all(|c| c.is_ascii_hexdigit()) {
+        let hex = tail.to_ascii_lowercase();
+        Ok(format!(
+            "{}-{}-{}-{}-{}",
+            &hex[..8],
+            &hex[8..12],
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..]
+        ))
+    } else {
+        Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("\"{trimmed}\" is not a Notion page or database; paste its URL or id"),
+        ))
+    }
+}
+
+fn page_title(page: &Value) -> String {
+    page["properties"]
+        .as_object()
+        .and_then(|props| props.values().find(|p| p["type"] == "title"))
+        .map_or_else(|| "Untitled".into(), |prop| plain_text(&prop["title"]))
+}
+
+fn plain_text(rich_text: &Value) -> String {
+    let text: String = rich_text
+        .as_array()
+        .map(|parts| parts.iter().filter_map(|p| p["plain_text"].as_str()).collect())
+        .unwrap_or_default();
+    if text.is_empty() { "Untitled".into() } else { text }
+}
+
+/// The Notion integration.
+#[derive(Debug, Clone)]
+pub struct Notion {
+    spec: ProviderSpec,
+}
+
+impl Default for Notion {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Notion {
+    pub fn new() -> Self {
+        Self { spec: provider() }
+    }
+
+    /// Uses another definition, for a test server.
+    pub fn with_spec(spec: ProviderSpec) -> Self {
+        Self { spec }
+    }
+
+    fn request(path: String) -> RawRequest {
+        RawRequest::get(path).with_header("Notion-Version", NOTION_VERSION)
+    }
+
+    /// The account the connection is authorised as: the integration's bot
+    /// user, shown by the person or workspace that owns it.
+    pub async fn identity(&self, connection: &Connection) -> Result<Account> {
+        let body = connection.request(Self::request("users/me".into())).await?.body;
+        let Some(id) = body["id"].as_str().filter(|id| !id.is_empty()) else {
+            return Err(
+                Error::new(ErrorKind::Decode, "notion answered without an account").with_provider(self.spec.id.clone())
+            );
+        };
+        let owner = &body["bot"]["owner"]["user"];
+        let name = [&owner["name"], &body["bot"]["workspace_name"], &body["name"]]
+            .into_iter()
+            .find_map(|v| v.as_str().filter(|s| !s.is_empty()))
+            .unwrap_or("Notion integration");
+        Ok(Account {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            email: owner["person"]["email"].as_str().map(str::to_owned),
+        })
+    }
+
+    /// Confirms a page or database exists and was shared with the integration.
+    pub async fn resolve(&self, connection: &Connection, input: &str) -> Result<Resource> {
+        let id = parse_id(input).map_err(|e| e.with_provider(self.spec.id.clone()))?;
+        if let Some(page) = self.fetch(connection, "pages", &id).await? {
+            return Ok(Resource::new(id, page_title(&page), "Notion page"));
+        }
+        if let Some(database) = self.fetch(connection, "databases", &id).await? {
+            return Ok(Resource::new(id, plain_text(&database["title"]), "Notion database"));
+        }
+        Err(Error::new(
+            ErrorKind::NotFound,
+            format!("Notion page or database {id} was not found"),
+        )
+        .with_provider(self.spec.id.clone()))
+    }
+
+    /// `None` when Notion says the id is not an object of this kind: it
+    /// answers 404, or 400 when the id belongs to the other kind.
+    async fn fetch(&self, connection: &Connection, kind: &str, id: &str) -> Result<Option<Value>> {
+        match connection.request(Self::request(format!("{kind}/{id}"))).await {
+            Ok(response) => Ok(Some(response.body)),
+            Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::InvalidInput) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+#[async_trait]
+impl Integration for Notion {
+    fn provider(&self) -> ProviderSpec {
+        self.spec.clone()
+    }
+
+    fn operations(&self) -> Vec<OperationInfo> {
+        vec![
+            identity_operation(&self.spec.id),
+            resolve_operation(&self.spec.id, "a page or database URL, or its id"),
+        ]
+    }
+
+    async fn invoke(&self, connection: Connection, operation: String, input: Value) -> Result<Value> {
+        let id = &self.spec.id;
+        match operation.strip_prefix(&format!("{id}.")) {
+            Some("identity.get") => to_output(id, &self.identity(&connection).await?),
+            Some("resource.resolve") => to_output(id, &self.resolve(&connection, &resolve_input(id, &input)?).await?),
+            _ => Err(
+                Error::new(ErrorKind::Unsupported, format!("notion has no operation {operation:?}"))
+                    .with_provider(id.clone()),
+            ),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    const DASHED: &str = "0123abcd-4567-89ab-cdef-0123456789ab";
+
+    #[test]
+    fn parse_id_accepts_urls_and_ids_in_either_form() {
+        for input in [
+            "0123abcd456789abcdef0123456789ab",
+            "0123ABCD-4567-89AB-CDEF-0123456789AB",
+            "https://www.notion.so/acme/Roadmap-0123abcd456789abcdef0123456789ab",
+            "https://www.notion.so/Roadmap-0123abcd456789abcdef0123456789ab?v=abc#block",
+            "https://www.notion.so/0123abcd456789abcdef0123456789ab/",
+            "https://www.notion.so/Café-plan-0123abcd456789abcdef0123456789ab",
+        ] {
+            assert_eq!(parse_id(input).unwrap(), DASHED, "{input}");
+        }
+    }
+
+    #[test]
+    fn parse_id_refuses_anything_without_a_full_id() {
+        for input in [
+            "",
+            "roadmap",
+            "0123abcd",
+            "https://www.notion.so/acme/Roadmap",
+            "zzzzabcd456789abcdef0123456789ab",
+            "ééééééééééééééééé",
+        ] {
+            assert_eq!(
+                parse_id(input).unwrap_err().kind(),
+                ErrorKind::InvalidInput,
+                "{input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn titles_are_read_from_rich_text_and_default_to_untitled() {
+        let page = json!({ "properties": {
+            "Status": { "type": "select" },
+            "Name": { "type": "title", "title": [{ "plain_text": "Q3 " }, { "plain_text": "Roadmap" }] }
+        }});
+        assert_eq!(page_title(&page), "Q3 Roadmap");
+        assert_eq!(
+            page_title(&json!({ "properties": { "Name": { "type": "title", "title": [] } } })),
+            "Untitled"
+        );
+        assert_eq!(page_title(&json!({})), "Untitled");
+        assert_eq!(plain_text(&json!(null)), "Untitled");
+    }
+}

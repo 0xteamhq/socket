@@ -979,3 +979,84 @@ async fn refreshing_without_an_oauth_client_is_a_configuration_error() {
         ErrorKind::Config
     );
 }
+
+#[tokio::test]
+async fn credentials_embedded_in_a_url_are_refused() {
+    let server = MockServer::start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let host = host_entry(&server);
+    let specs = [
+        oauth_spec(&server, ClientAuth::Body, false),
+        key_spec(
+            &server,
+            KeyPlacement::Header {
+                name: "X-Api-Key".into(),
+                prefix: None,
+            },
+        ),
+        key_spec(&server, KeyPlacement::Query { name: "api_key".into() }),
+        key_spec(&server, KeyPlacement::Basic {}),
+    ];
+    for spec in specs {
+        let (socket, _) = connected(spec, TokenSet::bearer("real")).await;
+        for target in [
+            format!("http://forged:pw@{host}/api/x"),
+            format!("http://forged@{host}/api/x"),
+        ] {
+            let err = socket.request(key(), RawRequest::get(target)).await.unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::InvalidInput);
+            assert!(
+                !err.message().contains("forged"),
+                "the refused credentials are not echoed: {}",
+                err.message()
+            );
+        }
+    }
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "a URL carrying its own credentials is never sent"
+    );
+}
+
+#[tokio::test]
+async fn the_api_key_parameter_cannot_be_shadowed_by_a_differently_written_name() {
+    let server = MockServer::start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let spec = key_spec(&server, KeyPlacement::Query { name: "api_key".into() });
+    let (socket, _) = connected(spec, TokenSet::bearer("real")).await;
+
+    let shadowing = [
+        RawRequest::get("x").with_query("API_KEY", "forged"),
+        RawRequest::get("x").with_query("Api_Key", "forged"),
+        RawRequest::get("x").with_query(" api_key ", "forged"),
+        RawRequest::get("x?API_KEY=forged"),
+        RawRequest::get("x?%61pi_key=forged"),
+        RawRequest::get("x?api%5Fkey=forged"),
+    ];
+    for request in shadowing {
+        let shown = format!("{request:?}");
+        let err = socket.request(key(), request).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{shown}");
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+
+    // An unrelated parameter is still fine, and the real key is the only one sent.
+    socket
+        .request(key(), RawRequest::get("x").with_query("page", "2"))
+        .await
+        .unwrap();
+    let received = server.received_requests().await.unwrap();
+    let keys: Vec<String> = received[0]
+        .url
+        .query_pairs()
+        .filter(|(n, _)| n.eq_ignore_ascii_case("api_key"))
+        .map(|(_, v)| v.into_owned())
+        .collect();
+    assert_eq!(keys, ["real"]);
+}

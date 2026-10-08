@@ -158,6 +158,17 @@ impl ProviderSpec {
         if self.allowed_hosts.is_empty() {
             return fail(format!("provider {} has no allowed hosts", self.id));
         }
+        let carries_credentials = |url: &Url| !url.username().is_empty() || url.password().is_some();
+        let oauth_urls = match &self.auth {
+            AuthScheme::OAuth2(oauth) => vec![&oauth.authorize_url, &oauth.token_url],
+            AuthScheme::ApiKey(_) => Vec::new(),
+        };
+        if carries_credentials(&self.api_base) || oauth_urls.into_iter().any(carries_credentials) {
+            return fail(format!(
+                "provider {} has a URL that carries a username or password",
+                self.id
+            ));
+        }
         if !self.allows_host(&self.api_base) {
             return fail(format!(
                 "provider {} has an api_base outside its allowed hosts",
@@ -372,6 +383,18 @@ mod tests {
         ] {
             assert_eq!(with(a, t).unwrap_err().kind(), ErrorKind::Config, "{a} {t}");
         }
+    }
+
+    #[test]
+    fn a_definition_whose_urls_carry_credentials_is_invalid() {
+        let mut base = slack();
+        base.api_base = Url::parse("https://user:pw@slack.com/api/").unwrap();
+        assert_eq!(base.validate().unwrap_err().kind(), ErrorKind::Config);
+        let mut token = slack();
+        if let AuthScheme::OAuth2(oauth) = &mut token.auth {
+            oauth.token_url = Url::parse("https://user@slack.com/api/oauth.v2.access").unwrap();
+        }
+        assert_eq!(token.validate().unwrap_err().kind(), ErrorKind::Config);
     }
 
     #[test]
