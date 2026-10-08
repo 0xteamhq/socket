@@ -1,0 +1,18 @@
+crates/core/src/lib.rs
+  h_7bb0b8336911f0 9,16
+crates/core/src/socket.rs
+  h_7bb0b8336911f0 1-144
+crates/core/tests/invoke.rs
+  h_7bb0b8336911f0 1-237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0a0a54c307c387650f2a5c31650bbb50d1fab5d9",
+  "prompts": {},
+  "humans": {
+    "h_7bb0b8336911f0": {
+      "author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
