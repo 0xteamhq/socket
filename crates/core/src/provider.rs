@@ -67,6 +67,9 @@ pub struct ProviderSpec {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+// Boxing the larger variant would make every integration write `Box::new` for no gain:
+// a spec is built once and shared behind an `Arc`.
+#[allow(clippy::large_enum_variant)]
 pub enum AuthScheme {
     #[serde(rename = "oauth2")]
     OAuth2(OAuth2Spec),
@@ -82,6 +85,23 @@ pub struct OAuth2Spec {
     /// Usually a space. Some providers use a comma.
     pub scope_separator: String,
     pub pkce: bool,
+    /// How the client id and secret are sent to the token endpoint.
+    #[serde(default)]
+    pub client_auth: ClientAuth,
+    /// Extra query parameters for the authorization URL, such as Google's `access_type=offline`.
+    #[serde(default)]
+    pub extra_authorize_params: Vec<(String, String)>,
+}
+
+/// How an OAuth client authenticates itself to the token endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClientAuth {
+    /// `client_id` and `client_secret` as form fields.
+    #[default]
+    Body,
+    /// HTTP Basic auth.
+    Basic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,16 +131,25 @@ impl ProviderSpec {
     /// The scheme must be `https`, the port must be 443, and the host must
     /// equal an allowed host, compared without regard to case. A subdomain of
     /// an allowed host is not allowed.
+    ///
+    /// One exception serves local development and tests: plain `http` to a
+    /// loopback address is allowed when the list names that address with its
+    /// port, for example `"127.0.0.1:8080"`. Credentials sent there never
+    /// leave the machine.
     pub fn allows_host(&self, url: &Url) -> bool {
-        if url.scheme() != "https" || url.port_or_known_default() != Some(443) {
-            return false;
-        }
         let Some(host) = url.host_str() else {
             return false;
         };
-        self.allowed_hosts
-            .iter()
-            .any(|allowed| allowed.eq_ignore_ascii_case(host))
+        let listed = |entry: &str| {
+            self.allowed_hosts
+                .iter()
+                .any(|allowed| allowed.eq_ignore_ascii_case(entry))
+        };
+        match (url.scheme(), url.port_or_known_default()) {
+            ("https", Some(443)) => listed(host),
+            ("http", Some(port)) if is_loopback(url) => listed(&format!("{host}:{port}")),
+            _ => false,
+        }
     }
 
     /// Checks the rules a spec must meet before it is registered.
@@ -137,7 +166,7 @@ impl ProviderSpec {
         }
         if let AuthScheme::OAuth2(oauth) = &self.auth {
             // The user's browser visits the authorize URL; no credential is sent there.
-            if oauth.authorize_url.scheme() != "https" {
+            if oauth.authorize_url.scheme() != "https" && !self.allows_host(&oauth.authorize_url) {
                 return fail(format!("provider {} has an authorize_url that is not https", self.id));
             }
             // The token endpoint receives the client secret and refresh tokens.
@@ -149,6 +178,15 @@ impl ProviderSpec {
             }
         }
         Ok(())
+    }
+}
+
+fn is_loopback(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+        None => false,
     }
 }
 
@@ -168,6 +206,8 @@ mod tests {
                 default_scopes: vec!["chat:write".into()],
                 scope_separator: ",".into(),
                 pkce: false,
+                client_auth: ClientAuth::Body,
+                extra_authorize_params: Vec::new(),
             }),
         }
     }
@@ -248,6 +288,42 @@ mod tests {
             !allows("https://slack.com@evil.test/"),
             "userinfo does not change the host"
         );
+    }
+
+    #[test]
+    fn plain_http_is_allowed_only_to_a_loopback_address_listed_with_its_port() {
+        let mut spec = slack();
+        spec.allowed_hosts = vec!["slack.com".into(), "127.0.0.1:8080".into(), "localhost:9000".into()];
+        let allows = |u: &str| spec.allows_host(&Url::parse(u).unwrap());
+        assert!(allows("http://127.0.0.1:8080/api/"));
+        assert!(allows("http://localhost:9000/"));
+        assert!(!allows("http://127.0.0.1:8081/"), "another port is another program");
+        assert!(!allows("http://127.0.0.1/"), "the port must be listed");
+        assert!(
+            !allows("http://slack.com/"),
+            "listing a public host never allows plain http"
+        );
+        assert!(!allows("https://127.0.0.1:8080/"), "the exception is for http only");
+
+        spec.allowed_hosts = vec!["10.0.0.5:8080".into(), "evil.test:80".into()];
+        let allows = |u: &str| spec.allows_host(&Url::parse(u).unwrap());
+        assert!(!allows("http://10.0.0.5:8080/"), "a private address is not loopback");
+        assert!(
+            !allows("http://evil.test/"),
+            "a public host with a port entry is still refused over http"
+        );
+    }
+
+    #[test]
+    fn oauth_settings_have_defaults_when_read_from_data() {
+        let oauth: OAuth2Spec = serde_json::from_str(
+            r#"{"authorize_url":"https://x.test/a","token_url":"https://x.test/t","default_scopes":[],"scope_separator":" ","pkce":true}"#,
+        )
+        .unwrap();
+        assert_eq!(oauth.client_auth, ClientAuth::Body);
+        assert!(oauth.extra_authorize_params.is_empty());
+        let basic: ClientAuth = serde_json::from_str(r#""basic""#).unwrap();
+        assert_eq!(basic, ClientAuth::Basic);
     }
 
     #[test]
