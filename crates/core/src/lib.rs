@@ -7,5 +7,5 @@ mod provider;
 mod secret;
 
 pub use error::{Error, ErrorKind, Result, Retry, WireError};
-pub use provider::ProviderId;
+pub use provider::{ApiKeySpec, AuthScheme, KeyPlacement, OAuth2Spec, ProviderId, ProviderSpec};
 pub use secret::{SecretString, TokenSet};
