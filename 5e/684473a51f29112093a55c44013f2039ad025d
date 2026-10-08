@@ -1,0 +1,43 @@
+docs/vision.md
+  s_9a82f246a2078d::t_e159aff6b0d0fa 72,86,90,94,150-151
+  s_9a82f246a2078d::t_414fcd53434457 39-40
+  s_9a82f246a2078d::t_0389b8052a7bda 9,13,15-18,21-22,24,26,30-31,37,43,45-49,51,53-57,59-62,64,66-71,73-74,76-80,82,84,88-89,92,95-112,118-123,127-144,146,153-154
+  s_9a82f246a2078d::t_e33bc185a60c15 93
+docs/research/2026-10-08-integrations-library-landscape.md
+  s_9a82f246a2078d::t_53d78b7bf3b23a 3-4
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_9a82f246a2078d::t_e159aff6b0d0fa 42,450,452,481-482,591,602-603
+  s_9a82f246a2078d::t_8a8a9e5f29e422 6,8,14,16-18,26-28,30-32,36,39,43,45,47,49-55,57,59,61,63-77,81-85,87,89,96,102,104-108,117,129-131,142-143,145,147,159-161,163,168,176,200,220-222,226,267-268,271-272,280,282,310,312,317,319,323-324,326,328-343,347-352,354-365,369-380,394,404-409,421,425-428,431-433,435,437,439,441,443-444,446-449,451,453-480,483-491,499-501,506,508-509,517,519,522,526,530,532-535,538,540,542,546-550,554,556,560,567,569,571-573,575-587,592,601,604-609,615-621,623,632-634,637-674
+  s_9a82f246a2078d::t_2af1543aea2df5 78-80
+docs/roadmap.md
+  s_9a82f246a2078d::t_be3116a19c1ae4 1-34
+docs/superpowers/plans/2026-10-08-phase-1a-core-foundation.md
+  s_9a82f246a2078d::t_64f299e66556d6 1-1881
+docs/catalogue.md
+  s_9a82f246a2078d::t_b50ce07b792612 1-10,12-205
+  s_9a82f246a2078d::t_be3116a19c1ae4 11
+docs/research/2026-10-08-integration-library-validation-and-ffi.md
+  s_9a82f246a2078d::t_3be430abbeb155 1-146
+docs/research/notes/validation-and-ffi/existing_embeddable_libraries.md
+  s_9a82f246a2078d::t_49cc1a6a6c2b7f 1-344
+docs/research/notes/validation-and-ffi/rust_core_ffi_bindings.md
+  s_9a82f246a2078d::t_3f4fce0d9885a4 1-436
+docs/research/notes/validation-and-ffi/workflow_platform_connectors.md
+  s_9a82f246a2078d::t_167a8c91de366f 1-286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5e684473a51f29112093a55c44013f2039ad025d",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
