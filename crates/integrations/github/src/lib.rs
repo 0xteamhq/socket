@@ -3,4 +3,5 @@
 //! Skeleton only: the provider definition, `Identity` and `Resolve` arrive in
 //! plan 1D, typed operations in phase 2. See `docs/roadmap.md`.
 
-pub use socketkit_core as core;
+/// This provider's id, as used in connection keys and operation names.
+pub const PROVIDER_ID: &str = "github";

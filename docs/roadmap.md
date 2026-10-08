@@ -22,12 +22,19 @@ Phase 6 is new in this roadmap: the spec lists bindings under "later", and they 
 
 | Plan | Builds | Ends with | Status |
 | --- | --- | --- | --- |
-| 1A. Core foundation | Workspace, errors, secrets, providers, token store, operations, the `Socket` handle and `invoke` | An example that registers an integration and invokes an operation by name with JSON, with no network | [Written](./superpowers/plans/2026-10-08-phase-1a-core-foundation.md) |
+| 1A. Core foundation | Workspace, errors, secrets, providers, token store, operations, the `Socket` handle and `invoke` | An example that registers an integration and invokes an operation by name with JSON, with no network | [Done](./superpowers/plans/2026-10-08-phase-1a-core-foundation.md), on branch `phase-1a-core-foundation` |
 | 1B. Transport | One HTTP client, host allowlist, retry with `Retry-After`, response classification, cursor pagination, the generic request, `socketkit-testkit` wire server | A generic request against the wire server that attaches the token only to allowed hosts and maps throttling and refusal to the right errors | To write after 1A lands |
 | 1C. Authorisation | OAuth begin and complete with signed state and PKCE, token-response parsing hook, single-flight refresh, reconnect-required | A full connect and an expired-token refresh against the wire server, with two concurrent calls causing one refresh | To write after 1B lands |
 | 1D. Providers and facade | Six provider crates with `Identity` and `Resolve`, the conformance suite, the facade, CI with `cargo hack` and `cargo deny` | Phase 1's "done when" list in the spec | To write after 1C lands |
 
 Plans 1B to 1D are written one at a time, each after the one before it has landed, because each depends on the exact types the earlier one produced.
+
+## Carried forward from the review of 1A
+
+- Decide before 1D whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.
+- 1C: treat an empty access token as reconnect-required; make `TokenSet::is_expired` safe against overflow.
+- 1B: keep secrets out of `Error`'s `Debug` once HTTP errors are wrapped; a query-string API key would appear in a URL.
+- 1D: validate `allowed_hosts` entries and the characters allowed in operation names; enforce the dependency rules in CI.
 
 ## Open before 1C
 

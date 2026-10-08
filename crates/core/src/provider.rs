@@ -94,18 +94,25 @@ pub struct ApiKeySpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "in", rename_all = "snake_case", deny_unknown_fields)]
 pub enum KeyPlacement {
-    Header { name: String, prefix: Option<String> },
-    Query { name: String },
-    Basic,
+    Header {
+        name: String,
+        prefix: Option<String>,
+    },
+    Query {
+        name: String,
+    },
+    /// Written `Basic {}` so that stray fields beside it are rejected when read from data.
+    Basic {},
 }
 
 impl ProviderSpec {
     /// True when credentials for this provider may be sent to `url`.
     ///
-    /// The scheme must be `https` and the host must equal an allowed host,
-    /// compared without regard to case. A subdomain of an allowed host is not allowed.
+    /// The scheme must be `https`, the port must be 443, and the host must
+    /// equal an allowed host, compared without regard to case. A subdomain of
+    /// an allowed host is not allowed.
     pub fn allows_host(&self, url: &Url) -> bool {
-        if url.scheme() != "https" {
+        if url.scheme() != "https" || url.port_or_known_default() != Some(443) {
             return false;
         }
         let Some(host) = url.host_str() else {
@@ -129,8 +136,16 @@ impl ProviderSpec {
             ));
         }
         if let AuthScheme::OAuth2(oauth) = &self.auth {
-            if oauth.authorize_url.scheme() != "https" || oauth.token_url.scheme() != "https" {
-                return fail(format!("provider {} has an OAuth endpoint that is not https", self.id));
+            // The user's browser visits the authorize URL; no credential is sent there.
+            if oauth.authorize_url.scheme() != "https" {
+                return fail(format!("provider {} has an authorize_url that is not https", self.id));
+            }
+            // The token endpoint receives the client secret and refresh tokens.
+            if !self.allows_host(&oauth.token_url) {
+                return fail(format!(
+                    "provider {} has a token_url outside its allowed hosts",
+                    self.id
+                ));
             }
         }
         Ok(())
@@ -221,6 +236,10 @@ mod tests {
         assert!(allows("https://slack.com/api/chat.postMessage"));
         assert!(allows("https://SLACK.com/api/"), "host comparison ignores case");
         assert!(allows("https://slack.com:443/api/"));
+        assert!(
+            !allows("https://slack.com:8443/api/"),
+            "another port is another service"
+        );
         assert!(!allows("http://slack.com/api/"), "plain http is refused");
         assert!(!allows("https://slack.com.evil.test/api/"));
         assert!(!allows("https://evil-slack.com/"));
@@ -229,6 +248,54 @@ mod tests {
             !allows("https://slack.com@evil.test/"),
             "userinfo does not change the host"
         );
+    }
+
+    #[test]
+    fn an_allowed_host_entry_matches_without_regard_to_its_own_case() {
+        let mut spec = slack();
+        spec.allowed_hosts = vec!["Slack.COM".into()];
+        assert!(spec.allows_host(&Url::parse("https://slack.com/api/").unwrap()));
+    }
+
+    #[test]
+    fn unknown_fields_are_rejected_at_every_level_of_a_spec() {
+        let with = |extra_top: &str, placement: &str| {
+            format!(
+                r#"{{"id":"x","display_name":"X","api_base":"https://x.test/","allowed_hosts":["x.test"]{extra_top},"auth":{{"type":"api_key","placement":{placement}}}}}"#
+            )
+        };
+        let ok = with("", r#"{"in":"basic"}"#);
+        assert!(serde_json::from_str::<ProviderSpec>(&ok).is_ok());
+        for bad in [
+            with(r#","extra":1"#, r#"{"in":"basic"}"#),
+            with("", r#"{"in":"header","name":"A","prefx":"B "}"#),
+            with("", r#"{"in":"basic","name":"X-Api-Key"}"#),
+        ] {
+            assert!(serde_json::from_str::<ProviderSpec>(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_token_endpoint_must_be_an_allowed_host_and_both_oauth_endpoints_https() {
+        let with = |authorize: &str, token: &str| {
+            let mut spec = slack();
+            if let AuthScheme::OAuth2(oauth) = &mut spec.auth {
+                oauth.authorize_url = Url::parse(authorize).unwrap();
+                oauth.token_url = Url::parse(token).unwrap();
+            }
+            spec.validate()
+        };
+        let authorize = "https://slack.com/oauth/v2/authorize";
+        let token = "https://slack.com/api/oauth.v2.access";
+        with(authorize, token).unwrap();
+        with("https://login.elsewhere.test/authorize", token).unwrap();
+        for (a, t) in [
+            ("http://slack.com/oauth/v2/authorize", token),
+            (authorize, "https://evil.test/token"),
+            (authorize, "https://slack.com:8443/token"),
+        ] {
+            assert_eq!(with(a, t).unwrap_err().kind(), ErrorKind::Config, "{a} {t}");
+        }
     }
 
     #[test]

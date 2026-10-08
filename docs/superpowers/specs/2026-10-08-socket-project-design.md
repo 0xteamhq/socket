@@ -275,7 +275,7 @@ This lifecycle is the part of Socket with no library equivalent elsewhere: the l
 One HTTP path for every integration:
 
 - A single `reqwest::Client`, built once or supplied by the application. TLS through `rustls`.
-- **Host allowlist.** Credentials are attached only to requests whose host is in the provider's `allowed_hosts`. A bug or a malicious change in an integration crate cannot send a token elsewhere.
+- **Host allowlist.** Credentials are attached only to requests over https, on port 443, whose host is in the provider's `allowed_hosts`. The OAuth token endpoint must be one of those hosts too, because it receives the client secret and refresh tokens. A bug or a malicious change in an integration crate cannot send a token elsewhere.
 - **Retry** with backoff for retryable failures, honouring `Retry-After`. Non-idempotent requests are retried only when the provider's classifier says the request was not processed.
 - **Pagination** as one model: a call takes an optional cursor and returns a `Page<T>` with the next cursor. A stream adapter sits above that for Rust callers. Each integration maps its vendor's style (cursor, `Link` header, GraphQL `pageInfo`) onto it.
 - GraphQL is a first-class request shape, not an afterthought on a REST helper. Linear is GraphQL-only.

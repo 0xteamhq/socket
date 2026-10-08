@@ -12,6 +12,17 @@
 
 Every code block in this plan was compiled, tested, linted and formatted together before the plan was written (Rust 1.96, 28 tests passing). If a step fails as written, suspect a transcription slip before suspecting the design.
 
+## Status: executed
+
+All eight tasks were carried out on the branch `phase-1a-core-foundation`. A review of the finished branch then changed four things, so the code differs from the blocks below in these places:
+
+- `ProviderSpec::allows_host` also requires port 443.
+- `ProviderSpec::validate` requires the OAuth token endpoint to be an allowed host; the authorize endpoint only has to be https.
+- `KeyPlacement::Basic` is written `KeyPlacement::Basic {}`, so a stray field beside it is rejected when read from data.
+- `TokenSet::expires_at` is stored as whole seconds since the Unix epoch.
+
+The code and its tests are the reference from here on.
+
 ## Global Constraints
 
 - Edition 2024, `rust-version = "1.85"`.

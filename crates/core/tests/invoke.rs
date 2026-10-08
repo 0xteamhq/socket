@@ -36,7 +36,7 @@ impl Integration for Echo {
             api_base: format!("https://api.{}.test/", self.id).parse().unwrap(),
             allowed_hosts: vec![format!("api.{}.test", self.id)],
             auth: AuthScheme::ApiKey(ApiKeySpec {
-                placement: KeyPlacement::Basic,
+                placement: KeyPlacement::Basic {},
             }),
         }
     }

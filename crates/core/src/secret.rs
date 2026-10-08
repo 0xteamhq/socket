@@ -34,6 +34,8 @@ pub struct TokenSet {
     pub access_token: SecretString,
     pub refresh_token: Option<SecretString>,
     /// `None` means the provider gave no expiry; the token is used until rejected.
+    /// Stored as whole seconds since the Unix epoch.
+    #[serde(with = "epoch_secs")]
     pub expires_at: Option<SystemTime>,
     pub scopes: Vec<String>,
 }
@@ -55,6 +57,30 @@ impl TokenSet {
             None => false,
             Some(expires_at) => expires_at <= now + skew,
         }
+    }
+}
+
+/// `Option<SystemTime>` as an optional integer of seconds since the Unix epoch.
+mod epoch_secs {
+    use std::time::{Duration, SystemTime};
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &Option<SystemTime>, serializer: S) -> Result<S::Ok, S::Error> {
+        let secs = match value {
+            None => None,
+            Some(time) => Some(
+                time.duration_since(SystemTime::UNIX_EPOCH)
+                    .map_err(|_| serde::ser::Error::custom("expires_at is before the Unix epoch"))?
+                    .as_secs(),
+            ),
+        };
+        secs.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<SystemTime>, D::Error> {
+        let secs = Option::<u64>::deserialize(deserializer)?;
+        Ok(secs.map(|secs| SystemTime::UNIX_EPOCH + Duration::from_secs(secs)))
     }
 }
 
@@ -85,6 +111,10 @@ mod tests {
             scopes: vec!["repo".into()],
         };
         let json = serde_json::to_string(&tokens).unwrap();
+        assert!(
+            json.contains(r#""expires_at":1800000000"#),
+            "expiry is stored as epoch seconds: {json}"
+        );
         let back: TokenSet = serde_json::from_str(&json).unwrap();
         assert_eq!(back, tokens);
         assert_eq!(back.access_token.expose(), "a");

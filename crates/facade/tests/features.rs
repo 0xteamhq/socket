@@ -9,6 +9,6 @@ fn the_core_is_always_re_exported() {
 #[cfg(feature = "slack")]
 #[test]
 fn the_slack_feature_exposes_the_slack_crate() {
-    let id = socketkit::slack::core::ProviderId::new("slack").unwrap();
+    let id = socketkit::ProviderId::new(socketkit::slack::PROVIDER_ID).unwrap();
     assert_eq!(id.as_str(), "slack");
 }
