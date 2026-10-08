@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
@@ -208,11 +209,23 @@ impl Transport {
         let method = reqwest::Method::from_bytes(request.method.to_ascii_uppercase().as_bytes())
             .map_err(|_| invalid(format!("{:?} is not an HTTP method", request.method)))?;
         let idempotent = matches!(method.as_str(), "GET" | "HEAD" | "PUT" | "DELETE" | "OPTIONS");
+        if let AuthScheme::ApiKey(ApiKeySpec {
+            placement: KeyPlacement::Query { name },
+        }) = &spec.auth
+        {
+            // A second value under the key's own name could be read in place of the real one.
+            if url.query_pairs().any(|(given, _)| given == name.as_str()) {
+                return Err(invalid(format!(
+                    "the query parameter {name:?} carries the credentials and cannot be set"
+                )));
+            }
+        }
+        let headers = caller_headers(spec, &request.headers)?;
 
         let mut attempt = 1;
         loop {
             let outcome = self
-                .send_once(spec, tokens, classifier, &method, url.clone(), &request)
+                .send_once(spec, tokens, classifier, &method, url.clone(), &headers, &request)
                 .await;
             let error = match outcome {
                 Ok(response) => return Ok(response),
@@ -241,6 +254,7 @@ impl Transport {
         self.retry.base_delay.saturating_mul(factor).min(self.retry.max_delay)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn send_once(
         &self,
         spec: &ProviderSpec,
@@ -248,6 +262,7 @@ impl Transport {
         classifier: &dyn Classifier,
         method: &reqwest::Method,
         mut url: Url,
+        caller: &HeaderMap,
         request: &RawRequest,
     ) -> Result<RawResponse> {
         let secret = tokens.access_token.expose();
@@ -257,15 +272,17 @@ impl Transport {
         {
             url.query_pairs_mut().append_pair(name, secret);
         }
-        let mut builder = self
-            .client
-            .request(method.clone(), url)
-            .header("user-agent", USER_AGENT);
-        builder = builder.header("accept", "application/json");
-        for (name, value) in &request.headers {
-            builder = builder.header(name.as_str(), value.as_str());
+        // One map, filled in order: defaults, then the caller's headers, which
+        // replace a default of the same name. `caller_headers` has already
+        // refused any name that carries credentials, so the credentials added
+        // by the builder below are the only ones on the request.
+        let mut headers = HeaderMap::new();
+        headers.insert(reqwest::header::USER_AGENT, HeaderValue::from_static(USER_AGENT));
+        headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("application/json"));
+        for (name, value) in caller {
+            headers.insert(name.clone(), value.clone());
         }
-        // Credentials go on last, so a caller-supplied header cannot replace them.
+        let mut builder = self.client.request(method.clone(), url).headers(headers);
         builder = match &spec.auth {
             AuthScheme::OAuth2(_) => builder.bearer_auth(secret),
             AuthScheme::ApiKey(ApiKeySpec { placement }) => match placement {
@@ -319,6 +336,47 @@ impl Transport {
         }
         read(spec, builder).await
     }
+}
+
+/// Headers a caller may never set: they carry credentials, choose where the
+/// request is routed, or frame the body.
+const RESERVED_HEADERS: [&str; 8] = [
+    "authorization",
+    "proxy-authorization",
+    "cookie",
+    "host",
+    "content-length",
+    "transfer-encoding",
+    "connection",
+    "upgrade",
+];
+
+/// Checks and parses the headers a caller asked for.
+fn caller_headers(spec: &ProviderSpec, requested: &[(String, String)]) -> Result<HeaderMap> {
+    let invalid = |message: String| Error::new(ErrorKind::InvalidInput, message).with_provider(spec.id.clone());
+    let key_header = match &spec.auth {
+        AuthScheme::ApiKey(ApiKeySpec {
+            placement: KeyPlacement::Header { name, .. },
+        }) => Some(name.as_str()),
+        _ => None,
+    };
+    let mut headers = HeaderMap::new();
+    for (name, value) in requested {
+        let reserved = RESERVED_HEADERS.iter().any(|r| name.eq_ignore_ascii_case(r))
+            || key_header.is_some_and(|key| name.eq_ignore_ascii_case(key));
+        if reserved {
+            return Err(invalid(format!(
+                "the header {name:?} is set by Socket and cannot be supplied"
+            )));
+        }
+        let parsed_name =
+            HeaderName::from_bytes(name.as_bytes()).map_err(|_| invalid(format!("{name:?} is not a header name")))?;
+        // A value with a line break would start a new header.
+        let parsed_value = HeaderValue::from_str(value)
+            .map_err(|_| invalid(format!("the value of the header {name:?} is not valid")))?;
+        headers.insert(parsed_name, parsed_value);
+    }
+    Ok(headers)
 }
 
 fn refused(spec: &ProviderSpec, url: &Url) -> Error {

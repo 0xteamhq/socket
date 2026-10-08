@@ -1082,49 +1082,77 @@ dependencies = [
 name = "socketkit-github"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
+ "serde_json",
  "socketkit-core",
+ "socketkit-testkit",
+ "tokio",
 ]
 
 [[package]]
 name = "socketkit-google"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
+ "serde_json",
  "socketkit-core",
+ "socketkit-testkit",
+ "tokio",
 ]
 
 [[package]]
 name = "socketkit-linear"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
+ "serde_json",
  "socketkit-core",
+ "socketkit-testkit",
+ "tokio",
 ]
 
 [[package]]
 name = "socketkit-notion"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
+ "serde_json",
  "socketkit-core",
+ "socketkit-testkit",
+ "tokio",
 ]
 
 [[package]]
 name = "socketkit-slack"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
+ "serde_json",
  "socketkit-core",
+ "socketkit-testkit",
+ "tokio",
 ]
 
 [[package]]
 name = "socketkit-testkit"
 version = "0.0.0"
 dependencies = [
+ "serde_json",
  "socketkit-core",
+ "tokio",
+ "url",
+ "wiremock",
 ]
 
 [[package]]
 name = "socketkit-zoom"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
+ "serde_json",
  "socketkit-core",
+ "socketkit-testkit",
+ "tokio",
 ]
 
 [[package]]

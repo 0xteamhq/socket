@@ -219,7 +219,45 @@ async fn credentials_are_never_sent_to_a_host_outside_the_allowlist() {
 }
 
 #[tokio::test]
-async fn a_caller_supplied_authorization_header_cannot_replace_the_credentials() {
+async fn a_caller_cannot_set_the_headers_that_carry_credentials_or_choose_the_host() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/x"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let (oauth, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("real")).await;
+    let placement = KeyPlacement::Header {
+        name: "X-Api-Key".into(),
+        prefix: None,
+    };
+    let (keyed, _) = connected(key_spec(&server, placement), TokenSet::bearer("real")).await;
+
+    let refused = [
+        (&oauth, "Authorization", "Bearer forged"),
+        (&oauth, "authorization", "Bearer forged"),
+        (&oauth, "Host", "evil.test"),
+        (&oauth, "Proxy-Authorization", "Basic eA=="),
+        (&oauth, "Content-Length", "0"),
+        (&oauth, "Transfer-Encoding", "chunked"),
+        (&keyed, "x-api-key", "forged"),
+        (&oauth, "Bad Name", "v"),
+        (&oauth, "X-Ok", "line\r\nbreak"),
+    ];
+    for (socket, name, value) in refused {
+        let err = socket
+            .request(key(), RawRequest::get("x").with_header(name, value))
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{name}");
+    }
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "a refused request is never sent"
+    );
+}
+
+#[tokio::test]
+async fn a_caller_header_replaces_a_default_and_exactly_one_credential_is_sent() {
     let server = MockServer::start().await;
     Mock::given(path("/api/x"))
         .respond_with(ResponseTemplate::new(200))
@@ -229,18 +267,115 @@ async fn a_caller_supplied_authorization_header_cannot_replace_the_credentials()
     socket
         .request(
             key(),
-            RawRequest::get("x").with_header("Authorization", "Bearer forged"),
+            RawRequest::get("x").with_header("Accept", "application/vnd.acme+json"),
         )
         .await
         .unwrap();
     let received = server.received_requests().await.unwrap();
-    let sent: Vec<_> = received[0]
-        .headers
-        .get_all("authorization")
-        .iter()
-        .map(|v| v.to_str().unwrap())
-        .collect();
-    assert!(sent.contains(&"Bearer real"), "{sent:?}");
+    let all = |name: &str| -> Vec<String> {
+        received[0]
+            .headers
+            .get_all(name)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(all("accept"), ["application/vnd.acme+json"]);
+    assert_eq!(all("authorization"), ["Bearer real"]);
+}
+
+#[tokio::test]
+async fn a_caller_cannot_add_a_second_api_key_to_the_query() {
+    let server = MockServer::start().await;
+    let spec = key_spec(&server, KeyPlacement::Query { name: "api_key".into() });
+    let (socket, _) = connected(spec, TokenSet::bearer("real")).await;
+    let err = socket
+        .request(key(), RawRequest::get("x").with_query("api_key", "forged"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    let in_path = socket
+        .request(key(), RawRequest::get("x?api_key=forged"))
+        .await
+        .unwrap_err();
+    assert_eq!(in_path.kind(), ErrorKind::InvalidInput);
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_redirect_is_not_followed_so_credentials_never_leave_the_allowed_host() {
+    let server = MockServer::start().await;
+    let elsewhere = MockServer::start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&elsewhere)
+        .await;
+    for status in [301, 302, 307, 308] {
+        Mock::given(path(format!("/api/moved-{status}")))
+            .respond_with(ResponseTemplate::new(status).insert_header("location", format!("{}/steal", elsewhere.uri())))
+            .mount(&server)
+            .await;
+    }
+    // A custom header and a query key are the credentials an HTTP client does not strip on a redirect.
+    let placements = [
+        KeyPlacement::Header {
+            name: "X-Api-Key".into(),
+            prefix: None,
+        },
+        KeyPlacement::Query { name: "api_key".into() },
+    ];
+    for placement in placements {
+        let (socket, _) = connected(key_spec(&server, placement), TokenSet::bearer("k-1")).await;
+        for status in [301, 302, 307, 308] {
+            let err = socket
+                .request(key(), RawRequest::get(format!("moved-{status}")))
+                .await
+                .unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Unexpected, "HTTP {status}");
+        }
+    }
+    assert!(
+        elsewhere.received_requests().await.unwrap().is_empty(),
+        "nothing may follow the redirect"
+    );
+}
+
+#[tokio::test]
+async fn an_application_supplied_http_client_still_does_not_follow_redirects() {
+    let server = MockServer::start().await;
+    let elsewhere = MockServer::start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&elsewhere)
+        .await;
+    Mock::given(path("/api/moved"))
+        .respond_with(ResponseTemplate::new(302).insert_header("location", format!("{}/steal", elsewhere.uri())))
+        .mount(&server)
+        .await;
+    let store = Arc::new(MemoryTokenStore::new());
+    store.save(key(), TokenSet::bearer("k-1")).await.unwrap();
+    let spec = key_spec(
+        &server,
+        KeyPlacement::Header {
+            name: "X-Api-Key".into(),
+            prefix: None,
+        },
+    );
+    let lenient = reqwest::Client::builder().redirect(reqwest::redirect::Policy::limited(5));
+    let socket = Socket::builder(store)
+        .provider(spec)
+        .http_client(lenient)
+        .build()
+        .unwrap();
+    assert_eq!(
+        socket
+            .request(key(), RawRequest::get("moved"))
+            .await
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Unexpected
+    );
+    assert!(elsewhere.received_requests().await.unwrap().is_empty());
 }
 
 #[tokio::test]

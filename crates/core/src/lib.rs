@@ -15,7 +15,10 @@ mod store;
 pub use auth::{Authorization, OAuthClient, PendingAuthorization, standard_token_response};
 pub use error::{Error, ErrorKind, Result, Retry, WireError};
 pub use http::{Classifier, Page, RawRequest, RawResponse, RetryPolicy, StandardClassifier, provider_message};
-pub use operation::{Account, Connection, Effect, Integration, OperationInfo, Resource};
+pub use operation::{
+    Account, Connection, Effect, Integration, OperationInfo, Resource, identity_operation, resolve_input,
+    resolve_operation, to_output,
+};
 pub use provider::{ApiKeySpec, AuthScheme, ClientAuth, KeyPlacement, OAuth2Spec, ProviderId, ProviderSpec};
 pub use secret::{SecretString, TokenSet};
 pub use socket::{Socket, SocketBuilder};

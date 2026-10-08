@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::auth::standard_token_response;
-use crate::error::Result;
+use crate::error::{Error, ErrorKind, Result};
 use crate::http::{Classifier, RawRequest, RawResponse, StandardClassifier, Transport};
-use crate::provider::ProviderSpec;
+use crate::provider::{ProviderId, ProviderSpec};
 use crate::secret::TokenSet;
 use crate::store::ConnectionKey;
 
@@ -55,6 +55,77 @@ pub struct Resource {
     /// What to show a person.
     pub label: String,
     pub description: String,
+}
+
+impl Resource {
+    pub fn new(id: impl Into<String>, label: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            description: description.into(),
+        }
+    }
+}
+
+/// The description of `<provider>.identity.get`, which every integration offers.
+pub fn identity_operation(provider: &ProviderId) -> OperationInfo {
+    OperationInfo {
+        name: format!("{provider}.identity.get"),
+        description: "Return the account this connection is authorised as, confirming the token still works.".into(),
+        input_schema: serde_json::json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        output_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "email": { "type": ["string", "null"] }
+            },
+            "required": ["id", "name"]
+        }),
+        effect: Effect::Read,
+        required_scopes: Vec::new(),
+    }
+}
+
+/// The description of `<provider>.resource.resolve`. `accepts` says what a person may type.
+pub fn resolve_operation(provider: &ProviderId, accepts: &str) -> OperationInfo {
+    OperationInfo {
+        name: format!("{provider}.resource.resolve"),
+        description: format!("Confirm that a resource exists and the account can reach it. Accepts {accepts}."),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": { "input": { "type": "string", "description": accepts } },
+            "required": ["input"],
+            "additionalProperties": false
+        }),
+        output_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" },
+                "label": { "type": "string" },
+                "description": { "type": "string" }
+            },
+            "required": ["id", "label", "description"]
+        }),
+        effect: Effect::Read,
+        required_scopes: Vec::new(),
+    }
+}
+
+/// Reads the `input` string of a `resource.resolve` call.
+pub fn resolve_input(provider: &ProviderId, input: &Value) -> Result<String> {
+    input["input"].as_str().map(str::to_owned).ok_or_else(|| {
+        Error::new(ErrorKind::InvalidInput, "`input` is required and must be a string").with_provider(provider.clone())
+    })
+}
+
+/// Turns a typed result into the JSON an operation returns.
+pub fn to_output<T: Serialize>(provider: &ProviderId, value: &T) -> Result<Value> {
+    serde_json::to_value(value).map_err(|e| {
+        Error::new(ErrorKind::Unexpected, "could not encode the result")
+            .with_provider(provider.clone())
+            .with_source(e)
+    })
 }
 
 /// One stored authorization, loaded and ready to use.

@@ -396,7 +396,7 @@ pub struct SocketBuilder {
     providers: Vec<ProviderSpec>,
     oauth_clients: Vec<(ProviderId, OAuthClient)>,
     state_secret: Option<Vec<u8>>,
-    http_client: Option<reqwest::Client>,
+    http_client: Option<reqwest::ClientBuilder>,
     retry: RetryPolicy,
 }
 
@@ -436,8 +436,12 @@ impl SocketBuilder {
         self
     }
 
-    /// Uses the application's own HTTP client, with its proxies and timeouts.
-    pub fn http_client(mut self, client: reqwest::Client) -> Self {
+    /// Uses the application's own HTTP client settings: proxies, timeouts, certificates.
+    ///
+    /// Socket takes a builder, not a finished client, because it always turns
+    /// redirect-following off: a redirect would carry an API key in a header
+    /// or query string to a host outside the provider's allowed hosts.
+    pub fn http_client(mut self, client: reqwest::ClientBuilder) -> Self {
         self.http_client = Some(client);
         self
     }
@@ -523,12 +527,14 @@ impl SocketBuilder {
                 ));
             }
         }
-        let client = match self.http_client {
-            Some(client) => client,
-            None => reqwest::Client::builder().build().map_err(|e| {
+        let client = self
+            .http_client
+            .unwrap_or_else(reqwest::Client::builder)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| {
                 Error::new(ErrorKind::Config, "could not build the HTTP client").with_source(e.without_url())
-            })?,
-        };
+            })?;
         if self.retry.max_attempts == 0 {
             return Err(Error::new(
                 ErrorKind::Config,
