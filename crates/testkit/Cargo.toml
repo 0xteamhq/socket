@@ -1,0 +1,15 @@
+[package]
+name = "socketkit-testkit"
+description = "Test support for Socket integrations: a wire-test server and the conformance suite."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+socketkit-core.workspace = true
+
+[lints]
+workspace = true

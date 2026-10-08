@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core"]
+members = ["crates/core", "crates/facade", "crates/integrations/*", "crates/testkit"]
 
 [workspace.package]
 version = "0.0.0"
@@ -10,6 +10,13 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/0xteamhq/socket"
 
 [workspace.dependencies]
+socketkit-core = { path = "crates/core", version = "0.0.0" }
+socketkit-github = { path = "crates/integrations/github", version = "0.0.0" }
+socketkit-slack = { path = "crates/integrations/slack", version = "0.0.0" }
+socketkit-linear = { path = "crates/integrations/linear", version = "0.0.0" }
+socketkit-notion = { path = "crates/integrations/notion", version = "0.0.0" }
+socketkit-google = { path = "crates/integrations/google", version = "0.0.0" }
+socketkit-zoom = { path = "crates/integrations/zoom", version = "0.0.0" }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

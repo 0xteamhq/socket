@@ -1,0 +1,30 @@
+[package]
+name = "socketkit"
+description = "Socket: connection, authorisation and operation layers for external services."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = []
+github = ["dep:socketkit-github"]
+slack = ["dep:socketkit-slack"]
+linear = ["dep:socketkit-linear"]
+notion = ["dep:socketkit-notion"]
+google = ["dep:socketkit-google"]
+zoom = ["dep:socketkit-zoom"]
+
+[dependencies]
+socketkit-core.workspace = true
+socketkit-github = { workspace = true, optional = true }
+socketkit-slack = { workspace = true, optional = true }
+socketkit-linear = { workspace = true, optional = true }
+socketkit-notion = { workspace = true, optional = true }
+socketkit-google = { workspace = true, optional = true }
+socketkit-zoom = { workspace = true, optional = true }
+
+[lints]
+workspace = true

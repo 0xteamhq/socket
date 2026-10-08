@@ -1,0 +1,19 @@
+[package]
+name = "socketkit-github"
+description = "Socket integration for GitHub."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[package.metadata.socketkit]
+tier = "unreleased"
+owner = "Vasanth"
+
+[dependencies]
+socketkit-core.workspace = true
+
+[lints]
+workspace = true
