@@ -1,0 +1,57 @@
+crates/integrations/linear/src/lib.rs
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-6
+crates/integrations/zoom/src/lib.rs
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-6
+crates/facade/tests/features.rs
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-14
+crates/testkit/Cargo.toml
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-15
+crates/integrations/linear/Cargo.toml
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-19
+crates/testkit/src/lib.rs
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-6
+crates/integrations/zoom/Cargo.toml
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-19
+crates/integrations/notion/src/lib.rs
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-6
+crates/integrations/notion/Cargo.toml
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-19
+crates/integrations/google/src/lib.rs
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-6
+crates/integrations/google/Cargo.toml
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-19
+Cargo.toml
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 3,13-19
+crates/integrations/github/src/lib.rs
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-6
+crates/integrations/slack/Cargo.toml
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-19
+crates/integrations/slack/src/lib.rs
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-6
+crates/facade/Cargo.toml
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-30
+crates/facade/src/lib.rs
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-19
+crates/integrations/github/Cargo.toml
+  s_9a82f246a2078d::t_6a2b4a0cc0c71e 1-19
+.github/workflows/ci.yml
+  s_9a82f246a2078d::t_713a35b56811ca 18
+Cargo.lock
+  s_9a82f246a2078d::t_24690228c89240 244-256,268-316
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "61f27e3f5e9b35664a696c29e4a82edd650f2b51",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
