@@ -24,4 +24,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.85
-      - run: cargo check --workspace --all-targets
+      # Library crates only: the test kit's mock server needs a newer Rust than the libraries do.
+      - run: cargo check --workspace --exclude socketkit-testkit --all-features
