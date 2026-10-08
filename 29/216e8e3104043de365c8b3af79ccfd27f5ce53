@@ -1,0 +1,23 @@
+.github/workflows/ci.yml
+  s_9a82f246a2078d::t_ae173bc16026f7 1-25
+README.md
+  s_9a82f246a2078d::t_e924e236f4e9e3 1-25
+crates/core/examples/invoke_by_name.rs
+  s_9a82f246a2078d::t_5aea2a56cb7676 1-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "29216e8e3104043de365c8b3af79ccfd27f5ce53",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
