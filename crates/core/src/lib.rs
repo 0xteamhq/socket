@@ -4,6 +4,8 @@
 
 mod error;
 mod provider;
+mod secret;
 
 pub use error::{Error, ErrorKind, Result, Retry, WireError};
 pub use provider::ProviderId;
+pub use secret::{SecretString, TokenSet};
