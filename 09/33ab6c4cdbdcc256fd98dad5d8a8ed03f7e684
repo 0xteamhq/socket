@@ -1,0 +1,68 @@
+crates/integrations/notion/tests/wire.rs
+  s_9a82f246a2078d::t_b5741a65b79cf3 32
+crates/integrations/slack/src/lib.rs
+  s_9a82f246a2078d::t_9181b7d9417080 167-168,198-200
+crates/integrations/linear/src/lib.rs
+  s_9a82f246a2078d::t_9181b7d9417080 152-153,179-188
+crates/integrations/notion/src/lib.rs
+  s_9a82f246a2078d::t_9181b7d9417080 156-170
+crates/integrations/google/tests/wire.rs
+  s_9a82f246a2078d::t_b5741a65b79cf3 32
+  s_9a82f246a2078d::t_cbb0cb348183c0 129-156
+crates/core/src/error.rs
+  s_9a82f246a2078d::t_33783beeb58a7e 90-95
+crates/integrations/github/src/lib.rs
+  s_9a82f246a2078d::t_9181b7d9417080 73,80-84,110-119
+crates/core/src/provider.rs
+  s_9a82f246a2078d::t_4e7ef44ca24267 137-138
+crates/integrations/github/tests/wire.rs
+  s_9a82f246a2078d::t_cbb0cb348183c0 163-193
+  s_9a82f246a2078d::t_b5741a65b79cf3 24
+crates/core/src/socket.rs
+  s_9a82f246a2078d::t_481c779db2eb8d 13,41-49,215,221-230,286,289-292,300-350,359-369,378-387,400,402-403,405,419-463,523-525,615-617,620-624
+crates/core/tests/wire.rs
+  s_9a82f246a2078d::t_0a79d1f44fdb8e 1063-1105,1115-1116,1121-1134,1145-1149,1166-1176,1181-1193,1197-1199,1204-1219,1225-1229,1234-1236,1247-1256,1261-1270,1279-1291,1303-1304,1309-1315,1322-1327,1332-1334,1340-1351,1356-1362,1367-1376,1380-1388,1393-1395
+  s_9a82f246a2078d::t_4e7ef44ca24267 1106-1114,1117-1120,1135-1144,1150-1165,1177-1180,1194-1196,1200-1203,1220-1224,1230-1233,1237-1246,1257-1260,1271-1278,1292-1302,1305-1308,1316-1321,1328-1331,1335-1339,1352-1355,1363-1366,1377-1379,1389-1392
+crates/integrations/slack/tests/wire.rs
+  s_9a82f246a2078d::t_b5741a65b79cf3 34
+  s_9a82f246a2078d::t_cbb0cb348183c0 183-206
+crates/integrations/linear/tests/wire.rs
+  s_9a82f246a2078d::t_b5741a65b79cf3 39
+  s_9a82f246a2078d::t_cbb0cb348183c0 124-140
+crates/core/src/http.rs
+  s_9a82f246a2078d::t_4e7ef44ca24267 178-195,305-317,329-330,333-336,406-409,472,479-482,484-495
+crates/integrations/google/src/lib.rs
+  s_9a82f246a2078d::t_9181b7d9417080 27-33,151
+crates/testkit/src/lib.rs
+  s_9a82f246a2078d::t_b5741a65b79cf3 84-86,94,201-229
+  s_9a82f246a2078d::t_7aa49f5ed8c5a4 230
+crates/integrations/zoom/src/lib.rs
+  s_9a82f246a2078d::t_9181b7d9417080 125-130
+crates/integrations/zoom/tests/wire.rs
+  s_9a82f246a2078d::t_b5741a65b79cf3 30
+crates/core/src/auth.rs
+  s_9a82f246a2078d::t_4e7ef44ca24267 35-44,245,286-303
+  s_9a82f246a2078d::t_d19f0b909086b0 304-305
+README.md
+  s_9a82f246a2078d::t_cf12bcf1b5aa1e 5,11-19,23,27-51,57-58
+docs/roadmap.md
+  s_9a82f246a2078d::t_c69ebe482769ab 12,26-28,30,32,34-36,38,40-50
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_9a82f246a2078d::t_e8d6eb193e751e 268-270,279-282,380
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0933ab6c4cdbdcc256fd98dad5d8a8ed03f7e684",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
