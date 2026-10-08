@@ -1,0 +1,23 @@
+crates/core/src/error.rs
+  s_9a82f246a2078d::t_6b16f691829b22 1-219
+crates/core/src/lib.rs
+  s_9a82f246a2078d::t_461cb62cf65e5c 4-9
+crates/core/src/provider.rs
+  s_9a82f246a2078d::t_9348144eefea07 1-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e01da1d70f87f3d4f0bdbf7e1d32f4d6dbb4b117",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
