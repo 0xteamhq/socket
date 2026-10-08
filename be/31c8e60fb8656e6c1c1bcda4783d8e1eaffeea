@@ -1,0 +1,27 @@
+docs/research/2026-10-08-integrations-library-landscape.md
+  s_e2f3f2c09fd347::t_9226bd2cc18264 1-81
+docs/research/notes/cargo_packaging_design.md
+  s_e2f3f2c09fd347::t_b6b9a9416ec3e8 1-300
+docs/research/notes/mcp_and_codegen.md
+  s_e2f3f2c09fd347::t_c291908fcae919 1-331
+docs/research/notes/non_rust_landscape.md
+  s_e2f3f2c09fd347::t_e92aacd2614d16 1-277
+docs/research/notes/rust_ecosystem.md
+  s_e2f3f2c09fd347::t_bc87dab88c7b5f 1-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "be31c8e60fb8656e6c1c1bcda4783d8e1eaffeea",
+  "prompts": {},
+  "sessions": {
+    "s_e2f3f2c09fd347": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6e432578-c18f-4160-8515-e3a9bd077ea0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
