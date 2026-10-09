@@ -75,3 +75,93 @@ fn connection_details_are_given_to_each_integration() {
         socketkit::ErrorKind::Config
     );
 }
+
+#[cfg(all(
+    feature = "github",
+    feature = "google",
+    feature = "linear",
+    feature = "notion",
+    feature = "slack",
+    feature = "zoom"
+))]
+mod every_integration {
+    use std::sync::Arc;
+
+    use socketkit::{ConnectionKey, ErrorKind, Integration, OAuthClient, ProviderId, SecretString, Socket};
+
+    fn client(id: &str) -> OAuthClient {
+        OAuthClient {
+            client_id: format!("{id}-client-id"),
+            client_secret: SecretString::new(format!("{id}-client-secret")),
+            redirect_uri: "https://app.example.test/oauth/callback".parse().unwrap(),
+        }
+    }
+
+    #[test]
+    fn takes_an_oauth_app_and_can_start_connecting_a_user() {
+        let integrations: Vec<Arc<dyn Integration>> = vec![
+            Arc::new(socketkit::github::GitHub::with_oauth(client("github"))),
+            Arc::new(socketkit::google::Google::with_oauth(client("google"))),
+            Arc::new(socketkit::linear::Linear::with_oauth(client("linear"))),
+            Arc::new(socketkit::notion::Notion::with_oauth(client("notion"))),
+            Arc::new(socketkit::slack::Slack::with_oauth(client("slack"))),
+            Arc::new(socketkit::zoom::Zoom::with_oauth(client("zoom"))),
+        ];
+        let mut builder = Socket::in_memory();
+        for integration in &integrations {
+            builder = builder.integration(integration.clone());
+        }
+        let socket = builder.build().unwrap();
+        for integration in &integrations {
+            let id = integration.provider().id;
+            let key = ConnectionKey::new(id.clone(), "user-1");
+            let url = socket.begin_authorization(key, None).unwrap().url;
+            let has_own_client = url
+                .query_pairs()
+                .any(|(n, v)| n == "client_id" && v == format!("{id}-client-id"));
+            assert!(has_own_client, "{id}: {url}");
+            assert!(
+                !url.as_str().contains("client-secret"),
+                "{id}: the secret never goes in the URL"
+            );
+        }
+    }
+
+    #[test]
+    fn takes_a_token_and_reports_it_as_the_one_to_use() {
+        let integrations: Vec<Arc<dyn Integration>> = vec![
+            Arc::new(socketkit::github::GitHub::with_token("t-github")),
+            Arc::new(socketkit::google::Google::with_token("t-google")),
+            Arc::new(socketkit::linear::Linear::with_token("t-linear")),
+            Arc::new(socketkit::notion::Notion::with_token("t-notion")),
+            Arc::new(socketkit::slack::Slack::with_token("t-slack")),
+            Arc::new(socketkit::zoom::Zoom::with_token("t-zoom")),
+        ];
+        let mut builder = Socket::in_memory();
+        for integration in &integrations {
+            let id = integration.provider().id;
+            let token = integration
+                .fixed_token()
+                .unwrap_or_else(|| panic!("{id} kept its token"));
+            assert_eq!(token.access_token.expose(), format!("t-{id}"));
+            assert!(integration.oauth_client().is_none(), "{id}");
+            builder = builder.integration(integration.clone());
+        }
+        let socket = builder.build().unwrap();
+        // A token is not an OAuth app: there is no flow to start.
+        let key = ConnectionKey::new(ProviderId::new("zoom").unwrap(), "user-1");
+        assert_eq!(
+            socket.begin_authorization(key, None).unwrap_err().kind(),
+            ErrorKind::Config
+        );
+    }
+
+    #[test]
+    fn refuses_a_blank_token() {
+        let blank: Arc<dyn Integration> = Arc::new(socketkit::linear::Linear::with_token("  "));
+        assert_eq!(
+            Socket::in_memory().integration(blank).build().unwrap_err().kind(),
+            ErrorKind::Config
+        );
+    }
+}
