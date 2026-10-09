@@ -1,0 +1,89 @@
+README.md
+  s_3ca04f6c1d450b::t_c62aa84fee99f6 44-48
+  s_3ca04f6c1d450b::t_1e4c97a0a8329b 19
+  s_3ca04f6c1d450b::t_92a2081bdcb5b1 23
+  s_3ca04f6c1d450b::t_6a79e4a34ff119 7
+  s_9a82f246a2078d::t_1b5d6c8b7291c2 99,101,130
+Cargo.lock
+  s_3ca04f6c1d450b::t_ef712dcc9157cf 1148,1168
+Cargo.toml
+  s_3ca04f6c1d450b::t_b4d1807924e9ab 25
+crates/core/Cargo.toml
+  s_3ca04f6c1d450b::t_c9292984616748 15
+crates/core/src/auth.rs
+  s_3ca04f6c1d450b::t_2e0dadd39e6aea 202-212,395-404
+crates/core/src/http.rs
+  s_3ca04f6c1d450b::t_62d91544207e3a 133,165-183,262,268-283,319,321,366-368,373,418-463,569-577,673-687
+crates/core/src/oauth.rs
+  s_3ca04f6c1d450b::t_f0fd4ed2b28ce5 9,17,32,38-47,186-187,208-209,241-242,244-252,254,260,262-275,281-331
+crates/core/src/operation.rs
+  s_3ca04f6c1d450b::t_abf0a13b969c09 2-3,32-35,142-150,159,169,177,187-198,200-214,216
+crates/core/src/provider.rs
+  s_3ca04f6c1d450b::t_143caf2f683bd0 179-200,410-449
+crates/core/src/socket.rs
+  s_3ca04f6c1d450b::t_e7e30cab3f71ec 3-4,14,53-78,84-89,100-101,106,110,136,141-243,252,275,286,289,296,304,354,392-395,397-403,464-469,471-472,490-491,510-514,549-571,659-661,743-745,747-751,801-811
+crates/core/src/store.rs
+  s_3ca04f6c1d450b::t_91842bcec5ec5b 31-35
+crates/core/tests/wire.rs
+  s_3ca04f6c1d450b::t_c7489438826b34 1780-2332
+crates/facade/examples/slack.rs
+  s_3ca04f6c1d450b::t_c1c1c32dccb38d 18-20,167-172,193-196
+crates/integrations/github/Cargo.toml
+  s_3ca04f6c1d450b::t_59a280518acb71 19
+crates/integrations/github/src/lib.rs
+  s_3ca04f6c1d450b::t_c0b3cb4790b395 92,94,99,102,109-111,122-123,169-175,192,239,271-276,278-284,286-289,396-443
+crates/integrations/github/tests/wire.rs
+  s_3ca04f6c1d450b::t_340f2dc6490965 194-219
+crates/integrations/google/src/lib.rs
+  s_3ca04f6c1d450b::t_5634f08fa98fc9 149-150,192-207,211-212,263,281-283,345-351
+crates/integrations/google/tests/wire.rs
+  s_3ca04f6c1d450b::t_52936b52a83abb 252-269
+crates/integrations/linear/src/lib.rs
+  s_3ca04f6c1d450b::t_860db547e69dd0 11-14,20-22,132-137,195-202
+crates/integrations/linear/tests/wire.rs
+  s_3ca04f6c1d450b::t_ee3e7df4465d5e 69-70,142-169
+crates/integrations/notion/src/lib.rs
+  s_3ca04f6c1d450b::t_f58f65e1769d31 91-95,104,156,191-196
+crates/integrations/notion/tests/wire.rs
+  s_3ca04f6c1d450b::t_bb51a4814aa113 186-188,190
+crates/integrations/slack/src/lib.rs
+  s_3ca04f6c1d450b::t_b079ade07fa619 3-6,371,398-412
+crates/integrations/slack/src/operations.rs
+  s_3ca04f6c1d450b::t_a06b534363101c 318
+crates/integrations/slack/tests/operations.rs
+  s_3ca04f6c1d450b::t_b340b60f9313c8 20,97,242,632-651
+crates/integrations/zoom/src/lib.rs
+  s_3ca04f6c1d450b::t_ea55d98a1e8994 6-7,11-13,45-59,238-241,257-260
+crates/integrations/zoom/tests/wire.rs
+  s_3ca04f6c1d450b::t_ccbd32e573e623 87,120-160
+docs/integrations/slack.md
+  s_3ca04f6c1d450b::t_fd7d9631a405e9 62-63,77-86,242,289
+docs/roadmap.md
+  s_3ca04f6c1d450b::t_a4d7c0db2bde6f 46
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_3ca04f6c1d450b::t_202fe330b7a014 272,280-283
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bb6a469e6edd44b72f4c3a7b68bf5e7fbf0524bb",
+  "prompts": {},
+  "sessions": {
+    "s_3ca04f6c1d450b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3254f56-32a0-4d5e-98da-30dd4386eb89",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    },
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
