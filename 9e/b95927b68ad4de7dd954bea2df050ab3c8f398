@@ -1,0 +1,26 @@
+crates/core/tests/wire.rs
+  s_9a82f246a2078d::t_bc6637234ea479 2265-2269,2274-2278,2281-2294,2310-2315,2320-2321,2326,2332
+  s_9a82f246a2078d::t_402c415f6ff64a 2270-2273,2279-2280,2295-2309,2316-2319,2322-2325,2327-2331
+crates/core/src/socket.rs
+  s_9a82f246a2078d::t_402c415f6ff64a 53-65,100-101,195,198,207-237,549-571,810
+crates/core/src/operation.rs
+  s_9a82f246a2078d::t_402c415f6ff64a 193-198
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_9a82f246a2078d::t_bdfa2b3f26fb17 272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9eb95927b68ad4de7dd954bea2df050ab3c8f398",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
