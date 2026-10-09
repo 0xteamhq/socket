@@ -1,0 +1,34 @@
+crates/core/src/socket.rs
+  s_9a82f246a2078d::t_66f3a9cbd4f677 228,490-491,506-509,531
+crates/integrations/linear/tests/wire.rs
+  s_9a82f246a2078d::t_67a6fc1ebe066c 186-225
+docs/integrations/slack.md
+  s_9a82f246a2078d::t_67a6fc1ebe066c 289
+crates/integrations/github/src/lib.rs
+  s_9a82f246a2078d::t_67a6fc1ebe066c 171-174,176-180,488-495
+crates/core/src/oauth.rs
+  s_9a82f246a2078d::t_66f3a9cbd4f677 243-252,263-264,271-278,312-313,322-329,334,338-352
+crates/integrations/linear/src/lib.rs
+  s_9a82f246a2078d::t_67a6fc1ebe066c 166-167,205,223-224,229-237
+crates/core/src/http.rs
+  s_9a82f246a2078d::t_66f3a9cbd4f677 154-155
+crates/core/tests/wire.rs
+  s_9a82f246a2078d::t_c6aab124f4eb78 2609-2612,2626-2627,2632-2634,2640-2645,2653,2658-2663,2668-2677,2687-2691
+  s_9a82f246a2078d::t_66f3a9cbd4f677 2613-2625,2628-2631,2635-2639,2646-2652,2654-2657,2664-2667,2678-2686
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dea05ef21bc70c493b7106d1bc0ab7c88e5ef082",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
