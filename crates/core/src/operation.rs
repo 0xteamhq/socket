@@ -190,6 +190,12 @@ impl Connection {
     /// is what keeps a connection working when the provider never said when
     /// its token expires. A rejected request was not carried out, so sending
     /// it again is safe for a write too.
+    ///
+    /// Two limits apply. A connection is renewed this way at most once in
+    /// five minutes, so an endpoint that rejects every call cannot rotate its
+    /// tokens on every call. And only the tokens this connection was loaded
+    /// with are renewed: if the store has since been given different ones,
+    /// the rejection is reported and the request is not sent again.
     pub async fn request(&self, request: RawRequest) -> Result<RawResponse> {
         let rejected = match self.send(&self.tokens, request.clone()).await {
             Err(error) if error.kind() == ErrorKind::ReconnectRequired => error,

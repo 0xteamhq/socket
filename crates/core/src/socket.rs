@@ -50,6 +50,19 @@ struct Unsaved {
     tokens: TokenSet,
 }
 
+/// How long after a forced renewal another one is refused for the same connection.
+const RENEWAL_COOLING_OFF: Duration = Duration::from_secs(300);
+
+/// A renewal forced by a rejected access token.
+#[derive(Clone)]
+struct Renewal {
+    /// The access token the provider rejected.
+    replaced: SecretString,
+    /// The access token the renewal produced.
+    produced: SecretString,
+    at: std::time::Instant,
+}
+
 /// Forgets a connection's refresh slot when dropped, if nobody else uses it.
 struct Release<'a> {
     socket: &'a Inner,
@@ -84,6 +97,8 @@ struct Inner {
     state_secret: Vec<u8>,
     transport: Transport,
     refreshes: Mutex<HashMap<ConnectionKey, RefreshSlot>>,
+    /// The last forced renewal of each connection, while it is recent.
+    renewals: Mutex<HashMap<ConnectionKey, Renewal>>,
 }
 
 impl fmt::Debug for Socket {
@@ -177,12 +192,10 @@ impl Renew for Inner {
         Box::pin(async move {
             let registered = self.registered(&key.provider)?;
             let provider = &registered.spec.id;
+            let refuse = || reconnect(provider, format!("{provider} rejected the stored authorization"));
             // A token given to the integration, or an API key, cannot be renewed.
             if registered.fixed_token.is_some() || !matches!(registered.spec.auth, AuthScheme::OAuth2(_)) {
-                return Err(reconnect(
-                    provider,
-                    format!("{provider} rejected the stored authorization"),
-                ));
+                return Err(refuse());
             }
             let slot = self.refresh_slot(&key);
             let _release = Release {
@@ -191,8 +204,37 @@ impl Renew for Inner {
                 slot: &slot,
             };
             let mut unsaved = slot.lock().await;
-            self.refresh_under_lock(&key, registered, &mut unsaved, Some(&rejected.access_token))
-                .await
+
+            // A renewal is forced at most once per connection per cooling-off
+            // period. Without that, an endpoint that rejects every call would
+            // rotate the connection's tokens on every call.
+            let recent = self.recent_renewal(&key);
+            if let Some(recent) = &recent {
+                // This caller's token is the one that renewal replaced: it
+                // gets what the renewal produced, if the store still holds it.
+                if rejected.access_token == recent.replaced {
+                    let current = self.store.load(key.clone()).await?;
+                    return current
+                        .filter(|tokens| tokens.access_token == recent.produced)
+                        .ok_or_else(refuse);
+                }
+                // The renewed token was rejected as well. Renewing again would not help.
+                return Err(refuse());
+            }
+
+            // Only the tokens this call was made with are renewed. If the
+            // store now holds something else, the connection was replaced by
+            // other means, perhaps for a different account, and the call must
+            // not be sent again with those.
+            let stored = self.store.load(key.clone()).await?;
+            if stored.as_ref().map(|tokens| &tokens.access_token) != Some(&rejected.access_token) {
+                return Err(refuse());
+            }
+            let fresh = self
+                .refresh_under_lock(&key, registered, &mut unsaved, Some(&rejected.access_token))
+                .await?;
+            self.record_renewal(key.clone(), rejected.access_token, fresh.access_token.clone());
+            Ok(fresh)
         })
     }
 }
@@ -504,6 +546,29 @@ impl Inner {
         Ok(fresh)
     }
 
+    /// The last forced renewal of `key`, if it is recent enough to count.
+    fn recent_renewal(&self, key: &ConnectionKey) -> Option<Renewal> {
+        let renewals = self.renewals.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        renewals
+            .get(key)
+            .filter(|renewal| renewal.at.elapsed() < RENEWAL_COOLING_OFF)
+            .cloned()
+    }
+
+    fn record_renewal(&self, key: ConnectionKey, replaced: SecretString, produced: SecretString) {
+        let mut renewals = self.renewals.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Forget the ones that no longer count, so the map holds only recent renewals.
+        renewals.retain(|_, renewal| renewal.at.elapsed() < RENEWAL_COOLING_OFF);
+        renewals.insert(
+            key,
+            Renewal {
+                replaced,
+                produced,
+                at: std::time::Instant::now(),
+            },
+        );
+    }
+
     fn refresh_slot(&self, key: &ConnectionKey) -> RefreshSlot {
         let mut slots = self.refreshes.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         slots.entry(key.clone()).or_default().clone()
@@ -742,6 +807,7 @@ impl SocketBuilder {
                 state_secret,
                 transport: Transport::new(client, self.retry),
                 refreshes: Mutex::new(HashMap::new()),
+                renewals: Mutex::new(HashMap::new()),
             }),
         })
     }

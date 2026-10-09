@@ -2262,3 +2262,71 @@ async fn many_calls_rejected_at_once_cause_one_renewal() {
         "the others find the renewed token in the store"
     );
 }
+
+#[tokio::test]
+async fn an_endpoint_that_keeps_rejecting_calls_does_not_rotate_the_token_on_every_call() {
+    let server = MockServer::start().await;
+    // This endpoint rejects every token, as one behind a missing permission might.
+    Mock::given(path("/api/forbidden"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    let issued = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+    let counter = issued.clone();
+    Mock::given(path("/token"))
+        .respond_with(move |_: &wiremock::Request| {
+            let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "access_token": format!("A{n}"), "refresh_token": format!("R{n}") }))
+        })
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), never_expiring("A1", "R1")).await;
+    for _ in 0..5 {
+        let err = socket.request(key(), RawRequest::get("forbidden")).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::ReconnectRequired);
+    }
+    assert_eq!(hits(&server, "/token").await, 1, "one renewal, not one per call");
+}
+
+#[tokio::test]
+async fn a_call_begun_under_one_account_is_never_sent_again_with_another_accounts_token() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer account-a"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer account-b"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let (socket, store) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        never_expiring("account-a", "RA"),
+    )
+    .await;
+
+    // The call is prepared under account A.
+    let connection = socket.connection(key()).await.unwrap();
+    // Meanwhile the person reconnects as account B, and the application stores B's tokens.
+    store.save(key(), never_expiring("account-b", "RB")).await.unwrap();
+
+    let err = connection
+        .request(RawRequest::post("items", json!({ "delete": "everything" })))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::ReconnectRequired);
+    let received = server.received_requests().await.unwrap();
+    let as_b = received
+        .iter()
+        .filter(|r| r.headers.get("authorization").is_some_and(|v| v == "Bearer account-b"))
+        .count();
+    assert_eq!(as_b, 0, "account A's request must not run as account B");
+    assert_eq!(
+        hits(&server, "/token").await,
+        0,
+        "and B's refresh token is not spent for it"
+    );
+}
