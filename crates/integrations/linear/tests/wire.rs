@@ -183,3 +183,43 @@ async fn replacing_the_token_changes_how_it_is_sent_in_both_directions() {
     assert!(bare(Linear::with_token("lin_oauth_xyz").token("lin_api_abc123")));
     assert!(!bare(Linear::new()));
 }
+
+#[tokio::test]
+async fn setting_a_token_never_loses_scopes_or_a_scheme_the_definition_chose() {
+    use socketkit_core::{AuthScheme, OAuthClient, SecretString};
+    use socketkit_linear::LinearOAuth;
+    let client = OAuthClient {
+        client_id: "id".into(),
+        client_secret: SecretString::new("secret"),
+        redirect_uri: "https://app.example.test/cb".parse().unwrap(),
+    };
+    let scopes = |linear: &Linear| match linear.provider().auth {
+        AuthScheme::OAuth2(oauth) => oauth.default_scopes,
+        AuthScheme::ApiKey(_) => panic!("expected OAuth"),
+    };
+    let custom = || {
+        Linear::with_oauth(LinearOAuth {
+            client: client.clone(),
+            scopes: Some(vec!["read".into()]),
+        })
+    };
+    assert_eq!(
+        scopes(&custom().token("lin_oauth_xyz")),
+        ["read"],
+        "an OAuth token keeps the custom scopes"
+    );
+    let round_trip = custom().token("lin_api_abc").token("lin_oauth_xyz");
+    assert_eq!(
+        scopes(&round_trip),
+        ["read"],
+        "and so does a round trip through an API key"
+    );
+
+    // A definition that declares its own key scheme keeps it when a token that is not a Linear key is set.
+    let server = MockServer::start().await;
+    let declared = Linear::with_spec(point_at(Linear::with_token("lin_api_abc").provider(), &server));
+    assert!(matches!(
+        declared.token("some-other-key").provider().auth,
+        AuthScheme::ApiKey(_)
+    ));
+}

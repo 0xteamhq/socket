@@ -163,8 +163,8 @@ impl From<&str> for LinearToken {
 pub struct Linear {
     spec: ProviderSpec,
     access: Access,
-    /// How an OAuth token is sent, kept so that replacing an API key with one restores it.
-    oauth: AuthScheme,
+    /// The scheme a personal API key replaced, kept so that setting another kind of token restores it.
+    replaced_by_key: Option<AuthScheme>,
 }
 
 impl Default for Linear {
@@ -202,10 +202,7 @@ impl Linear {
     /// Uses another definition, for a test server.
     pub fn with_spec(spec: ProviderSpec) -> Self {
         Self {
-            oauth: match &spec.auth {
-                auth @ AuthScheme::OAuth2(_) => auth.clone(),
-                AuthScheme::ApiKey(_) => provider().auth,
-            },
+            replaced_by_key: None,
             spec,
             access: Access::default(),
         }
@@ -223,16 +220,21 @@ impl Linear {
     /// `Bearer`, whichever was set before.
     pub fn token(mut self, token: impl Into<String>) -> Self {
         let token = token.into();
-        self.spec.auth = if token.starts_with(API_KEY_PREFIX) {
-            AuthScheme::ApiKey(ApiKeySpec {
+        if token.starts_with(API_KEY_PREFIX) {
+            let bare = AuthScheme::ApiKey(ApiKeySpec {
                 placement: KeyPlacement::Header {
                     name: "Authorization".into(),
                     prefix: None,
                 },
-            })
-        } else {
-            self.oauth.clone()
-        };
+            });
+            // The scheme in place now, scopes and all, is put back if a
+            // different kind of token is set later.
+            let previous = std::mem::replace(&mut self.spec.auth, bare);
+            self.replaced_by_key.get_or_insert(previous);
+        } else if let Some(previous) = self.replaced_by_key.take() {
+            self.spec.auth = previous;
+        }
+        // Otherwise the definition's own scheme is left exactly as it is.
         self.access.token = Some(TokenSet::bearer(token));
         self
     }

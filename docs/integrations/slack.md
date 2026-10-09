@@ -286,7 +286,7 @@ Every error has a kind a program can branch on, and a message that is safe to sh
 
 An input error names the field and never repeats the value you sent.
 
-Reads are retried on a throttle or a server error. A write is sent again in only two cases, both of which mean Slack did not carry it out: Slack throttled it, or Slack rejected the access token and Socket renewed the token. **A write that fails any other way is never repeated**, so a message cannot be posted twice; if a write fails with a server error, check before sending it again.
+Reads are retried on a throttle or a server error. A write is sent again in only two cases, both of which mean Slack did not carry it out: Slack throttled it, or Slack rejected the access token and Socket renewed it to a different one. **A write that fails any other way is never repeated**, so a message cannot be posted twice; if a write fails with a server error, check before sending it again.
 
 ## Not supported yet
 

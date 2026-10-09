@@ -151,7 +151,8 @@ impl Classifier for StandardClassifier {
                 ErrorKind::InvalidInput,
                 format!("{provider} rejected the request: {}", provider_message(&response.body)),
             )),
-            300..=399 => Err(error(
+            // Only the statuses that are redirects. A 304 or a 300 is not one.
+            301 | 302 | 303 | 307 | 308 => Err(error(
                 ErrorKind::Unexpected,
                 format!("{provider} redirected the request (HTTP {status}) to an address Socket does not follow"),
             )),

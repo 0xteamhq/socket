@@ -168,12 +168,16 @@ impl GitHub {
         match provider_for_host(&host) {
             Some(spec) => {
                 // The host as the URL parser wrote it, which is what a pasted URL will carry.
-                let mut this = Self::with_spec(spec);
-                // Also the host as it was typed: `127.1` is rewritten to
-                // `127.0.0.1` in the definition, but a pasted URL carries what was typed.
+                // A pasted URL may carry the host as it was typed (`127.1`) or
+                // as the URL parser wrote it in the definition (`127.0.0.1`).
+                // Both are recognised, whatever `with_spec` made of the address.
+                let canonical = spec.allowed_hosts.first().cloned();
                 let typed = host.trim().to_ascii_lowercase();
-                if !this.web_hosts.contains(&typed) {
-                    this.web_hosts.push(typed);
+                let mut this = Self::with_spec(spec);
+                for known in canonical.into_iter().chain([typed]) {
+                    if !this.web_hosts.contains(&known) {
+                        this.web_hosts.push(known);
+                    }
                 }
                 this
             }
@@ -481,11 +485,14 @@ mod tests {
             token: SecretString::new("t"),
             host: Some("127.1".into()),
         });
-        assert!(
-            numeric.web_hosts.contains(&"127.1".to_owned()),
-            "{:?}",
-            numeric.web_hosts
-        );
+        for spelling in ["127.1", "127.0.0.1"] {
+            assert!(
+                numeric.web_hosts.contains(&spelling.to_owned()),
+                "{spelling}: {:?}",
+                numeric.web_hosts
+            );
+            assert!(parse_repo_on(&format!("https://{spelling}/acme/api"), spelling).is_ok());
+        }
     }
 
     #[test]
