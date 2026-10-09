@@ -134,7 +134,11 @@ impl From<OAuthClient> for LinearOAuth {
 ///
 /// Linear takes the two differently: an OAuth token as `Bearer <token>`, a
 /// personal API key (`lin_api_…`) as the bare key. Socket tells them apart by
-/// that prefix.
+/// that prefix when the token is given to the integration.
+///
+/// A token loaded from the application's token store is always sent as
+/// `Bearer`: the store is for the OAuth tokens of connected users. Give a
+/// personal API key to the integration with `with_token`.
 #[derive(Debug, Clone)]
 pub struct LinearToken {
     pub token: SecretString,
@@ -159,6 +163,8 @@ impl From<&str> for LinearToken {
 pub struct Linear {
     spec: ProviderSpec,
     access: Access,
+    /// How an OAuth token is sent, kept so that replacing an API key with one restores it.
+    oauth: AuthScheme,
 }
 
 impl Default for Linear {
@@ -190,28 +196,16 @@ impl Linear {
     /// Linear with a token the application already holds. Every call uses it.
     /// Takes a string, or a [`LinearToken`] for the settings only Linear has.
     pub fn with_token(settings: impl Into<LinearToken>) -> Self {
-        let settings = settings.into();
-        let mut this = Self::new();
-        if settings.token.expose().starts_with(API_KEY_PREFIX) {
-            this.spec.auth = AuthScheme::ApiKey(ApiKeySpec {
-                placement: KeyPlacement::Header {
-                    name: "Authorization".into(),
-                    prefix: None,
-                },
-            });
-        }
-        this.access.token = Some(TokenSet {
-            access_token: settings.token,
-            refresh_token: None,
-            expires_at: None,
-            scopes: Vec::new(),
-        });
-        this
+        Self::new().token(settings.into().token.expose())
     }
 
     /// Uses another definition, for a test server.
     pub fn with_spec(spec: ProviderSpec) -> Self {
         Self {
+            oauth: match &spec.auth {
+                auth @ AuthScheme::OAuth2(_) => auth.clone(),
+                AuthScheme::ApiKey(_) => provider().auth,
+            },
             spec,
             access: Access::default(),
         }
@@ -224,7 +218,21 @@ impl Linear {
     }
 
     /// Sets a token the application already holds.
+    ///
+    /// A personal API key (`lin_api_…`) is sent bare and any other token as
+    /// `Bearer`, whichever was set before.
     pub fn token(mut self, token: impl Into<String>) -> Self {
+        let token = token.into();
+        self.spec.auth = if token.starts_with(API_KEY_PREFIX) {
+            AuthScheme::ApiKey(ApiKeySpec {
+                placement: KeyPlacement::Header {
+                    name: "Authorization".into(),
+                    prefix: None,
+                },
+            })
+        } else {
+            self.oauth.clone()
+        };
         self.access.token = Some(TokenSet::bearer(token));
         self
     }

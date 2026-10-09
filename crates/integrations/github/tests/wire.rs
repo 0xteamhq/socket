@@ -217,3 +217,30 @@ async fn a_renamed_repository_resolves_to_its_new_name() {
         .unwrap();
     assert_eq!(resolved["id"], "acme/new-name");
 }
+
+#[tokio::test]
+async fn an_enterprise_definition_given_directly_accepts_that_servers_urls_only() {
+    use socketkit_github::provider_for_host;
+    // An unknown URL is refused before any call, so no server is needed to see which inputs are understood.
+    let spec = provider_for_host("github.acme.example").unwrap();
+    let enterprise: Arc<dyn Integration> = Arc::new(GitHub::with_spec(spec).token("ghp_x"));
+    let socket = socketkit_core::Socket::in_memory()
+        .integration(enterprise)
+        .build()
+        .unwrap();
+    let key = socketkit_core::ConnectionKey::new(provider().id, "anyone");
+    let refused = socket
+        .invoke(
+            key,
+            "github.resource.resolve".into(),
+            json!({ "input": "https://github.com/acme/api" }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(refused.kind(), ErrorKind::InvalidInput, "github.com is not this server");
+    assert!(
+        refused.message().contains("not a GitHub repository"),
+        "{}",
+        refused.message()
+    );
+}

@@ -167,3 +167,19 @@ async fn a_personal_api_key_is_sent_bare_and_an_oauth_token_as_bearer() {
             .unwrap_or_else(|e| panic!("{token}: {e}"));
     }
 }
+
+#[tokio::test]
+async fn replacing_the_token_changes_how_it_is_sent_in_both_directions() {
+    use socketkit_core::AuthScheme;
+    let bare = |linear: Linear| matches!(linear.provider().auth, AuthScheme::ApiKey(_));
+    assert!(
+        bare(Linear::new().token("lin_api_abc123")),
+        "an API key set after construction is sent bare"
+    );
+    assert!(
+        !bare(Linear::with_token("lin_api_abc123").token("lin_oauth_xyz")),
+        "an OAuth token replacing it is sent as Bearer"
+    );
+    assert!(bare(Linear::with_token("lin_oauth_xyz").token("lin_api_abc123")));
+    assert!(!bare(Linear::new()));
+}
