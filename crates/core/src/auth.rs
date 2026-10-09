@@ -199,9 +199,17 @@ pub fn standard_token_response(provider: &ProviderId, raw: &Value, now: SystemTi
             )
             .with_provider(provider.clone())
         })?;
-    let expires_at = raw["expires_in"]
-        .as_u64()
-        .and_then(|secs| now.checked_add(Duration::from_secs(secs)));
+    // A lifetime too large to add to the clock is not "never expires".
+    let expires_at = match raw["expires_in"].as_u64() {
+        None => None,
+        Some(secs) => Some(now.checked_add(Duration::from_secs(secs)).ok_or_else(|| {
+            Error::new(
+                ErrorKind::Decode,
+                format!("{provider} answered with a token lifetime that cannot be represented"),
+            )
+            .with_provider(provider.clone())
+        })?),
+    };
     let scopes = raw["scope"]
         .as_str()
         .map(|scope| {
@@ -381,6 +389,16 @@ mod tests {
         assert_eq!(
             (minimal.refresh_token, minimal.expires_at, minimal.scopes.len()),
             (None, None, 0)
+        );
+    }
+
+    #[test]
+    fn a_lifetime_too_large_to_represent_is_refused_not_read_as_never_expiring() {
+        let slack = ProviderId::new("slack").unwrap();
+        let raw = json!({ "access_token": "a", "expires_in": u64::MAX });
+        assert_eq!(
+            standard_token_response(&slack, &raw, at(1_000)).unwrap_err().kind(),
+            ErrorKind::Decode
         );
     }
 

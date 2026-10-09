@@ -1777,3 +1777,556 @@ async fn a_customised_exchange_still_reports_throttling_and_refusal_as_what_they
         );
     }
 }
+
+// ── Findings from the pull request review ─────────────────────────────────────
+
+#[tokio::test]
+async fn reconnecting_keeps_an_unsaved_rotation_until_the_new_authorization_is_saved() {
+    let server = MockServer::start().await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("grant_type=refresh_token"))
+        .and(body_string_contains("refresh_token=R1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "access_token": "A2", "refresh_token": "R2", "expires_in": 3600 })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("grant_type=authorization_code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "access_token": "new-account" })))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/me"))
+        .and(header("authorization", "Bearer A2"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    // Every save fails until the switch is flipped, as during a database outage.
+    struct Outage {
+        inner: MemoryTokenStore,
+        down: std::sync::atomic::AtomicBool,
+    }
+    #[async_trait]
+    impl TokenStore for Outage {
+        async fn load(&self, key: ConnectionKey) -> Result<Option<TokenSet>> {
+            self.inner.load(key).await
+        }
+        async fn save(&self, key: ConnectionKey, tokens: TokenSet) -> Result<()> {
+            if self.down.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(socketkit_core::Error::new(ErrorKind::Unexpected, "store is down"));
+            }
+            self.inner.save(key, tokens).await
+        }
+        async fn delete(&self, key: ConnectionKey) -> Result<()> {
+            self.inner.delete(key).await
+        }
+    }
+    let store = Arc::new(Outage {
+        inner: MemoryTokenStore::new(),
+        down: false.into(),
+    });
+    store.save(key(), expired(Some("R1"))).await.unwrap();
+    let socket = builder_with(store.clone(), oauth_spec(&server, ClientAuth::Body, false));
+
+    store.down.store(true, std::sync::atomic::Ordering::SeqCst);
+    // The refresh spends R1 and gets R2, but cannot save it.
+    socket.request(key(), RawRequest::get("me")).await.unwrap_err();
+    // A reconnect during the outage also fails to save. It must not throw R2 away.
+    let authorization = socket.begin_authorization(key(), None).unwrap();
+    let state = authorization.pending.state.clone();
+    socket
+        .complete_authorization(authorization.pending, "code".into(), state)
+        .await
+        .unwrap_err();
+
+    store.down.store(false, std::sync::atomic::Ordering::SeqCst);
+    socket.request(key(), RawRequest::get("me")).await.unwrap();
+    let saved = store.load(key()).await.unwrap().unwrap();
+    assert_eq!(
+        saved.refresh_token.as_ref().map(SecretString::expose),
+        Some("R2"),
+        "the rotation survived the failed reconnect"
+    );
+}
+
+fn builder_with(store: Arc<dyn TokenStore>, spec: ProviderSpec) -> Socket {
+    Socket::builder(store)
+        .provider(spec)
+        .oauth_client(ProviderId::new("acme").unwrap(), client())
+        .state_secret(STATE_SECRET)
+        .retry(fast_retry())
+        .build()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_client_set_on_the_builder_replaces_a_blank_one_given_to_the_integration() {
+    let server = MockServer::start().await;
+    let blank = OAuthClient {
+        client_id: String::new(),
+        client_secret: SecretString::new(""),
+        ..client()
+    };
+    let given = Given {
+        spec: oauth_spec(&server, ClientAuth::Body, false),
+        client: Some(blank.clone()),
+        token: None,
+    };
+    let socket = Socket::in_memory()
+        .integration(Arc::new(given))
+        .oauth_client(ProviderId::new("acme").unwrap(), client())
+        .build()
+        .unwrap();
+    assert!(
+        socket
+            .begin_authorization(key(), None)
+            .unwrap()
+            .url
+            .query_pairs()
+            .any(|(n, v)| n == "client_id" && v == "client-id")
+    );
+
+    // With nothing to replace it, the blank client is still refused.
+    let alone = Given {
+        spec: oauth_spec(&server, ClientAuth::Body, false),
+        client: Some(blank),
+        token: None,
+    };
+    assert_eq!(
+        Socket::in_memory()
+            .integration(Arc::new(alone))
+            .build()
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Config
+    );
+}
+
+#[tokio::test]
+async fn an_oversized_error_page_is_still_classified_by_its_status() {
+    let server = MockServer::start().await;
+    let huge = "x".repeat(11 * 1024 * 1024);
+    Mock::given(path("/api/throttled"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "3600")
+                .set_body_string(huge.clone()),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/missing"))
+        .respond_with(ResponseTemplate::new(404).set_body_string(huge))
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("t")).await;
+    let throttled = socket.request(key(), RawRequest::get("throttled")).await.unwrap_err();
+    assert_eq!(
+        (throttled.kind(), throttled.retry()),
+        (ErrorKind::RateLimited, Retry::After(Duration::from_secs(3600)))
+    );
+    assert_eq!(
+        socket
+            .request(key(), RawRequest::get("missing"))
+            .await
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotFound
+    );
+}
+
+#[tokio::test]
+async fn the_token_endpoint_tells_a_throttle_and_a_wrong_address_apart_from_a_refusal() {
+    for (status, headers, body, kind) in [
+        (403, vec![("retry-after", "30")], json!({}), ErrorKind::RateLimited),
+        (
+            403,
+            vec![("x-ratelimit-remaining", "0")],
+            json!({}),
+            ErrorKind::RateLimited,
+        ),
+        (404, vec![], json!({ "message": "Not Found" }), ErrorKind::Config),
+        (405, vec![], Value::Null, ErrorKind::Config),
+        (
+            403,
+            vec![],
+            json!({ "error": "access_denied" }),
+            ErrorKind::ReconnectRequired,
+        ),
+        (400, vec![], Value::Null, ErrorKind::ReconnectRequired),
+    ] {
+        let server = MockServer::start().await;
+        let mut response = ResponseTemplate::new(status).set_body_json(body.clone());
+        for (name, value) in &headers {
+            response = response.insert_header(*name, *value);
+        }
+        Mock::given(path("/token")).respond_with(response).mount(&server).await;
+        let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), expired(Some("R1"))).await;
+        let err = socket.request(key(), RawRequest::get("me")).await.unwrap_err();
+        assert_eq!(err.kind(), kind, "HTTP {status} {headers:?} {body}");
+    }
+}
+
+#[tokio::test]
+async fn a_token_endpoint_that_echoes_the_request_does_not_leak_it_into_the_error() {
+    let server = MockServer::start().await;
+    let echoed = "client_secret=client-secret&code=the-code is not valid";
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "error": echoed })))
+        .mount(&server)
+        .await;
+    let socket = builder_with(
+        Arc::new(MemoryTokenStore::new()),
+        oauth_spec(&server, ClientAuth::Body, false),
+    );
+    let authorization = socket.begin_authorization(key(), None).unwrap();
+    let state = authorization.pending.state.clone();
+    let err = socket
+        .complete_authorization(authorization.pending, "the-code".into(), state)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    let everything = format!("{err} {err:?} {}", serde_json::to_string(&err.to_wire()).unwrap());
+    assert!(
+        !everything.contains("client-secret") && !everything.contains("the-code"),
+        "{everything}"
+    );
+}
+
+// ── Redirects that stay on the provider's own hosts ──────────────────────────
+
+#[tokio::test]
+async fn a_read_follows_a_redirect_to_an_allowed_host_and_a_write_does_not() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/old"))
+        .respond_with(
+            ResponseTemplate::new(301).insert_header("location", format!("{}/api/new?x=1#frag", server.uri())),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/new"))
+        .and(query_param("x", "1"))
+        .and(header("authorization", "Bearer t"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "moved": true })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("t")).await;
+
+    let response = socket.request(key(), RawRequest::get("old")).await.unwrap();
+    assert_eq!(response.body["moved"], true);
+
+    // A write that is redirected is not sent anywhere else: it may not be the same operation there.
+    let write = socket
+        .request(key(), RawRequest::post("old", json!({})))
+        .await
+        .unwrap_err();
+    assert_eq!(write.kind(), ErrorKind::Unexpected);
+    assert_eq!(hits(&server, "/api/new").await, 1);
+}
+
+#[tokio::test]
+async fn a_relative_redirect_is_followed_and_an_api_key_is_sent_once_at_the_new_address() {
+    let server = MockServer::start().await;
+    // The provider echoes the whole address, key included, into the redirect.
+    Mock::given(path("/api/old"))
+        .respond_with(ResponseTemplate::new(302).insert_header("location", "/api/new?api_key=k-1&page=2"))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/new"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(
+        key_spec(&server, KeyPlacement::Query { name: "api_key".into() }),
+        TokenSet::bearer("k-1"),
+    )
+    .await;
+    socket.request(key(), RawRequest::get("old")).await.unwrap();
+    let received = server.received_requests().await.unwrap();
+    let landed = received.iter().find(|r| r.url.path() == "/api/new").unwrap();
+    let keys: Vec<String> = landed
+        .url
+        .query_pairs()
+        .filter(|(n, _)| n == "api_key")
+        .map(|(_, v)| v.into_owned())
+        .collect();
+    assert_eq!(keys, ["k-1"], "exactly one key, not the echoed copy plus ours");
+    assert!(landed.url.query_pairs().any(|(n, v)| n == "page" && v == "2"));
+}
+
+#[tokio::test]
+async fn a_redirect_loop_ends_after_three_hops() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/loop"))
+        .respond_with(ResponseTemplate::new(307).insert_header("location", "/api/loop"))
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("t")).await;
+    let err = socket.request(key(), RawRequest::get("loop")).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Unexpected);
+    assert!(err.message().contains("too many times"), "{}", err.message());
+    assert_eq!(
+        hits(&server, "/api/loop").await,
+        4,
+        "the first request and three redirects"
+    );
+}
+
+#[tokio::test]
+async fn a_redirect_that_carries_credentials_or_leaves_https_is_not_followed() {
+    let server = MockServer::start().await;
+    let host = host_entry(&server);
+    for (route, location) in [
+        ("userinfo", format!("http://someone:pw@{host}/api/landed")),
+        ("scheme", format!("ftp://{host}/api/landed")),
+        ("garbled", "http://[not a url".to_owned()),
+    ] {
+        Mock::given(path(format!("/api/{route}")))
+            .respond_with(ResponseTemplate::new(302).insert_header("location", location))
+            .mount(&server)
+            .await;
+    }
+    Mock::given(path("/api/landed"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("t")).await;
+    for route in ["userinfo", "scheme", "garbled"] {
+        let err = socket.request(key(), RawRequest::get(route)).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Unexpected, "{route}");
+    }
+    assert_eq!(hits(&server, "/api/landed").await, 0);
+}
+
+// ── Renewing a token the provider rejected ───────────────────────────────────
+
+fn never_expiring(access: &str, refresh: &str) -> TokenSet {
+    TokenSet {
+        access_token: SecretString::new(access),
+        refresh_token: Some(SecretString::new(refresh)),
+        expires_at: None,
+        scopes: Vec::new(),
+    }
+}
+
+#[tokio::test]
+async fn a_token_with_no_stated_lifetime_is_renewed_when_the_provider_rejects_it() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer stale"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer fresh"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "ok": true })))
+        .mount(&server)
+        .await;
+    // The refresh answers without `expires_in`, which is how the token came to have no expiry.
+    Mock::given(path("/token"))
+        .and(body_string_contains("refresh_token=R1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "access_token": "fresh" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (socket, store) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        never_expiring("stale", "R1"),
+    )
+    .await;
+
+    // A write is renewed and sent again too: a rejected request was not carried out.
+    let response = socket
+        .request(key(), RawRequest::post("items", json!({ "n": 1 })))
+        .await
+        .unwrap();
+    assert_eq!(response.body["ok"], true);
+    assert_eq!(store.load(key()).await.unwrap().unwrap().access_token.expose(), "fresh");
+
+    // The stored token is good now, so the next call neither fails nor refreshes again.
+    socket.request(key(), RawRequest::get("items")).await.unwrap();
+    assert_eq!(hits(&server, "/token").await, 1);
+}
+
+#[tokio::test]
+async fn a_renewal_that_does_not_help_reports_the_rejection_and_does_not_loop() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/items"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "access_token": "also-rejected" })))
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        never_expiring("stale", "R1"),
+    )
+    .await;
+    let err = socket.request(key(), RawRequest::get("items")).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::ReconnectRequired);
+    assert_eq!(hits(&server, "/token").await, 1, "one renewal");
+    assert_eq!(hits(&server, "/api/items").await, 2, "the request, and one more try");
+}
+
+#[tokio::test]
+async fn a_rejection_with_nothing_to_renew_with_is_reported_at_once() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/items"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "error": "invalid_grant" })))
+        .mount(&server)
+        .await;
+
+    // No refresh token: nothing to try.
+    let (bearer, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("stale")).await;
+    assert_eq!(
+        bearer
+            .request(key(), RawRequest::get("items"))
+            .await
+            .unwrap_err()
+            .kind(),
+        ErrorKind::ReconnectRequired
+    );
+    assert_eq!(hits(&server, "/token").await, 0);
+
+    // A refresh token the provider declines: the person must reconnect, and the API is not tried again.
+    let (declined, _) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        never_expiring("stale", "R1"),
+    )
+    .await;
+    assert_eq!(
+        declined
+            .request(key(), RawRequest::get("items"))
+            .await
+            .unwrap_err()
+            .kind(),
+        ErrorKind::ReconnectRequired
+    );
+    assert_eq!(hits(&server, "/token").await, 1);
+    assert_eq!(
+        hits(&server, "/api/items").await,
+        2,
+        "one request per socket; no retry after a declined refresh"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn many_calls_rejected_at_once_cause_one_renewal() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer stale"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer fresh"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    Mock::given(path("/token"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(100))
+                .set_body_json(json!({ "access_token": "fresh", "refresh_token": "R2" })),
+        )
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        never_expiring("stale", "R1"),
+    )
+    .await;
+    let socket = Arc::new(socket);
+    let calls: Vec<_> = (0..8)
+        .map(|_| {
+            let socket = Arc::clone(&socket);
+            tokio::spawn(async move { socket.request(key(), RawRequest::get("items")).await })
+        })
+        .collect();
+    for call in calls {
+        call.await.unwrap().unwrap();
+    }
+    assert_eq!(
+        hits(&server, "/token").await,
+        1,
+        "the others find the renewed token in the store"
+    );
+}
+
+#[tokio::test]
+async fn an_endpoint_that_keeps_rejecting_calls_does_not_rotate_the_token_on_every_call() {
+    let server = MockServer::start().await;
+    // This endpoint rejects every token, as one behind a missing permission might.
+    Mock::given(path("/api/forbidden"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    let issued = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+    let counter = issued.clone();
+    Mock::given(path("/token"))
+        .respond_with(move |_: &wiremock::Request| {
+            let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "access_token": format!("A{n}"), "refresh_token": format!("R{n}") }))
+        })
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), never_expiring("A1", "R1")).await;
+    for _ in 0..5 {
+        let err = socket.request(key(), RawRequest::get("forbidden")).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::ReconnectRequired);
+    }
+    assert_eq!(hits(&server, "/token").await, 1, "one renewal, not one per call");
+}
+
+#[tokio::test]
+async fn a_call_begun_under_one_account_is_never_sent_again_with_another_accounts_token() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer account-a"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer account-b"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let (socket, store) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        never_expiring("account-a", "RA"),
+    )
+    .await;
+
+    // The call is prepared under account A.
+    let connection = socket.connection(key()).await.unwrap();
+    // Meanwhile the person reconnects as account B, and the application stores B's tokens.
+    store.save(key(), never_expiring("account-b", "RB")).await.unwrap();
+
+    let err = connection
+        .request(RawRequest::post("items", json!({ "delete": "everything" })))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::ReconnectRequired);
+    let received = server.received_requests().await.unwrap();
+    let as_b = received
+        .iter()
+        .filter(|r| r.headers.get("authorization").is_some_and(|v| v == "Bearer account-b"))
+        .count();
+    assert_eq!(as_b, 0, "account A's request must not run as account B");
+    assert_eq!(
+        hits(&server, "/token").await,
+        0,
+        "and B's refresh token is not spent for it"
+    );
+}

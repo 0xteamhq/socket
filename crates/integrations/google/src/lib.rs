@@ -146,6 +146,8 @@ pub struct Google {
     access: Access,
     /// The Workspace domain an account must belong to, lowercased.
     hosted_domain: Option<String>,
+    /// What is wrong with the settings it was created with, if anything.
+    problem: Option<String>,
 }
 
 impl Default for Google {
@@ -187,12 +189,27 @@ impl Google {
     /// Sends the domain as the sign-in page's `hd` hint, and adds the `openid`
     /// and `email` scopes, which reading Google's verified domain needs.
     pub fn hosted_domain(mut self, domain: impl Into<String>) -> Self {
-        self.hosted_domain = Some(domain.into().trim().trim_start_matches('@').to_ascii_lowercase());
+        let domain = domain.into().trim().trim_start_matches('@').to_ascii_lowercase();
+        // A domain is labels joined by dots. Anything else (blank, an email
+        // address, a URL) could never match what Google reports, so it is a
+        // mistake to be told about, not a restriction to apply silently.
+        let is_label = |label: &str| {
+            (1..=63).contains(&label.len()) && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        };
+        let valid = domain.contains('.') && domain.split('.').all(is_label);
+        if !valid {
+            self.problem = Some(format!(
+                "{domain:?} is not a Google Workspace domain; give the domain alone, such as acme.example"
+            ));
+        }
+        // Kept even when invalid, so that identity refuses every account
+        // instead of letting every account through.
+        self.hosted_domain = Some(domain.clone());
         if let AuthScheme::OAuth2(oauth) = &mut self.spec.auth {
             // One `hd` hint for the sign-in page, replacing any set earlier.
             oauth.extra_authorize_params.retain(|(name, _)| name != "hd");
-            if let Some(domain) = &self.hosted_domain {
-                oauth.extra_authorize_params.push(("hd".into(), domain.clone()));
+            if valid {
+                oauth.extra_authorize_params.push(("hd".into(), domain));
             }
             for scope in ["openid", "email"] {
                 if !oauth.default_scopes.iter().any(|s| s == scope) {
@@ -243,6 +260,7 @@ impl Google {
             spec,
             access: Access::default(),
             hosted_domain: None,
+            problem: None,
         }
     }
 
@@ -260,8 +278,9 @@ impl Google {
 
     /// The account the connection is authorised as.
     ///
-    /// Read from Drive's `about` resource, which the Drive scopes cover; the
-    /// userinfo endpoint would need a scope this integration does not ask for.
+    /// Read from Drive's `about` resource, which the Drive scopes cover. When a
+    /// Workspace domain is required, the account's verified domain is also
+    /// read from the userinfo endpoint, and any other account is refused.
     pub async fn identity(&self, connection: &Connection) -> Result<Account> {
         let request = RawRequest::get("drive/v3/about").with_query("fields", "user");
         let body = connection.request(request).await?.body;
@@ -321,6 +340,13 @@ impl Google {
 impl Integration for Google {
     fn provider(&self) -> ProviderSpec {
         self.spec.clone()
+    }
+
+    fn check(&self) -> Result<()> {
+        match &self.problem {
+            Some(problem) => Err(Error::new(ErrorKind::Config, problem.clone()).with_provider(self.spec.id.clone())),
+            None => Ok(()),
+        }
     }
 
     fn oauth_client(&self) -> Option<OAuthClient> {

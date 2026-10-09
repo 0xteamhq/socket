@@ -130,10 +130,7 @@ impl Classifier for StandardClassifier {
         let throttled = status == 429
             || (status == 403 && (response.header("x-ratelimit-remaining") == Some("0") || retry_after.is_some()));
         if throttled {
-            let retry = match retry_after.and_then(|v| v.trim().parse::<u64>().ok()) {
-                Some(secs) => Retry::After(Duration::from_secs(secs)),
-                None => Retry::Later,
-            };
+            let retry = retry_guidance(retry_after);
             return Err(
                 error(ErrorKind::RateLimited, format!("{provider} is rate limiting requests")).with_retry(retry),
             );
@@ -162,6 +159,25 @@ impl Classifier for StandardClassifier {
                 format!("{provider} returned HTTP {status}"),
             )),
         }
+    }
+}
+
+/// Reads a `Retry-After` header: a number of seconds, or an HTTP date.
+/// Anything else, or no header, means "later" with no time given.
+pub(crate) fn retry_guidance(retry_after: Option<&str>) -> Retry {
+    let Some(value) = retry_after.map(str::trim) else {
+        return Retry::Later;
+    };
+    if let Ok(secs) = value.parse::<u64>() {
+        return Retry::After(Duration::from_secs(secs));
+    }
+    match httpdate::parse_http_date(value) {
+        // A date already past means "now".
+        Ok(when) => Retry::After(
+            when.duration_since(std::time::SystemTime::now())
+                .unwrap_or(Duration::ZERO),
+        ),
+        Err(_) => Retry::Later,
     }
 }
 
@@ -243,12 +259,28 @@ impl Transport {
         let headers = caller_headers(spec, &request.headers)?;
 
         let mut attempt = 1;
+        let mut redirects = 0;
         loop {
             let outcome = self
                 .send_once(spec, tokens, classifier, &method, url.clone(), &headers, &request)
                 .await;
             let error = match outcome {
-                Ok(response) => return Ok(response),
+                Ok(Sent::Done(response)) => return Ok(response),
+                // A read that the provider moved to another address it also
+                // owns. `send_once` has already checked the new address
+                // against the allowlist.
+                Ok(Sent::Moved(next)) if redirects < MAX_REDIRECTS => {
+                    redirects += 1;
+                    url = next;
+                    continue;
+                }
+                Ok(Sent::Moved(_)) => {
+                    return Err(Error::new(
+                        ErrorKind::Unexpected,
+                        format!("{} redirected the request too many times", spec.id),
+                    )
+                    .with_provider(spec.id.clone()));
+                }
                 Err(error) => error,
             };
             // A throttled request was not processed, so any method may be retried.
@@ -284,8 +316,9 @@ impl Transport {
         mut url: Url,
         caller: &HeaderMap,
         request: &RawRequest,
-    ) -> Result<RawResponse> {
+    ) -> Result<Sent> {
         let secret = tokens.access_token.expose();
+        let asked = url.clone();
         if let AuthScheme::ApiKey(ApiKeySpec {
             placement: KeyPlacement::Query { name },
         }) = &spec.auth
@@ -330,11 +363,14 @@ impl Transport {
             builder = builder.body(bytes);
         }
         let response = read(spec, builder).await?;
+        if let Some(next) = redirect_target(spec, method, &asked, &response) {
+            return Ok(Sent::Moved(next));
+        }
         // A provider may echo the request, credential included, in its error text.
         classifier
             .classify(&spec.id, &response)
             .map_err(|e| e.map_message(|m| m.replace(secret, "[redacted]")))?;
-        Ok(response)
+        Ok(Sent::Done(response))
     }
 
     /// Posts a form to `url`, which must be one of `spec`'s allowed hosts.
@@ -377,6 +413,52 @@ impl Transport {
         }
         read(spec, builder).await
     }
+}
+
+/// What one attempt produced.
+enum Sent {
+    Done(RawResponse),
+    /// The provider answered a read with a redirect to this address, which
+    /// is one of its allowed hosts.
+    Moved(Url),
+}
+
+/// How many redirects one request follows.
+const MAX_REDIRECTS: u32 = 3;
+
+/// Where a redirect may be followed to, if anywhere.
+///
+/// Only a read is followed, and only to an address that passes the same
+/// allowlist as any other request: https, port 443, a listed host, no
+/// username or password. Anything else is left as the 3xx it is, so
+/// credentials never follow a redirect off the provider's own hosts.
+fn redirect_target(spec: &ProviderSpec, method: &reqwest::Method, asked: &Url, response: &RawResponse) -> Option<Url> {
+    if !matches!(response.status, 301 | 302 | 307 | 308) || !matches!(method.as_str(), "GET" | "HEAD") {
+        return None;
+    }
+    let mut next = asked.join(response.header("location")?).ok()?;
+    if !spec.allows_host(&next) || !next.username().is_empty() || next.password().is_some() {
+        return None;
+    }
+    next.set_fragment(None);
+    // An API key in the query is added again on each attempt; a copy the
+    // provider echoed into the new address is dropped.
+    if let AuthScheme::ApiKey(ApiKeySpec {
+        placement: KeyPlacement::Query { name },
+    }) = &spec.auth
+    {
+        let kept: Vec<(String, String)> = next
+            .query_pairs()
+            .filter(|(given, _)| !given.trim().eq_ignore_ascii_case(name.trim()))
+            .map(|(n, v)| (n.into_owned(), v.into_owned()))
+            .collect();
+        if kept.is_empty() {
+            next.set_query(None);
+        } else {
+            next.query_pairs_mut().clear().extend_pairs(kept);
+        }
+    }
+    Some(next)
 }
 
 /// Headers a caller may never set: they carry credentials, choose where the
@@ -484,6 +566,15 @@ async fn read(spec: &ProviderSpec, builder: reqwest::RequestBuilder) -> Result<R
         .map_err(|e| transport("read the response from", e))?
     {
         if bytes.len() + chunk.len() > MAX_BODY_BYTES {
+            // An oversized error page still has a status and headers worth
+            // acting on: a 429 stays a throttle. Its body is not read.
+            if !(200..300).contains(&status) {
+                return Ok(RawResponse {
+                    status,
+                    headers,
+                    body: Value::Null,
+                });
+            }
             return Err(Error::new(
                 ErrorKind::Decode,
                 format!("{} answered with a response too large to read", spec.id),
@@ -579,8 +670,21 @@ mod tests {
             Retry::After(Duration::from_secs(12))
         );
         assert_eq!(classify(429, &[], Value::Null).retry(), Retry::Later);
-        let http_date = classify(429, &[("retry-after", "Wed, 21 Oct 2026 07:28:00 GMT")], Value::Null);
-        assert_eq!(http_date.retry(), Retry::Later);
+        let garbled = classify(429, &[("retry-after", "soon")], Value::Null);
+        assert_eq!(garbled.retry(), Retry::Later);
+
+        // An HTTP date is honoured too: the wait is the time left until it.
+        let in_two_minutes = httpdate::fmt_http_date(std::time::SystemTime::now() + Duration::from_secs(120));
+        let Retry::After(wait) = classify(429, &[("retry-after", in_two_minutes.as_str())], Value::Null).retry() else {
+            panic!("a date in the future is a wait")
+        };
+        assert!((115..=120).contains(&wait.as_secs()), "{wait:?}");
+        let past = classify(429, &[("retry-after", "Wed, 21 Oct 2015 07:28:00 GMT")], Value::Null);
+        assert_eq!(
+            past.retry(),
+            Retry::After(Duration::ZERO),
+            "a date already past means now"
+        );
     }
 
     #[test]

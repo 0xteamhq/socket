@@ -66,7 +66,8 @@ async fn identity_asks_for_the_viewer() {
 #[tokio::test]
 async fn a_team_resolves_to_its_id_and_the_key_is_sent_as_a_variable() {
     let server = MockServer::start().await;
-    Mock::given(path("/graphql"))
+    Mock::given(method("POST"))
+        .and(path("/graphql"))
         .and(body_string_contains(r#""variables":{"key":"ENG"}"#))
         .respond_with(ok(
             json!({ "data": { "teams": { "nodes": [{ "id": "team-uuid", "key": "ENG", "name": "Engineering" }] } } }),
@@ -137,4 +138,32 @@ async fn a_team_other_than_the_one_asked_for_is_refused() {
         resolve(&socket, &key, "ENG").await.unwrap_err().kind(),
         ErrorKind::Decode
     );
+}
+
+#[tokio::test]
+async fn a_personal_api_key_is_sent_bare_and_an_oauth_token_as_bearer() {
+    for (token, header_value) in [
+        ("lin_api_abc123", "lin_api_abc123"),
+        ("lin_oauth_xyz", "Bearer lin_oauth_xyz"),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/graphql"))
+            .and(header("authorization", header_value))
+            .respond_with(ok(
+                json!({ "data": { "viewer": { "id": "u-1", "name": "Ada", "email": null } } }),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+        // The real constructor decides how the token is sent; only the address moves to the local server.
+        let moved = point_at(Linear::with_token(token).provider(), &server);
+        let integration: Arc<dyn Integration> = Arc::new(Linear::with_spec(moved).token(token));
+        let socket = Socket::in_memory().integration(integration).build().unwrap();
+        let key = ConnectionKey::new(provider().id, "anyone");
+        socket
+            .invoke(key, "linear.identity.get".into(), json!({}))
+            .await
+            .unwrap_or_else(|e| panic!("{token}: {e}"));
+    }
 }

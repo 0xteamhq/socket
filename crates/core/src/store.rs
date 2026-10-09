@@ -28,8 +28,11 @@ impl ConnectionKey {
 /// Where tokens live. The application implements this; Socket never persists.
 ///
 /// Methods take owned values and return `Result` so the trait can be
-/// implemented by an object in another language. Socket holds no lock while
-/// calling a store, so an implementation may be slow or call back into Socket.
+/// implemented by an object in another language. An implementation may be
+/// slow. Socket holds no thread lock while calling a store, but while it
+/// refreshes or replaces a connection it holds that connection's async lock
+/// across `load` and `save`, so an implementation must not call back into
+/// Socket for the same connection from inside these methods.
 #[async_trait]
 pub trait TokenStore: Send + Sync {
     async fn load(&self, key: ConnectionKey) -> Result<Option<TokenSet>>;

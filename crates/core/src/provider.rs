@@ -176,6 +176,28 @@ impl ProviderSpec {
             ));
         }
         if let AuthScheme::OAuth2(oauth) = &self.auth {
+            // Socket writes these itself. A second copy from the definition
+            // would make the request ambiguous, or override the state check.
+            const WRITTEN_BY_SOCKET: [&str; 7] = [
+                "client_id",
+                "redirect_uri",
+                "response_type",
+                "state",
+                "scope",
+                "code_challenge",
+                "code_challenge_method",
+            ];
+            let own_query = oauth.authorize_url.query_pairs().map(|(name, _)| name.into_owned());
+            let extra = oauth.extra_authorize_params.iter().map(|(name, _)| name.clone());
+            if let Some(name) = own_query
+                .chain(extra)
+                .find(|name| WRITTEN_BY_SOCKET.contains(&name.as_str()))
+            {
+                return fail(format!(
+                    "provider {} sets the OAuth parameter {name:?}, which Socket writes itself",
+                    self.id
+                ));
+            }
             // The user's browser visits the authorize URL; no credential is sent there.
             if oauth.authorize_url.scheme() != "https" && !self.allows_host(&oauth.authorize_url) {
                 return fail(format!("provider {} has an authorize_url that is not https", self.id));
@@ -383,6 +405,46 @@ mod tests {
         ] {
             assert_eq!(with(a, t).unwrap_err().kind(), ErrorKind::Config, "{a} {t}");
         }
+    }
+
+    #[test]
+    fn a_definition_cannot_set_the_oauth_parameters_socket_writes() {
+        for reserved in [
+            "state",
+            "redirect_uri",
+            "client_id",
+            "response_type",
+            "scope",
+            "code_challenge",
+        ] {
+            let mut extra = slack();
+            if let AuthScheme::OAuth2(oauth) = &mut extra.auth {
+                oauth.extra_authorize_params.push((reserved.into(), "x".into()));
+            }
+            assert_eq!(
+                extra.validate().unwrap_err().kind(),
+                ErrorKind::Config,
+                "{reserved} as an extra parameter"
+            );
+
+            let mut in_url = slack();
+            if let AuthScheme::OAuth2(oauth) = &mut in_url.auth {
+                oauth.authorize_url =
+                    Url::parse(&format!("https://slack.com/oauth/v2/authorize?{reserved}=x")).unwrap();
+            }
+            assert_eq!(
+                in_url.validate().unwrap_err().kind(),
+                ErrorKind::Config,
+                "{reserved} on the authorize URL"
+            );
+        }
+        let mut fine = slack();
+        if let AuthScheme::OAuth2(oauth) = &mut fine.auth {
+            oauth
+                .extra_authorize_params
+                .push(("access_type".into(), "offline".into()));
+        }
+        fine.validate().unwrap();
     }
 
     #[test]

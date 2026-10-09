@@ -51,7 +51,9 @@ let channels = socket.request(slack, RawRequest::get("conversations.list")).awai
 Slack has typed methods for its whole everyday surface: messages, conversations, users, reactions, pins, files, search, reminders, bookmarks, user groups and the workspace. Identifiers are plain arguments; content and filters are structs.
 
 ```rust
+use std::sync::Arc;
 use socketkit::slack::models::{History, PostMessage};
+use socketkit::{ConnectionKey, ProviderId, Socket};
 
 let slack = socketkit::slack::Slack::with_token("xoxb-your-token");
 let socket = Socket::in_memory().integration(Arc::new(slack.clone())).build()?;
@@ -67,6 +69,9 @@ Each of those is also an operation an agent can call by name with JSON, for exam
 With your own OAuth app, to connect your users:
 
 ```rust
+use std::sync::Arc;
+use socketkit::{ConnectionKey, OAuthClient, ProviderId, SecretString, Socket};
+
 let socket = Socket::builder(Arc::new(my_token_store))        // where your users' tokens are kept
     .integration(Arc::new(socketkit::github::GitHub::with_oauth(OAuthClient {
         client_id: config.github_client_id,

@@ -59,8 +59,8 @@ let slack = Slack::with_oauth(SlackOAuth {
     },
     // Bot scopes. `None` asks for the defaults: channels:history, channels:read, users:read, users:read.email.
     scopes: Some(vec!["chat:write".into(), "channels:read".into(), "channels:history".into()]),
-    // Scopes for acting as the person, sent as Slack's separate `user_scope` parameter.
-    user_scopes: vec!["search:read".into()],
+    // Leave empty to act as the bot. See "Bot token or user token" below before setting this.
+    user_scopes: Vec::new(),
 });
 let socket = Socket::builder(Arc::new(my_token_store)).integration(Arc::new(slack.clone())).build()?;
 
@@ -74,7 +74,16 @@ socket.complete_authorization(pending, code, state).await?;
 let connection = socket.connection(key).await?;
 ```
 
-`Slack::with_oauth(client)` with a plain `OAuthClient` also works when the default scopes are enough. When Slack returns both a bot token and a user token, Socket stores the user token.
+`Slack::with_oauth(client)` with a plain `OAuthClient` also works when the default scopes are enough.
+
+### Bot token or user token
+
+Slack can issue two tokens from one approval: a bot token for `scopes`, and a user token for `user_scopes`. **When Slack returns both, Socket stores the user token, and every call then acts as the person with only the user scopes.** The bot scopes are not available to those calls.
+
+So choose one:
+
+- **Act as the bot** (the usual case): set `scopes`, leave `user_scopes` empty.
+- **Act as the person** (needed for search, reminders and snoozing): put every scope the calls need in `user_scopes`, not only the extra one. For example, to search and also read channels: `user_scopes: vec!["search:read".into(), "channels:read".into(), "channels:history".into()]`.
 
 ## Use the typed methods
 
@@ -230,7 +239,7 @@ The scope shown is the bot-token scope for a public channel. A private channel, 
 | `slack.conversations.rename` | destructive | channels:manage | Rename a channel. |
 | `slack.conversations.set_topic` | destructive | channels:manage | Set a channel's topic. |
 | `slack.conversations.set_purpose` | destructive | channels:manage | Set a channel's purpose. |
-| `slack.conversations.open` | write | im:write | Open a direct message with one member, or a group direct message with several. |
+| `slack.conversations.open` | write | im:write, mpim:write | Open a direct message with one member, or a group direct message with several. |
 | `slack.conversations.mark` | write | channels:manage | Mark a conversation as read up to a message. |
 | `slack.users.list` | read | users:read | List the members of the workspace. |
 | `slack.users.info` | read | users:read | Get one member. |
@@ -277,7 +286,7 @@ Every error has a kind a program can branch on, and a message that is safe to sh
 
 An input error names the field and never repeats the value you sent.
 
-Reads are retried on a throttle or a server error. **A write is sent once and never repeated**, so a message cannot be posted twice; if a write fails with a server error, check before sending it again.
+Reads are retried on a throttle or a server error. A write is retried only when Slack throttles it, because a throttled request was not carried out. **A write that fails any other way is never repeated**, so a message cannot be posted twice; if a write fails with a server error, check before sending it again.
 
 ## Not supported yet
 
