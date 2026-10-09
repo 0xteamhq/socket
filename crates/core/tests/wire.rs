@@ -2083,6 +2083,8 @@ async fn a_redirect_that_carries_credentials_or_leaves_https_is_not_followed() {
     for (route, location) in [
         ("userinfo", format!("http://someone:pw@{host}/api/landed")),
         ("scheme", format!("ftp://{host}/api/landed")),
+        // Plain http to a host that is allowed over https: a downgrade must not carry the token.
+        ("downgrade", "http://api.allowed.test/api/landed".to_owned()),
         ("garbled", "http://[not a url".to_owned()),
     ] {
         Mock::given(path(format!("/api/{route}")))
@@ -2094,8 +2096,10 @@ async fn a_redirect_that_carries_credentials_or_leaves_https_is_not_followed() {
         .respond_with(ResponseTemplate::new(200))
         .mount(&server)
         .await;
-    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("t")).await;
-    for route in ["userinfo", "scheme", "garbled"] {
+    let mut spec = oauth_spec(&server, ClientAuth::Body, false);
+    spec.allowed_hosts.push("api.allowed.test".into());
+    let (socket, _) = connected(spec, TokenSet::bearer("t")).await;
+    for route in ["userinfo", "scheme", "downgrade", "garbled"] {
         let err = socket.request(key(), RawRequest::get(route)).await.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Unexpected, "{route}");
     }
@@ -2329,4 +2333,359 @@ async fn a_call_begun_under_one_account_is_never_sent_again_with_another_account
         0,
         "and B's refresh token is not spent for it"
     );
+}
+
+// ── Findings from the review of the second pull request ──────────────────────
+
+/// A store that swaps in another account's tokens on its second load, as an
+/// application saving a reconnect at exactly the wrong moment would.
+struct SwapsOnSecondLoad {
+    inner: MemoryTokenStore,
+    loads: std::sync::atomic::AtomicUsize,
+    replacement: TokenSet,
+}
+
+#[async_trait]
+impl TokenStore for SwapsOnSecondLoad {
+    async fn load(&self, key: ConnectionKey) -> Result<Option<TokenSet>> {
+        if self.loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+            self.inner.save(key.clone(), self.replacement.clone()).await?;
+        }
+        self.inner.load(key).await
+    }
+    async fn save(&self, key: ConnectionKey, tokens: TokenSet) -> Result<()> {
+        self.inner.save(key, tokens).await
+    }
+    async fn delete(&self, key: ConnectionKey) -> Result<()> {
+        self.inner.delete(key).await
+    }
+}
+
+#[tokio::test]
+async fn tokens_swapped_in_while_a_renewal_is_under_way_are_not_used_for_the_rejected_call() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer account-a"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer account-b"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    let store = Arc::new(SwapsOnSecondLoad {
+        inner: MemoryTokenStore::new(),
+        loads: 0.into(),
+        replacement: TokenSet {
+            expires_at: Some(SystemTime::now() + Duration::from_secs(3600)),
+            ..never_expiring("account-b", "RB")
+        },
+    });
+    store.save(key(), never_expiring("account-a", "RA")).await.unwrap();
+    let socket = builder_with(store.clone(), oauth_spec(&server, ClientAuth::Body, false));
+
+    // First load: the call is made as account A. Second load, inside the renewal: account B appears.
+    let err = socket
+        .request(key(), RawRequest::post("items", json!({})))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::ReconnectRequired);
+    let received = server.received_requests().await.unwrap();
+    let as_b = received
+        .iter()
+        .filter(|r| r.headers.get("authorization").is_some_and(|v| v == "Bearer account-b"))
+        .count();
+    assert_eq!(as_b, 0, "account A's call must not run as account B");
+    assert_eq!(hits(&server, "/token").await, 0);
+}
+
+#[tokio::test]
+async fn a_connection_that_is_kept_goes_on_using_the_tokens_it_was_renewed_with() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer stale"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer fresh"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "access_token": "fresh" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        never_expiring("stale", "R1"),
+    )
+    .await;
+    let connection = socket.connection(key()).await.unwrap();
+    for _ in 0..3 {
+        connection.request(RawRequest::get("items")).await.unwrap();
+    }
+    let received = server.received_requests().await.unwrap();
+    let stale = received
+        .iter()
+        .filter(|r| r.headers.get("authorization").is_some_and(|v| v == "Bearer stale"))
+        .count();
+    assert_eq!(stale, 1, "only the first call is made with the rejected token");
+}
+
+#[tokio::test]
+async fn reconnecting_clears_the_renewal_limit_for_the_new_authorization() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer second-fresh"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("refresh_token=R1"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "access_token": "first-fresh", "refresh_token": "R1b" })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("grant_type=authorization_code"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "access_token": "second", "refresh_token": "R2" })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("refresh_token=R2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "access_token": "second-fresh" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        never_expiring("first", "R1"),
+    )
+    .await;
+
+    // The first authorization is renewed once, and the renewed token is rejected too.
+    socket.request(key(), RawRequest::get("items")).await.unwrap_err();
+    // The person reconnects. The limit belonged to the old authorization.
+    let authorization = socket.begin_authorization(key(), None).unwrap();
+    let state = authorization.pending.state.clone();
+    socket
+        .complete_authorization(authorization.pending, "code".into(), state)
+        .await
+        .unwrap();
+    socket.request(key(), RawRequest::get("items")).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_token_endpoint_401_that_names_a_declined_grant_means_reconnect_and_a_bare_403_is_reported_as_itself() {
+    for (status, body, kind) in [
+        (401, json!({ "error": "invalid_grant" }), ErrorKind::ReconnectRequired),
+        (401, json!({}), ErrorKind::Config),
+        (401, json!({ "error": "invalid_client" }), ErrorKind::Config),
+        (403, json!({ "message": "OAuth app disabled" }), ErrorKind::Unexpected),
+        (410, Value::Null, ErrorKind::Config),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(path("/token"))
+            .respond_with(ResponseTemplate::new(status).set_body_json(body.clone()))
+            .mount(&server)
+            .await;
+        let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), expired(Some("R1"))).await;
+        let err = socket.request(key(), RawRequest::get("me")).await.unwrap_err();
+        assert_eq!(err.kind(), kind, "HTTP {status} {body}");
+    }
+}
+
+#[tokio::test]
+async fn a_refusal_code_that_is_really_an_echoed_secret_is_not_repeated() {
+    let server = MockServer::start().await;
+    // Short, and made only of letters and a hyphen: it looks like a code, and it is the client secret.
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "error": "client-secret" })))
+        .mount(&server)
+        .await;
+    let socket = builder_with(
+        Arc::new(MemoryTokenStore::new()),
+        oauth_spec(&server, ClientAuth::Body, false),
+    );
+    let authorization = socket.begin_authorization(key(), None).unwrap();
+    let state = authorization.pending.state.clone();
+    let err = socket
+        .complete_authorization(authorization.pending, "the-code".into(), state)
+        .await
+        .unwrap_err();
+    let everything = format!("{err} {err:?} {}", serde_json::to_string(&err.to_wire()).unwrap());
+    assert!(!everything.contains("client-secret"), "{everything}");
+}
+
+#[tokio::test]
+async fn a_303_is_followed_for_a_read_and_an_unfollowed_redirect_says_what_happened() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/see"))
+        .respond_with(ResponseTemplate::new(303).insert_header("location", "/api/other"))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/other"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "ok": true })))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/away"))
+        .respond_with(ResponseTemplate::new(302).insert_header("location", "https://elsewhere.test/x"))
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        TokenSet::bearer("token-303"),
+    )
+    .await;
+    assert_eq!(
+        socket.request(key(), RawRequest::get("see")).await.unwrap().body["ok"],
+        true
+    );
+    let err = socket.request(key(), RawRequest::get("away")).await.unwrap_err();
+    assert!(err.message().contains("redirected"), "{}", err.message());
+    assert!(
+        !err.message().contains("elsewhere.test"),
+        "the address it pointed to is not repeated"
+    );
+}
+
+#[tokio::test]
+async fn a_recovered_rotation_is_not_handed_to_a_call_made_with_unrelated_tokens() {
+    let server = MockServer::start().await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("refresh_token=R1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "access_token": "A2", "refresh_token": "R2", "expires_in": 3600 })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer A2"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+
+    let store = Arc::new(FailsFirstSave {
+        inner: MemoryTokenStore::new(),
+        failed: true.into(),
+    });
+    store.save(key(), never_expiring("other-account", "RZ")).await.unwrap();
+    let socket = builder_with(store.clone(), oauth_spec(&server, ClientAuth::Body, false));
+    // A call is prepared with the tokens of the account connected at this moment.
+    let earlier = socket.connection(key()).await.unwrap();
+
+    // The connection is then replaced by a different authorization, which expires and is
+    // refreshed, but the save of that rotation fails and is left to be recovered.
+    store.inner.save(key(), expired(Some("R1"))).await.unwrap();
+    store.failed.store(false, std::sync::atomic::Ordering::SeqCst);
+    socket.request(key(), RawRequest::get("items")).await.unwrap_err();
+
+    // The earlier call is rejected. The rotation waiting to be recovered belongs to the
+    // other authorization and must not be used to send it again.
+    let err = earlier.request(RawRequest::post("items", json!({}))).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::ReconnectRequired);
+    let received = server.received_requests().await.unwrap();
+    let posts_as_a2 = received
+        .iter()
+        .filter(|r| r.method.as_str() == "POST" && r.headers.get("authorization").is_some_and(|v| v == "Bearer A2"))
+        .count();
+    assert_eq!(posts_as_a2, 0, "the call must not run under the other authorization");
+}
+
+#[tokio::test]
+async fn a_replacement_that_happens_to_share_the_access_token_is_still_not_used_for_the_rejected_call() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/items"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "access_token": "from-the-replacement" })))
+        .mount(&server)
+        .await;
+    let (socket, store) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        never_expiring("same-string", "R-original"),
+    )
+    .await;
+    let earlier = socket.connection(key()).await.unwrap();
+    // A different authorization whose access token is, by accident or design, the same string.
+    store
+        .save(key(), never_expiring("same-string", "R-replacement"))
+        .await
+        .unwrap();
+
+    let err = earlier.request(RawRequest::post("items", json!({}))).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::ReconnectRequired);
+    assert_eq!(
+        hits(&server, "/token").await,
+        0,
+        "the replacement's refresh token is not spent for the old call"
+    );
+    assert_eq!(hits(&server, "/api/items").await, 1, "and the call is not sent again");
+}
+
+#[tokio::test]
+async fn token_endpoint_errors_that_reconnecting_cannot_fix_are_configuration_errors_whatever_the_status() {
+    for status in [400, 401] {
+        for code in [
+            "incorrect_client_credentials",
+            "invalid_client",
+            "invalid_scope",
+            "unsupported_grant_type",
+            "redirect_uri_mismatch",
+        ] {
+            let server = MockServer::start().await;
+            Mock::given(path("/token"))
+                .respond_with(ResponseTemplate::new(status).set_body_json(json!({ "error": code })))
+                .mount(&server)
+                .await;
+            let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), expired(Some("R1"))).await;
+            let err = socket.request(key(), RawRequest::get("me")).await.unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Config, "HTTP {status} {code}");
+        }
+        for code in ["invalid_grant", "bad_refresh_token", "expired_token"] {
+            let server = MockServer::start().await;
+            Mock::given(path("/token"))
+                .respond_with(ResponseTemplate::new(status).set_body_json(json!({ "error": code })))
+                .mount(&server)
+                .await;
+            let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), expired(Some("R1"))).await;
+            let err = socket.request(key(), RawRequest::get("me")).await.unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::ReconnectRequired, "HTTP {status} {code}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_3xx_that_is_not_a_redirect_is_not_described_as_one() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/unchanged"))
+        .respond_with(ResponseTemplate::new(304))
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        TokenSet::bearer("token-304"),
+    )
+    .await;
+    let err = socket.request(key(), RawRequest::get("unchanged")).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Unexpected);
+    assert!(!err.message().contains("redirected"), "{}", err.message());
+    assert!(err.message().contains("304"), "{}", err.message());
 }

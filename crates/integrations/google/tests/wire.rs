@@ -259,6 +259,8 @@ async fn a_workspace_domain_that_is_not_a_domain_is_refused_when_the_socket_is_b
         "https://acme.example",
         "acme",
         "acme .example",
+        "-acme.example",
+        "acme-.example",
     ] {
         let integration: Arc<dyn Integration> = Arc::new(Google::new().hosted_domain(bad));
         let err = Socket::in_memory().integration(integration).build().unwrap_err();
@@ -266,4 +268,23 @@ async fn a_workspace_domain_that_is_not_a_domain_is_refused_when_the_socket_is_b
     }
     let fine: Arc<dyn Integration> = Arc::new(Google::new().hosted_domain("@Acme.Example"));
     Socket::in_memory().integration(fine).build().unwrap();
+}
+
+#[tokio::test]
+async fn correcting_a_bad_workspace_domain_clears_the_problem() {
+    let corrected: Arc<dyn Integration> = Arc::new(
+        Google::new()
+            .hosted_domain("not a domain")
+            .hosted_domain("acme.example"),
+    );
+    Socket::in_memory().integration(corrected).build().unwrap();
+    let broken_again: Arc<dyn Integration> = Arc::new(Google::new().hosted_domain("acme.example").hosted_domain(""));
+    assert_eq!(
+        Socket::in_memory()
+            .integration(broken_again)
+            .build()
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Config
+    );
 }

@@ -119,8 +119,8 @@ pub struct GitHub {
     access: Access,
     /// What is wrong with the settings it was created with, if anything.
     problem: Option<String>,
-    /// The host people paste repository URLs from: `github.com`, or an Enterprise Server's.
-    web_host: String,
+    /// The hosts people paste repository URLs from: `github.com`, or an Enterprise Server's.
+    web_hosts: Vec<String>,
 }
 
 impl Default for GitHub {
@@ -168,9 +168,17 @@ impl GitHub {
         match provider_for_host(&host) {
             Some(spec) => {
                 // The host as the URL parser wrote it, which is what a pasted URL will carry.
-                let web_host = spec.allowed_hosts.first().cloned().unwrap_or_default();
+                // A pasted URL may carry the host as it was typed (`127.1`) or
+                // as the URL parser wrote it in the definition (`127.0.0.1`).
+                // Both are recognised, whatever `with_spec` made of the address.
+                let canonical = spec.allowed_hosts.first().cloned();
+                let typed = host.trim().to_ascii_lowercase();
                 let mut this = Self::with_spec(spec);
-                this.web_host = web_host;
+                for known in canonical.into_iter().chain([typed]) {
+                    if !this.web_hosts.contains(&known) {
+                        this.web_hosts.push(known);
+                    }
+                }
                 this
             }
             None => {
@@ -185,11 +193,12 @@ impl GitHub {
 
     /// Uses another definition, for GitHub Enterprise Server or a test server.
     pub fn with_spec(spec: ProviderSpec) -> Self {
+        let web_hosts = web_hosts_of(&spec);
         Self {
             spec,
             access: Access::default(),
             problem: None,
-            web_host: "github.com".to_owned(),
+            web_hosts,
         }
     }
 
@@ -236,7 +245,17 @@ impl GitHub {
     /// Accepts `owner/repo`, a github.com URL, or an SSH remote. The result
     /// carries the name with GitHub's own casing.
     pub async fn resolve(&self, connection: &Connection, input: &str) -> Result<Resource> {
-        let (owner, repo) = parse_repo_on(input, &self.web_host).map_err(|e| e.with_provider(self.spec.id.clone()))?;
+        // A bare `owner/repo` reads the same for any host; a URL must be on one of this integration's.
+        let first_host = self.web_hosts.first().map_or("github.com", String::as_str);
+        let (owner, repo) = match self.web_hosts.iter().find_map(|host| parse_repo_on(input, host).ok()) {
+            Some(parsed) => parsed,
+            None => {
+                return Err(parse_repo_on(input, first_host)
+                    .err()
+                    .unwrap_or_else(|| Error::new(ErrorKind::InvalidInput, "that is not a GitHub repository"))
+                    .with_provider(self.spec.id.clone()));
+            }
+        };
         let response = connection
             .request(Self::request(format!("repos/{owner}/{repo}")))
             .await
@@ -263,6 +282,21 @@ impl GitHub {
                     .with_provider(self.spec.id.clone())
             })?;
         Ok(Resource::new(full_name, full_name, "GitHub repository"))
+    }
+}
+
+/// The hosts repository URLs are pasted from, for a definition.
+///
+/// github.com for GitHub's own API, and for a loopback address, which is a
+/// test server standing in for it. Otherwise the definition's own host, which
+/// is how a GitHub Enterprise Server given through `with_spec` is recognised.
+fn web_hosts_of(spec: &ProviderSpec) -> Vec<String> {
+    let host = spec.api_base.host_str().unwrap_or_default().to_ascii_lowercase();
+    let stands_for_github = matches!(host.as_str(), "api.github.com" | "localhost" | "127.0.0.1" | "[::1]");
+    if stands_for_github {
+        vec!["github.com".to_owned()]
+    } else {
+        vec![host]
     }
 }
 
@@ -438,6 +472,32 @@ mod tests {
             "a:8443",
         ] {
             assert!(provider_for_host(bad).is_none(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_hosts_urls_are_pasted_from_follow_the_definition_and_what_was_typed() {
+        assert_eq!(GitHub::new().web_hosts, ["github.com"]);
+        let given = GitHub::with_spec(provider_for_host("github.acme.example").unwrap());
+        assert_eq!(given.web_hosts, ["github.acme.example"]);
+        // A numeric shorthand is rewritten in the definition; both spellings are recognised in a pasted URL.
+        let numeric = GitHub::with_token(GitHubToken {
+            token: SecretString::new("t"),
+            host: Some("127.1".into()),
+        });
+        // The integration tries each known host, so a URL in either spelling is read.
+        let read = |input: &str| numeric.web_hosts.iter().any(|host| parse_repo_on(input, host).is_ok());
+        assert!(read("https://127.1/acme/api") && read("https://127.0.0.1/acme/api"));
+        assert!(
+            !read("https://127.0.0.2/acme/api"),
+            "a host that is neither spelling is refused"
+        );
+        for spelling in ["127.1", "127.0.0.1"] {
+            assert!(
+                numeric.web_hosts.contains(&spelling.to_owned()),
+                "{spelling}: {:?}",
+                numeric.web_hosts
+            );
         }
     }
 

@@ -157,6 +157,8 @@ pub struct Connection {
     transport: Transport,
     classifier: Arc<dyn Classifier>,
     renew: Option<Arc<dyn Renew>>,
+    /// The tokens a renewal gave this connection, used from then on in place of `tokens`.
+    renewed: Arc<std::sync::Mutex<Option<TokenSet>>>,
 }
 
 impl Connection {
@@ -175,6 +177,7 @@ impl Connection {
             transport,
             classifier,
             renew,
+            renewed: Arc::default(),
         }
     }
 
@@ -188,8 +191,10 @@ impl Connection {
     /// When the provider rejects the access token and a refresh token is
     /// held, the token is refreshed once and the request sent once more. This
     /// is what keeps a connection working when the provider never said when
-    /// its token expires. A rejected request was not carried out, so sending
-    /// it again is safe for a write too.
+    /// its token expires. The request is sent again only when the renewal
+    /// produced a different access token. A request the provider rejected for
+    /// its credentials was not carried out, so sending it again is safe for a
+    /// write too.
     ///
     /// Two limits apply. A connection is renewed this way at most once in
     /// five minutes, so an endpoint that rejects every call cannot rotate its
@@ -197,18 +202,31 @@ impl Connection {
     /// with are renewed: if the store has since been given different ones,
     /// the rejection is reported and the request is not sent again.
     pub async fn request(&self, request: RawRequest) -> Result<RawResponse> {
-        let rejected = match self.send(&self.tokens, request.clone()).await {
+        // After a renewal this connection goes on using the renewed tokens,
+        // so a connection that is kept does not fail on every later call.
+        let tokens = self.renewed().unwrap_or_else(|| self.tokens.clone());
+        let rejected = match self.send(&tokens, request.clone()).await {
             Err(error) if error.kind() == ErrorKind::ReconnectRequired => error,
             outcome => return outcome,
         };
-        let (Some(renew), Some(_)) = (&self.renew, &self.tokens.refresh_token) else {
+        let (Some(renew), Some(_)) = (&self.renew, &tokens.refresh_token) else {
             return Err(rejected);
         };
-        let fresh = renew.renew(self.key.clone(), self.tokens.clone()).await?;
-        if fresh.access_token == self.tokens.access_token {
+        let fresh = renew.renew(self.key.clone(), tokens.clone()).await?;
+        // The request is sent again only with a token the provider has not
+        // already rejected.
+        if fresh.access_token == tokens.access_token {
             return Err(rejected);
         }
+        *self.renewed.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(fresh.clone());
         self.send(&fresh, request).await
+    }
+
+    fn renewed(&self) -> Option<TokenSet> {
+        self.renewed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     async fn send(&self, tokens: &TokenSet, request: RawRequest) -> Result<RawResponse> {

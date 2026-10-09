@@ -416,6 +416,7 @@ mod tests {
             "response_type",
             "scope",
             "code_challenge",
+            "code_challenge_method",
         ] {
             let mut extra = slack();
             if let AuthScheme::OAuth2(oauth) = &mut extra.auth {

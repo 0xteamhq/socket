@@ -194,14 +194,16 @@ impl Google {
         // address, a URL) could never match what Google reports, so it is a
         // mistake to be told about, not a restriction to apply silently.
         let is_label = |label: &str| {
-            (1..=63).contains(&label.len()) && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            (1..=63).contains(&label.len())
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
         };
         let valid = domain.contains('.') && domain.split('.').all(is_label);
-        if !valid {
-            self.problem = Some(format!(
-                "{domain:?} is not a Google Workspace domain; give the domain alone, such as acme.example"
-            ));
-        }
+        // Decided afresh on every call, so correcting a bad value clears the problem.
+        self.problem = (!valid).then(|| {
+            format!("{domain:?} is not a Google Workspace domain; give the domain alone, such as acme.example")
+        });
         // Kept even when invalid, so that identity refuses every account
         // instead of letting every account through.
         self.hosted_domain = Some(domain.clone());

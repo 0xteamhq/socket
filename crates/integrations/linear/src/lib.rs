@@ -134,7 +134,11 @@ impl From<OAuthClient> for LinearOAuth {
 ///
 /// Linear takes the two differently: an OAuth token as `Bearer <token>`, a
 /// personal API key (`lin_api_…`) as the bare key. Socket tells them apart by
-/// that prefix.
+/// that prefix when the token is given to the integration.
+///
+/// A token loaded from the application's token store is always sent as
+/// `Bearer`: the store is for the OAuth tokens of connected users. Give a
+/// personal API key to the integration with `with_token`.
 #[derive(Debug, Clone)]
 pub struct LinearToken {
     pub token: SecretString,
@@ -159,6 +163,8 @@ impl From<&str> for LinearToken {
 pub struct Linear {
     spec: ProviderSpec,
     access: Access,
+    /// The scheme a personal API key replaced, kept so that setting another kind of token restores it.
+    replaced_by_key: Option<AuthScheme>,
 }
 
 impl Default for Linear {
@@ -190,28 +196,13 @@ impl Linear {
     /// Linear with a token the application already holds. Every call uses it.
     /// Takes a string, or a [`LinearToken`] for the settings only Linear has.
     pub fn with_token(settings: impl Into<LinearToken>) -> Self {
-        let settings = settings.into();
-        let mut this = Self::new();
-        if settings.token.expose().starts_with(API_KEY_PREFIX) {
-            this.spec.auth = AuthScheme::ApiKey(ApiKeySpec {
-                placement: KeyPlacement::Header {
-                    name: "Authorization".into(),
-                    prefix: None,
-                },
-            });
-        }
-        this.access.token = Some(TokenSet {
-            access_token: settings.token,
-            refresh_token: None,
-            expires_at: None,
-            scopes: Vec::new(),
-        });
-        this
+        Self::new().token(settings.into().token.expose())
     }
 
     /// Uses another definition, for a test server.
     pub fn with_spec(spec: ProviderSpec) -> Self {
         Self {
+            replaced_by_key: None,
             spec,
             access: Access::default(),
         }
@@ -224,7 +215,27 @@ impl Linear {
     }
 
     /// Sets a token the application already holds.
+    ///
+    /// A personal API key (`lin_api_…`) is sent bare. Any other token puts back
+    /// the scheme a key had replaced; if no key replaced one, the definition's
+    /// own scheme is kept as it is.
     pub fn token(mut self, token: impl Into<String>) -> Self {
+        let token = token.into();
+        if token.starts_with(API_KEY_PREFIX) {
+            let bare = AuthScheme::ApiKey(ApiKeySpec {
+                placement: KeyPlacement::Header {
+                    name: "Authorization".into(),
+                    prefix: None,
+                },
+            });
+            // The scheme in place now, scopes and all, is put back if a
+            // different kind of token is set later.
+            let previous = std::mem::replace(&mut self.spec.auth, bare);
+            self.replaced_by_key.get_or_insert(previous);
+        } else if let Some(previous) = self.replaced_by_key.take() {
+            self.spec.auth = previous;
+        }
+        // Otherwise the definition's own scheme is left exactly as it is.
         self.access.token = Some(TokenSet::bearer(token));
         self
     }

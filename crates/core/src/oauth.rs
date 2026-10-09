@@ -240,7 +240,16 @@ fn token_outcome(provider: &ProviderId, response: &RawResponse) -> Result<Option
     let error = |kind, message: String| Error::new(kind, message).with_provider(provider.clone());
     let status = response.status;
     let refusal = auth::grant_refusal(&response.body).map(|code| safe_code(&code));
-    let client_rejected = matches!(refusal.as_deref(), Some("invalid_client" | "unauthorized_client"));
+    let client_rejected = matches!(
+        refusal.as_deref(),
+        Some(
+            "invalid_client"
+                | "unauthorized_client"
+                | "incorrect_client_credentials"
+                | "invalid_client_id"
+                | "bad_client_secret"
+        )
+    );
     // The same signs of throttling the transport reads on an API call.
     let retry_after = response.header("retry-after");
     let throttled = status == 429
@@ -251,10 +260,20 @@ fn token_outcome(provider: &ProviderId, response: &RawResponse) -> Result<Option
                 .with_retry(retry_guidance(retry_after)),
         );
     }
-    if status == 401 || client_rejected {
+    // What a code says decides more than the status does. A rejected client
+    // or a malformed request is the application's to fix; reconnecting cannot.
+    if client_rejected || (status == 401 && refusal.is_none()) {
         return Err(error(
             ErrorKind::Config,
             format!("{provider} rejected the application's OAuth client; check its client id and secret"),
+        ));
+    }
+    if let Some(code) = refusal.as_deref().filter(|code| REQUEST_REFUSALS.contains(code)) {
+        return Err(error(
+            ErrorKind::Config,
+            format!(
+                "{provider} refused the token request ({code}); check the provider's definition and the OAuth app's settings"
+            ),
         ));
     }
     match status {
@@ -266,11 +285,16 @@ fn token_outcome(provider: &ProviderId, response: &RawResponse) -> Result<Option
         400 => Ok(Some(refusal.unwrap_or_else(|| "refused".into()))),
         // Any other client error that names a refusal is one too.
         401..=499 if refusal.is_some() => Ok(refusal),
-        // Otherwise the endpoint itself is wrong (a 404, a 405): not something
-        // reconnecting can fix.
-        401..=499 => Err(error(
+        // The endpoint itself is wrong: not something reconnecting can fix.
+        404 | 405 | 410 => Err(error(
             ErrorKind::Config,
             format!("the token endpoint of {provider} returned HTTP {status}; check the provider's definition"),
+        )),
+        // Anything else, such as a 403 for a disabled OAuth app, is reported
+        // as it is, without guessing at a cause.
+        401..=499 => Err(error(
+            ErrorKind::Unexpected,
+            format!("the token endpoint of {provider} returned HTTP {status}"),
         )),
         _ => Err(error(
             ErrorKind::Unexpected,
@@ -279,17 +303,58 @@ fn token_outcome(provider: &ProviderId, response: &RawResponse) -> Result<Option
     }
 }
 
-/// A refusal code that is safe to put in a message.
+/// The refusal codes that are repeated in a message.
 ///
-/// The code is text the provider chose. An OAuth error code is a short token
-/// such as `invalid_grant`; anything else could be an echo of the request,
-/// which holds the client secret and the authorization code.
+/// The code is text the provider chose, and a provider that echoes the
+/// request could put the client secret or the authorization code there. A
+/// shape check is not enough, because a secret can look like a code. So only
+/// codes known to be error codes are kept; anything else is "refused".
+const KNOWN_REFUSALS: &[&str] = &[
+    // The standard's codes.
+    "invalid_request",
+    "invalid_client",
+    "invalid_grant",
+    "unauthorized_client",
+    "unsupported_grant_type",
+    "invalid_scope",
+    "access_denied",
+    "expired_token",
+    "slow_down",
+    "authorization_pending",
+    "server_error",
+    "temporarily_unavailable",
+    "interaction_required",
+    "login_required",
+    "consent_required",
+    // Codes the six providers are documented to return.
+    "bad_verification_code",
+    "bad_refresh_token",
+    "incorrect_client_credentials",
+    "redirect_uri_mismatch",
+    "bad_redirect_uri",
+    "invalid_code",
+    "code_already_used",
+    "invalid_refresh_token",
+    "invalid_client_id",
+    "bad_client_secret",
+    "team_added_to_org",
+    "account_disabled",
+    "token_expired",
+    "token_revoked",
+];
+
+/// Codes that say the token request itself was wrong, which is the
+/// application's to fix and which reconnecting cannot.
+const REQUEST_REFUSALS: [&str; 5] = [
+    "invalid_request",
+    "invalid_scope",
+    "unsupported_grant_type",
+    "redirect_uri_mismatch",
+    "bad_redirect_uri",
+];
+
 fn safe_code(code: &str) -> String {
-    let is_token = (1..=64).contains(&code.len())
-        && code
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
-    if is_token {
+    if KNOWN_REFUSALS.contains(&code) {
         code.to_owned()
     } else {
         "refused".to_owned()
@@ -304,13 +369,15 @@ mod tests {
     fn only_a_short_error_token_is_kept_as_a_refusal_code() {
         assert_eq!(safe_code("invalid_grant"), "invalid_grant");
         assert_eq!(safe_code("bad_verification_code"), "bad_verification_code");
+        // A secret can look exactly like a code, so shape is not what is checked.
         for echoed in [
             "",
             "client_secret=shh&code=abc",
             "invalid grant",
-            "Bearer xoxb-1",
-            &"x".repeat(65),
-            "a\nb",
+            "client-secret",
+            "the-code",
+            "xoxb-1",
+            "INVALID_GRANT",
         ] {
             assert_eq!(safe_code(echoed), "refused", "{echoed:?}");
         }

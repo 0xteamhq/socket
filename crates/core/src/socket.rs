@@ -222,16 +222,10 @@ impl Renew for Inner {
                 return Err(refuse());
             }
 
-            // Only the tokens this call was made with are renewed. If the
-            // store now holds something else, the connection was replaced by
-            // other means, perhaps for a different account, and the call must
-            // not be sent again with those.
-            let stored = self.store.load(key.clone()).await?;
-            if stored.as_ref().map(|tokens| &tokens.access_token) != Some(&rejected.access_token) {
-                return Err(refuse());
-            }
+            // `refresh_under_lock` renews only the tokens this call was made
+            // with, and refuses if the store now holds any others.
             let fresh = self
-                .refresh_under_lock(&key, registered, &mut unsaved, Some(&rejected.access_token))
+                .refresh_under_lock(&key, registered, &mut unsaved, Some(&rejected))
                 .await?;
             self.record_renewal(key.clone(), rejected.access_token, fresh.access_token.clone());
             Ok(fresh)
@@ -400,6 +394,12 @@ impl Inner {
         // rotation left unsaved by the old one is still that connection's
         // only valid tokens.
         *unsaved = None;
+        // A new authorization starts clean: a renewal forced on the old one
+        // must not stop this one being renewed.
+        self.renewals
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&pending.key);
         drop(unsaved);
         Ok(tokens)
     }
@@ -487,14 +487,32 @@ impl Inner {
         key: &ConnectionKey,
         registered: &Registered,
         unsaved: &mut Option<Unsaved>,
-        // The access token the provider just rejected, when that is why this was called.
-        rejected: Option<&SecretString>,
+        // The tokens of the call the provider just rejected, when that is why this was called.
+        rejected: Option<&TokenSet>,
     ) -> Result<TokenSet> {
         let provider = &registered.spec.id;
         let Some(mut current) = self.store.load(key.clone()).await? else {
             *unsaved = None;
             return Err(reconnect(provider, format!("no stored connection for {provider}")));
         };
+        // A call that was rejected is only ever given tokens that descend
+        // from the ones it was made with. So the store must still hold those
+        // very tokens, on the load made here under the lock, before anything
+        // else is considered: a rotation waiting to be recovered included,
+        // since it may belong to a different authorization. If the store holds
+        // anything else, the connection was replaced by other means, perhaps
+        // for a different account, and the call must not be sent again.
+        if let Some(rejected) = rejected {
+            // Both halves are compared: two authorizations can share an access
+            // token string, and it is the refresh token that would be spent.
+            let same = current.access_token == rejected.access_token && current.refresh_token == rejected.refresh_token;
+            if !same {
+                return Err(reconnect(
+                    provider,
+                    format!("{provider} rejected the stored authorization"),
+                ));
+            }
+        }
         // Tokens from an earlier refresh whose save failed or was cancelled.
         // They are still the connection's only valid tokens, provided the
         // store has not been given a different authorization since.
@@ -510,7 +528,7 @@ impl Inner {
         // A token that has not expired is used as it is, unless it is the very
         // one the provider rejected. If the store already holds a different
         // one, another caller renewed it first.
-        let was_rejected = rejected == Some(&current.access_token);
+        let was_rejected = rejected.is_some_and(|rejected| rejected.access_token == current.access_token);
         if !current.is_expired(SystemTime::now(), EXPIRY_SKEW) && !was_rejected {
             return Ok(current);
         }
@@ -548,11 +566,11 @@ impl Inner {
 
     /// The last forced renewal of `key`, if it is recent enough to count.
     fn recent_renewal(&self, key: &ConnectionKey) -> Option<Renewal> {
-        let renewals = self.renewals.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        renewals
-            .get(key)
-            .filter(|renewal| renewal.at.elapsed() < RENEWAL_COOLING_OFF)
-            .cloned()
+        let mut renewals = self.renewals.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Records past their cooling-off are dropped whenever the map is read,
+        // so it never holds a connection's tokens longer than that.
+        renewals.retain(|_, renewal| renewal.at.elapsed() < RENEWAL_COOLING_OFF);
+        renewals.get(key).cloned()
     }
 
     fn record_renewal(&self, key: ConnectionKey, replaced: SecretString, produced: SecretString) {

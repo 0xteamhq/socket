@@ -17,7 +17,7 @@ struct Case {
     verb: &'static str,
     /// Slack's own method name, which is the last part of the URL.
     slack_method: &'static str,
-    /// Exactly the arguments that reach Slack: in the query for a read, in the JSON body for a write.
+    /// Exactly the arguments that reach Slack: in the query for a GET, in the JSON body for a POST.
     sent: Value,
     response: Value,
     /// What the operation returns. Checked as a subset, so models may carry more fields.

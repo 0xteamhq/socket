@@ -151,6 +151,11 @@ impl Classifier for StandardClassifier {
                 ErrorKind::InvalidInput,
                 format!("{provider} rejected the request: {}", provider_message(&response.body)),
             )),
+            // Only the statuses that are redirects. A 304 or a 300 is not one.
+            301 | 302 | 303 | 307 | 308 => Err(error(
+                ErrorKind::Unexpected,
+                format!("{provider} redirected the request (HTTP {status}) to an address Socket does not follow"),
+            )),
             500..=599 => {
                 Err(error(ErrorKind::Unexpected, format!("{provider} returned HTTP {status}")).with_retry(Retry::Later))
             }
@@ -430,10 +435,11 @@ const MAX_REDIRECTS: u32 = 3;
 ///
 /// Only a read is followed, and only to an address that passes the same
 /// allowlist as any other request: https, port 443, a listed host, no
-/// username or password. Anything else is left as the 3xx it is, so
-/// credentials never follow a redirect off the provider's own hosts.
+/// username or password. Anything else is not followed, and the classifier
+/// reports it as a redirect that was refused, so credentials never follow a
+/// redirect off the provider's own hosts.
 fn redirect_target(spec: &ProviderSpec, method: &reqwest::Method, asked: &Url, response: &RawResponse) -> Option<Url> {
-    if !matches!(response.status, 301 | 302 | 307 | 308) || !matches!(method.as_str(), "GET" | "HEAD") {
+    if !matches!(response.status, 301 | 302 | 303 | 307 | 308) || !matches!(method.as_str(), "GET" | "HEAD") {
         return None;
     }
     let mut next = asked.join(response.header("location")?).ok()?;
