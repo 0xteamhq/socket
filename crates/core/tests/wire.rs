@@ -10,6 +10,7 @@ use socketkit_core::{
     MemoryTokenStore, OAuth2Spec, OAuthClient, OperationInfo, ProviderId, ProviderSpec, RawRequest, Result, Retry,
     RetryPolicy, SecretString, Socket, SocketBuilder, TokenSet, TokenStore,
 };
+use socketkit_core::{AuthorizationRequest, CodeGrant, Grant, OAuthContext, OAuthFlow};
 use wiremock::matchers::{body_string_contains, header, header_exists, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -1568,4 +1569,211 @@ fn builder_without_secret(spec: ProviderSpec) -> Socket {
         .oauth_client(ProviderId::new("acme").unwrap(), client())
         .build()
         .unwrap()
+}
+
+// ── Customising one step of the OAuth flow ────────────────────────────────────
+
+/// A provider whose OAuth differs from the standard in every step, each in a small way.
+#[derive(Clone)]
+struct Quirky {
+    spec: ProviderSpec,
+    drop_state: bool,
+    exchanges: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[async_trait]
+impl OAuthFlow for Quirky {
+    /// Adds a parameter the provider requires, on top of the standard URL.
+    fn authorization_url(&self, context: OAuthContext, request: AuthorizationRequest) -> Result<url::Url> {
+        let mut url = socketkit_core::StandardOAuth.authorization_url(context, request)?;
+        url.query_pairs_mut().append_pair("audience", "api.acme.test");
+        if self.drop_state {
+            let kept: Vec<(String, String)> = url
+                .query_pairs()
+                .filter(|(n, _)| n != "state")
+                .map(|(n, v)| (n.into_owned(), v.into_owned()))
+                .collect();
+            url.query_pairs_mut().clear().extend_pairs(kept);
+        }
+        Ok(url)
+    }
+
+    /// Sends an extra form field with the code.
+    async fn exchange_code(&self, context: OAuthContext, grant: CodeGrant) -> Result<TokenSet> {
+        self.exchanges.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let form = vec![
+            ("grant_type".to_owned(), "authorization_code".to_owned()),
+            ("code".to_owned(), grant.code),
+            ("audience".to_owned(), "api.acme.test".to_owned()),
+        ];
+        let now = SystemTime::now();
+        let response = context.post_token(form).await?;
+        let body = context.granted(response, Grant::Code)?;
+        self.parse_token_response(context.provider().id.clone(), body, now)
+    }
+
+    /// The provider wraps its tokens in `data`.
+    fn parse_token_response(&self, provider: ProviderId, raw: Value, now: SystemTime) -> Result<TokenSet> {
+        socketkit_core::standard_token_response(&provider, &raw["data"], now)
+    }
+}
+
+#[async_trait]
+impl Integration for Quirky {
+    fn provider(&self) -> ProviderSpec {
+        self.spec.clone()
+    }
+    fn operations(&self) -> Vec<OperationInfo> {
+        Vec::new()
+    }
+    async fn invoke(&self, _connection: Connection, _operation: String, _input: Value) -> Result<Value> {
+        Ok(Value::Null)
+    }
+    fn oauth_client(&self) -> Option<OAuthClient> {
+        Some(client())
+    }
+    fn oauth_flow(&self) -> Arc<dyn OAuthFlow> {
+        Arc::new(self.clone())
+    }
+}
+
+fn quirky(
+    server: &MockServer,
+    drop_state: bool,
+) -> (Socket, Arc<MemoryTokenStore>, Arc<std::sync::atomic::AtomicUsize>) {
+    let exchanges = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let integration = Quirky {
+        spec: oauth_spec(server, ClientAuth::Body, false),
+        drop_state,
+        exchanges: exchanges.clone(),
+    };
+    let store = Arc::new(MemoryTokenStore::new());
+    let socket = Socket::builder(store.clone())
+        .integration(Arc::new(integration))
+        .retry(fast_retry())
+        .build()
+        .unwrap();
+    (socket, store, exchanges)
+}
+
+#[tokio::test]
+async fn an_integration_overrides_only_the_steps_where_its_provider_differs() {
+    let server = MockServer::start().await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("grant_type=authorization_code"))
+        .and(body_string_contains("audience=api.acme.test"))
+        .and(body_string_contains("client_secret=client-secret"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                json!({ "data": { "access_token": "wrapped", "refresh_token": "R1", "expires_in": 1 } }),
+            ),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    // The refresh step is not overridden: the default sends the standard form, and the
+    // overridden parser still reads the wrapped answer.
+    Mock::given(path("/token"))
+        .and(body_string_contains("grant_type=refresh_token"))
+        .and(body_string_contains("refresh_token=R1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "data": { "access_token": "refreshed", "expires_in": 3600 } })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/me"))
+        .and(header("authorization", "Bearer refreshed"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (socket, store, _) = quirky(&server, false);
+
+    let authorization = socket.begin_authorization(key(), None).unwrap();
+    let query: std::collections::HashMap<String, String> = authorization.url.query_pairs().into_owned().collect();
+    assert_eq!(
+        query["audience"], "api.acme.test",
+        "the overridden step added its parameter"
+    );
+    assert_eq!(
+        query["state"], authorization.pending.state,
+        "and kept what the standard step builds"
+    );
+    assert_eq!(query["client_id"], "client-id");
+
+    let state = authorization.pending.state.clone();
+    let tokens = socket
+        .complete_authorization(authorization.pending, "the-code".into(), state)
+        .await
+        .unwrap();
+    assert_eq!(tokens.access_token.expose(), "wrapped");
+
+    // The token expires within the skew, so the next call refreshes through the default step.
+    socket.request(key(), RawRequest::get("me")).await.unwrap();
+    let saved = store.load(key()).await.unwrap().unwrap();
+    assert_eq!(saved.access_token.expose(), "refreshed");
+    assert_eq!(
+        saved.refresh_token.as_ref().map(SecretString::expose),
+        Some("R1"),
+        "the default step kept it"
+    );
+}
+
+#[tokio::test]
+async fn a_customised_url_that_loses_the_state_is_refused() {
+    let server = MockServer::start().await;
+    let (socket, _, _) = quirky(&server, true);
+    let err = socket.begin_authorization(key(), None).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Config);
+    assert!(err.message().contains("state"), "{}", err.message());
+}
+
+#[tokio::test]
+async fn a_customised_exchange_is_never_reached_with_a_state_that_fails_the_check() {
+    let server = MockServer::start().await;
+    let (socket, store, exchanges) = quirky(&server, false);
+    let pending = socket.begin_authorization(key(), None).unwrap().pending;
+    let err = socket
+        .complete_authorization(pending, "code".into(), "forged.state".into())
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    assert_eq!(
+        exchanges.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "the check is Socket's and runs first"
+    );
+    assert!(server.received_requests().await.unwrap().is_empty());
+    assert_eq!(store.load(key()).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn a_customised_exchange_still_reports_throttling_and_refusal_as_what_they_are() {
+    for (status, body, kind) in [
+        (429, json!({}), ErrorKind::RateLimited),
+        (400, json!({ "error": "invalid_grant" }), ErrorKind::InvalidInput),
+        (401, json!({ "error": "invalid_client" }), ErrorKind::Config),
+        (200, json!({ "data": {} }), ErrorKind::Decode),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(path("/token"))
+            .respond_with(ResponseTemplate::new(status).set_body_json(body.clone()))
+            .mount(&server)
+            .await;
+        let (socket, store, _) = quirky(&server, false);
+        let authorization = socket.begin_authorization(key(), None).unwrap();
+        let state = authorization.pending.state.clone();
+        let err = socket
+            .complete_authorization(authorization.pending, "code".into(), state)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), kind, "HTTP {status} {body}");
+        assert_eq!(
+            store.load(key()).await.unwrap(),
+            None,
+            "nothing is saved when the exchange fails"
+        );
+    }
 }

@@ -1,14 +1,14 @@
 use std::fmt;
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::auth::{OAuthClient, standard_token_response};
+use crate::auth::OAuthClient;
 use crate::error::{Error, ErrorKind, Result};
 use crate::http::{Classifier, RawRequest, RawResponse, StandardClassifier, Transport};
+use crate::oauth::{OAuthFlow, StandardOAuth};
 use crate::provider::{ProviderId, ProviderSpec};
 use crate::secret::TokenSet;
 use crate::store::ConnectionKey;
@@ -225,10 +225,10 @@ pub trait Integration: Send + Sync {
         Arc::new(StandardClassifier)
     }
 
-    /// Reads the provider's token response. Override when the token is not at
-    /// the standard place. `now` is the moment the response arrived.
-    fn parse_token_response(&self, raw: Value, now: SystemTime) -> Result<TokenSet> {
-        standard_token_response(&self.provider().id, &raw, now)
+    /// The OAuth flow for this provider. Override when a step differs from
+    /// the standard; see [`OAuthFlow`].
+    fn oauth_flow(&self) -> Arc<dyn OAuthFlow> {
+        Arc::new(StandardOAuth)
     }
 }
 

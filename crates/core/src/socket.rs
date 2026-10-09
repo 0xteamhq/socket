@@ -6,10 +6,11 @@ use std::time::{Duration, SystemTime};
 use serde_json::Value;
 
 use crate::auth::{self, Authorization, OAuthClient, PendingAuthorization};
-use crate::error::{Error, ErrorKind, Result, Retry};
+use crate::error::{Error, ErrorKind, Result};
 use crate::http::{Classifier, RawRequest, RawResponse, RetryPolicy, StandardClassifier, Transport};
+use crate::oauth::{AuthorizationRequest, CodeGrant, OAuthContext, OAuthFlow, StandardOAuth};
 use crate::operation::{Connection, Integration, OperationInfo};
-use crate::provider::{AuthScheme, ClientAuth, OAuth2Spec, ProviderId, ProviderSpec};
+use crate::provider::{AuthScheme, OAuth2Spec, ProviderId, ProviderSpec};
 use crate::secret::{SecretString, TokenSet};
 use crate::store::{ConnectionKey, TokenStore};
 
@@ -32,10 +33,10 @@ impl Registered {
         }
     }
 
-    fn parse_token_response(&self, raw: Value, now: SystemTime) -> Result<TokenSet> {
+    fn flow(&self) -> Arc<dyn OAuthFlow> {
         match &self.integration {
-            Some(integration) => integration.parse_token_response(raw, now),
-            None => auth::standard_token_response(&self.spec.id, &raw, now),
+            Some(integration) => integration.oauth_flow(),
+            None => Arc::new(StandardOAuth),
         }
     }
 }
@@ -166,7 +167,7 @@ impl Socket {
     /// `scopes` replaces the provider's default scopes when given.
     pub fn begin_authorization(&self, key: ConnectionKey, scopes: Option<Vec<String>>) -> Result<Authorization> {
         let registered = self.registered(&key.provider)?;
-        let (oauth, client, secret) = self.oauth_parts(registered)?;
+        let (oauth, _, secret) = self.oauth_parts(registered)?;
         let state = auth::sign_state(&key, secret, SystemTime::now())?;
         let (pkce_verifier, challenge) = if oauth.pkce {
             let (verifier, challenge) = auth::pkce_pair()?;
@@ -175,7 +176,31 @@ impl Socket {
             (None, None)
         };
         let scopes = scopes.unwrap_or_else(|| oauth.default_scopes.clone());
-        let url = auth::authorization_url(oauth, client, &state, &scopes, challenge.as_deref());
+        let request = AuthorizationRequest {
+            state: state.clone(),
+            scopes,
+            pkce_challenge: challenge,
+        };
+        let url = registered
+            .flow()
+            .authorization_url(self.context(registered)?, request)?;
+        // The state is what ties the callback to this connection. A customised
+        // step that dropped or altered it would remove that protection.
+        let carries_state = url
+            .query_pairs()
+            .filter(|(name, _)| name == "state")
+            .map(|(_, v)| v)
+            .eq([state.as_str()]);
+        if !carries_state {
+            return Err(Error::new(
+                ErrorKind::Config,
+                format!(
+                    "the authorization URL built for {} does not carry the state it was given",
+                    key.provider
+                ),
+            )
+            .with_provider(key.provider.clone()));
+        }
         Ok(Authorization {
             url,
             pending: PendingAuthorization {
@@ -198,7 +223,7 @@ impl Socket {
     ) -> Result<TokenSet> {
         let registered = self.registered(&pending.key.provider)?;
         let provider = &registered.spec.id;
-        let (oauth, client, secret) = self.oauth_parts(registered)?;
+        let (_, _, secret) = self.oauth_parts(registered)?;
         let invalid = |message: String| Error::new(ErrorKind::InvalidInput, message).with_provider(provider.clone());
         if state != pending.state {
             return Err(invalid(
@@ -210,22 +235,21 @@ impl Socket {
             return Err(invalid(format!("{provider} sent no authorization code")));
         }
 
-        let mut form = vec![
-            ("grant_type", "authorization_code"),
-            ("code", code.as_str()),
-            ("redirect_uri", client.redirect_uri.as_str()),
-        ];
-        if let Some(verifier) = &pending.pkce_verifier {
-            form.push(("code_verifier", verifier.expose()));
+        let grant = CodeGrant {
+            code,
+            pkce_verifier: pending.pkce_verifier.clone(),
+        };
+        let tokens = registered
+            .flow()
+            .exchange_code(self.context(registered)?, grant)
+            .await?;
+        if tokens.access_token.expose().is_empty() {
+            return Err(Error::new(
+                ErrorKind::Decode,
+                format!("{provider} answered without an access token"),
+            )
+            .with_provider(provider.clone()));
         }
-        let now = SystemTime::now();
-        let response = self.token_request(registered, oauth, client, form).await?;
-        if let Some(code) = token_outcome(provider, &response)? {
-            return Err(invalid(format!(
-                "{provider} refused the authorization code ({code}); start the connection again"
-            )));
-        }
-        let tokens = registered.parse_token_response(response.body, now)?;
         // Under the connection's refresh lock, so a refresh that was in flight
         // for the previous authorization cannot save its tokens over these.
         let slot = self.refresh_slot(&pending.key);
@@ -263,24 +287,15 @@ impl Socket {
         Ok((oauth, client, &self.state_secret))
     }
 
-    async fn token_request(
-        &self,
-        registered: &Registered,
-        oauth: &OAuth2Spec,
-        client: &OAuthClient,
-        mut form: Vec<(&str, &str)>,
-    ) -> Result<RawResponse> {
-        let basic = match oauth.client_auth {
-            ClientAuth::Basic => Some((client.client_id.as_str(), client.client_secret.expose())),
-            ClientAuth::Body => {
-                form.push(("client_id", client.client_id.as_str()));
-                form.push(("client_secret", client.client_secret.expose()));
-                None
-            }
-        };
-        self.transport
-            .post_form(&registered.spec, &oauth.token_url, &form, basic)
-            .await
+    /// What a step of the OAuth flow is given to work with.
+    fn context(&self, registered: &Registered) -> Result<OAuthContext> {
+        let (oauth, client, _) = self.oauth_parts(registered)?;
+        Ok(OAuthContext::new(
+            registered.spec.clone(),
+            oauth.clone(),
+            client.clone(),
+            self.transport.clone(),
+        ))
     }
 
     /// The connection's tokens, refreshed first when they have expired.
@@ -301,13 +316,13 @@ impl Socket {
         if !tokens.is_expired(SystemTime::now(), EXPIRY_SKEW) {
             return Ok(tokens);
         }
-        let AuthScheme::OAuth2(oauth) = &registered.spec.auth else {
+        if !matches!(registered.spec.auth, AuthScheme::OAuth2(_)) {
             return Ok(tokens);
-        };
+        }
         let slot = self.refresh_slot(key);
         let refreshed = {
             let mut unsaved = slot.lock().await;
-            self.refresh_under_lock(key, registered, oauth, &mut unsaved).await
+            self.refresh_under_lock(key, registered, &mut unsaved).await
         };
         self.release_slot(key, &slot);
         refreshed
@@ -327,7 +342,6 @@ impl Socket {
         &self,
         key: &ConnectionKey,
         registered: &Registered,
-        oauth: &OAuth2Spec,
         unsaved: &mut Option<Unsaved>,
     ) -> Result<TokenSet> {
         let provider = &registered.spec.id;
@@ -356,16 +370,21 @@ impl Socket {
                 format!("the authorization for {provider} has expired"),
             ));
         };
-        let client = self.oauth_clients.get(provider).ok_or_else(|| {
-            Error::new(
+        if !self.oauth_clients.contains_key(provider) {
+            return Err(Error::new(
                 ErrorKind::Config,
                 format!("no OAuth client is set for {provider}, so its token cannot be refreshed"),
             )
-            .with_provider(provider.clone())
-        })?;
-        let fresh = self
-            .refresh(registered, oauth, client, &current, refresh_token.expose())
-            .await?;
+            .with_provider(provider.clone()));
+        }
+        let fresh = registered.flow().refresh(self.context(registered)?, current).await?;
+        if fresh.access_token.expose().is_empty() {
+            return Err(Error::new(
+                ErrorKind::Decode,
+                format!("{provider} answered without an access token"),
+            )
+            .with_provider(provider.clone()));
+        }
         // Remembered before the save is awaited: if the save fails, or the
         // caller stops waiting, the rotated token is not lost.
         *unsaved = Some(Unsaved {
@@ -391,81 +410,10 @@ impl Socket {
             slots.remove(key);
         }
     }
-
-    async fn refresh(
-        &self,
-        registered: &Registered,
-        oauth: &OAuth2Spec,
-        client: &OAuthClient,
-        old: &TokenSet,
-        refresh_token: &str,
-    ) -> Result<TokenSet> {
-        let provider = &registered.spec.id;
-        let form = vec![("grant_type", "refresh_token"), ("refresh_token", refresh_token)];
-        let now = SystemTime::now();
-        let response = self.token_request(registered, oauth, client, form).await?;
-        if token_outcome(provider, &response)?.is_some() {
-            // Distinct from a transient failure: only the person can fix this.
-            return Err(reconnect(
-                provider,
-                format!("{provider} no longer accepts the stored authorization"),
-            ));
-        }
-        let mut fresh = registered.parse_token_response(response.body, now)?;
-        // Providers that do not rotate omit the refresh token and often the scopes.
-        if fresh.refresh_token.is_none() {
-            fresh.refresh_token = old.refresh_token.clone();
-        }
-        if fresh.scopes.is_empty() {
-            fresh.scopes = old.scopes.clone();
-        }
-        Ok(fresh)
-    }
 }
 
 fn reconnect(provider: &ProviderId, message: String) -> Error {
     Error::new(ErrorKind::ReconnectRequired, message).with_provider(provider.clone())
-}
-
-/// Reads the token endpoint's answer.
-///
-/// `Ok(None)` means tokens were granted. `Ok(Some(code))` means the provider
-/// declined this code or refresh token, which only the person can fix.
-/// Everything else is an error that is not the person's to fix: throttling, a
-/// rejected OAuth client, or a failing provider.
-fn token_outcome(provider: &ProviderId, response: &RawResponse) -> Result<Option<String>> {
-    let error = |kind, message: String| Error::new(kind, message).with_provider(provider.clone());
-    let refusal = auth::grant_refusal(&response.body).map(|code| crate::http::shortened(&code, 80));
-    let client_rejected = matches!(refusal.as_deref(), Some("invalid_client" | "unauthorized_client"));
-    if response.status == 429 {
-        let retry = match response
-            .header("retry-after")
-            .and_then(|v| v.trim().parse::<u64>().ok())
-        {
-            Some(secs) => Retry::After(Duration::from_secs(secs)),
-            None => Retry::Later,
-        };
-        return Err(error(ErrorKind::RateLimited, format!("{provider} is rate limiting requests")).with_retry(retry));
-    }
-    if response.status == 401 || client_rejected {
-        return Err(error(
-            ErrorKind::Config,
-            format!("{provider} rejected the application's OAuth client; check its client id and secret"),
-        ));
-    }
-    match response.status {
-        200..=299 => Ok(refusal),
-        408 | 500..=599 => Err(error(
-            ErrorKind::Unexpected,
-            format!("{provider} returned HTTP {}", response.status),
-        )
-        .with_retry(Retry::Later)),
-        400..=499 => Ok(Some(refusal.unwrap_or_else(|| "refused".into()))),
-        status => Err(error(
-            ErrorKind::Unexpected,
-            format!("{provider} returned HTTP {status}"),
-        )),
-    }
 }
 
 /// A caller-supplied name, shortened so an error message stays a message.

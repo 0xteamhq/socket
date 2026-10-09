@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use socketkit_core::{
     Access, Account, AuthScheme, Classifier, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec,
-    OAuthClient, OperationInfo, ProviderId, ProviderSpec, RawRequest, RawResponse, Resource, Result, Retry,
+    OAuthClient, OAuthFlow, OperationInfo, ProviderId, ProviderSpec, RawRequest, RawResponse, Resource, Result, Retry,
     SecretString, StandardClassifier, TokenSet, identity_operation, resolve_input, resolve_operation,
     standard_token_response, to_output,
 };
@@ -361,15 +361,22 @@ impl Integration for Slack {
         Arc::new(SlackClassifier)
     }
 
+    fn oauth_flow(&self) -> Arc<dyn OAuthFlow> {
+        Arc::new(self.clone())
+    }
+}
+
+/// Slack follows the standard flow except in where it puts the token.
+impl OAuthFlow for Slack {
     /// Slack nests a user token under `authed_user`; a bot token sits at the top.
-    fn parse_token_response(&self, raw: Value, now: SystemTime) -> Result<TokenSet> {
+    fn parse_token_response(&self, provider: ProviderId, raw: Value, now: SystemTime) -> Result<TokenSet> {
         let user = &raw["authed_user"];
         let source = if user["access_token"].as_str().is_some_and(|t| !t.is_empty()) {
             user
         } else {
             &raw
         };
-        standard_token_response(&self.spec.id, source, now)
+        standard_token_response(&provider, source, now)
     }
 }
 
@@ -459,21 +466,22 @@ mod tests {
     #[test]
     fn a_user_token_is_read_from_authed_user_and_a_bot_token_from_the_top() {
         let slack = Slack::new();
+        let id = || ProviderId::new("slack").unwrap();
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
         let user = json!({ "ok": true, "authed_user": { "id": "U1", "access_token": "xoxp-user", "scope": "channels:read,users:read" }, "team": { "id": "T1" } });
-        let tokens = slack.parse_token_response(user, now).unwrap();
+        let tokens = slack.parse_token_response(id(), user, now).unwrap();
         assert_eq!(tokens.access_token.expose(), "xoxp-user");
         assert_eq!(tokens.scopes, ["channels:read", "users:read"]);
 
         let bot = json!({ "ok": true, "access_token": "xoxb-bot", "scope": "chat:write", "authed_user": { "id": "U1" }, "refresh_token": "xoxe-1", "expires_in": 43200 });
-        let tokens = slack.parse_token_response(bot, now).unwrap();
+        let tokens = slack.parse_token_response(id(), bot, now).unwrap();
         assert_eq!(tokens.access_token.expose(), "xoxb-bot");
         assert_eq!(tokens.expires_at, Some(now + Duration::from_secs(43_200)));
         assert!(tokens.refresh_token.is_some());
 
         assert_eq!(
             slack
-                .parse_token_response(json!({ "ok": true }), now)
+                .parse_token_response(id(), json!({ "ok": true }), now)
                 .unwrap_err()
                 .kind(),
             ErrorKind::Decode

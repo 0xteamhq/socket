@@ -6,6 +6,7 @@
 mod auth;
 mod error;
 mod http;
+mod oauth;
 mod operation;
 mod provider;
 mod secret;
@@ -15,6 +16,7 @@ mod store;
 pub use auth::{Authorization, OAuthClient, PendingAuthorization, standard_token_response};
 pub use error::{Error, ErrorKind, Result, Retry, WireError};
 pub use http::{Classifier, Page, RawRequest, RawResponse, RetryPolicy, StandardClassifier, provider_message};
+pub use oauth::{AuthorizationRequest, CodeGrant, Grant, OAuthContext, OAuthFlow, StandardOAuth};
 pub use operation::{
     Access, Account, Connection, Effect, Integration, OperationInfo, Resource, identity_operation, resolve_input,
     resolve_operation, to_output,
