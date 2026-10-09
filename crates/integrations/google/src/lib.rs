@@ -97,10 +97,11 @@ pub struct GoogleOAuth {
     ///
     /// It does two things. It is sent as Google's `hd` parameter, which only
     /// filters the sign-in page: a person can still approve with another
-    /// account. And `google.identity.get` refuses an account whose email is
-    /// not in the domain, which is the actual check. Connecting does not run
-    /// that check by itself: call `google.identity.get` after
-    /// `complete_authorization`, and delete the connection if it is refused.
+    /// account. And `google.identity.get` refuses an account unless Google
+    /// itself reports it as managed by that Workspace, which is the actual
+    /// check. Connecting does not run that check by itself: call
+    /// `google.identity.get` after `complete_authorization`, and delete the
+    /// connection if it is refused.
     pub hosted_domain: Option<String>,
     /// Prefills the account chooser (Google's `login_hint` parameter).
     pub login_hint: Option<String>,
@@ -169,9 +170,6 @@ impl Google {
             if let Some(scopes) = settings.scopes {
                 oauth.default_scopes = scopes;
             }
-            if let Some(domain) = &settings.hosted_domain {
-                oauth.extra_authorize_params.push(("hd".into(), domain.clone()));
-            }
             if let Some(hint) = settings.login_hint {
                 oauth.extra_authorize_params.push(("login_hint".into(), hint));
             }
@@ -185,9 +183,44 @@ impl Google {
 
     /// Requires accounts to belong to one Google Workspace domain.
     /// `google.identity.get` refuses any other account.
+    ///
+    /// Sends the domain as the sign-in page's `hd` hint, and adds the `openid`
+    /// and `email` scopes, which reading Google's verified domain needs.
     pub fn hosted_domain(mut self, domain: impl Into<String>) -> Self {
         self.hosted_domain = Some(domain.into().trim().trim_start_matches('@').to_ascii_lowercase());
+        if let AuthScheme::OAuth2(oauth) = &mut self.spec.auth {
+            // One `hd` hint for the sign-in page, replacing any set earlier.
+            oauth.extra_authorize_params.retain(|(name, _)| name != "hd");
+            if let Some(domain) = &self.hosted_domain {
+                oauth.extra_authorize_params.push(("hd".into(), domain.clone()));
+            }
+            for scope in ["openid", "email"] {
+                if !oauth.default_scopes.iter().any(|s| s == scope) {
+                    oauth.default_scopes.push(scope.to_owned());
+                }
+            }
+        }
         self
+    }
+
+    /// Checks the account against Google's own statement of its Workspace
+    /// domain, the `hd` claim.
+    ///
+    /// The email address is not evidence: a personal Google account can be
+    /// registered with a work address. Google reports `hd` only for an account
+    /// that is managed by that Workspace. Any failure to read it refuses.
+    async fn require_workspace(&self, connection: &Connection, required: &str) -> Result<()> {
+        let body = connection.request(RawRequest::get("oauth2/v3/userinfo")).await?.body;
+        let verified = body["hd"].as_str().map(str::to_ascii_lowercase);
+        if verified.as_deref() == Some(required) {
+            Ok(())
+        } else {
+            Err(Error::new(
+                ErrorKind::AccessDenied,
+                format!("this Google account is not in the {required} workspace"),
+            )
+            .with_provider(self.spec.id.clone()))
+        }
     }
 
     /// Google with a token the application already holds. Every call uses it.
@@ -240,17 +273,7 @@ impl Google {
             );
         };
         if let Some(required) = &self.hosted_domain {
-            // The part after the last `@`, compared whole: `acme.example.evil.test` is not `acme.example`.
-            let domain = email
-                .and_then(|e| e.rsplit_once('@'))
-                .map(|(_, domain)| domain.to_ascii_lowercase());
-            if domain.as_deref() != Some(required.as_str()) {
-                return Err(Error::new(
-                    ErrorKind::AccessDenied,
-                    format!("this Google account is not in the {required} workspace"),
-                )
-                .with_provider(self.spec.id.clone()));
-            }
+            self.require_workspace(connection, required).await?;
         }
         let name = user["displayName"]
             .as_str()

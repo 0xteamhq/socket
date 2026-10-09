@@ -159,7 +159,9 @@ fn restricted(server: &MockServer, domain: &str) -> Arc<dyn Integration> {
     Arc::new(Google::with_spec(point_at(provider(), server)).hosted_domain(domain))
 }
 
-async fn identity_as(email: serde_json::Value, domain: &str) -> socketkit_core::Result<serde_json::Value> {
+/// Asks for the identity of an account whose email is `email` and whose
+/// verified Workspace domain, as Google reports it, is `hd`.
+async fn identity_as(email: &str, hd: serde_json::Value, required: &str) -> socketkit_core::Result<serde_json::Value> {
     let server = MockServer::start().await;
     Mock::given(path("/drive/v3/about"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -167,27 +169,83 @@ async fn identity_as(email: serde_json::Value, domain: &str) -> socketkit_core::
         })))
         .mount(&server)
         .await;
-    let (socket, key) = connect(restricted(&server, domain), "ya29.good").await;
+    let mut userinfo = json!({ "sub": "42", "email": email, "email_verified": true });
+    if !hd.is_null() {
+        userinfo["hd"] = hd;
+    }
+    Mock::given(path("/oauth2/v3/userinfo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(userinfo))
+        .mount(&server)
+        .await;
+    let (socket, key) = connect(restricted(&server, required), "ya29.good").await;
     socket.invoke(key, "google.identity.get".into(), json!({})).await
 }
 
 #[tokio::test]
-async fn an_account_outside_the_required_workspace_domain_is_refused_by_identity() {
-    // Google's `hd` parameter only filters the sign-in page; a person can approve with any account.
-    for outsider in [
-        json!("mallory@gmail.com"),
-        json!("ada@acme.example.evil.test"),
-        json!("ada@notacme.example"),
-        json!("acme.example"),
-        json!(null),
+async fn an_account_is_judged_by_googles_verified_domain_not_by_its_email_address() {
+    // A personal Google account can be registered with a work email address. Its
+    // email is in the domain, but Google reports no Workspace domain for it.
+    let personal = identity_as("ada@acme.example", json!(null), "acme.example")
+        .await
+        .unwrap_err();
+    assert_eq!(personal.kind(), ErrorKind::AccessDenied);
+
+    for other in [
+        json!("other.example"),
+        json!("acme.example.evil.test"),
+        json!(""),
+        json!(7),
     ] {
-        let err = identity_as(outsider.clone(), "acme.example").await.unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::AccessDenied, "{outsider}");
+        let err = identity_as("ada@acme.example", other.clone(), "acme.example")
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::AccessDenied, "{other}");
     }
 }
 
 #[tokio::test]
-async fn an_account_in_the_required_workspace_domain_is_accepted_whatever_its_case() {
-    let account = identity_as(json!("Ada@ACME.example"), "acme.example").await.unwrap();
-    assert_eq!(account["email"], "Ada@ACME.example");
+async fn an_account_in_the_required_workspace_is_accepted_whatever_the_case() {
+    let account = identity_as("ada@acme.example", json!("ACME.example"), "Acme.Example")
+        .await
+        .unwrap();
+    assert_eq!(account["email"], "ada@acme.example");
+}
+
+#[tokio::test]
+async fn requiring_a_workspace_asks_for_the_scopes_the_check_needs_and_fails_closed_without_them() {
+    let socketkit_core::AuthScheme::OAuth2(oauth) = Google::new().hosted_domain("acme.example").provider().auth else {
+        panic!("google uses OAuth")
+    };
+    assert!(
+        oauth.default_scopes.iter().any(|s| s == "openid"),
+        "{:?}",
+        oauth.default_scopes
+    );
+    assert!(oauth.default_scopes.iter().any(|s| s == "email"));
+    assert!(
+        oauth
+            .extra_authorize_params
+            .contains(&("hd".into(), "acme.example".into()))
+    );
+
+    // A token without those scopes cannot read the verified domain: the check refuses, it does not skip.
+    let server = MockServer::start().await;
+    Mock::given(path("/drive/v3/about"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "user": { "emailAddress": "ada@acme.example", "permissionId": "42" } })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(path("/oauth2/v3/userinfo"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({ "error": "insufficient_scope" })))
+        .mount(&server)
+        .await;
+    let (socket, key) = connect(restricted(&server, "acme.example"), "ya29.good").await;
+    assert!(
+        socket
+            .invoke(key, "google.identity.get".into(), json!({}))
+            .await
+            .is_err()
+    );
 }
