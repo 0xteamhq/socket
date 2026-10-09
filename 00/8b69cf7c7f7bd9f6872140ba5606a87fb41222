@@ -1,0 +1,85 @@
+crates/core/src/oauth.rs
+  s_9a82f246a2078d::t_20bbdfc2f32ca7 9
+  s_9a82f246a2078d::t_805d2dabd3f4cb 17,32,38-47,186-187,208-209,241-242,244-252,254,260,262-267,269-270,272-275,281-322,324-326,328-331
+  s_9a82f246a2078d::t_d405c4a17e9708 268,271
+  s_9a82f246a2078d::t_8a28ded3c52b10 323,327
+crates/core/src/socket.rs
+  s_9a82f246a2078d::t_5c273bdf26f24a 51-63,284-287,289-295,356-361,363-364,605-607,609-613
+crates/core/tests/wire.rs
+  s_9a82f246a2078d::t_805d2dabd3f4cb 1780-1996
+crates/integrations/github/src/lib.rs
+  s_9a82f246a2078d::t_9fa56ddf418575 92,94,99,102,109-111,122-123,169-175,192,239,271-276,278-284,286-289,396-442
+  s_9a82f246a2078d::t_111f04afe7b99a 443
+crates/integrations/google/src/lib.rs
+  s_9a82f246a2078d::t_9fa56ddf418575 149-150,192-207,211-212,263,281-283,345-349
+  s_9a82f246a2078d::t_1d08eac3b8bee1 350-351
+crates/core/src/provider.rs
+  s_9a82f246a2078d::t_5c273bdf26f24a 179-200,410-447
+  s_9a82f246a2078d::t_ed980ee2f908b2 448-449
+Cargo.toml
+  s_9a82f246a2078d::t_5c273bdf26f24a 25
+crates/facade/examples/slack.rs
+  s_9a82f246a2078d::t_fdf3eeb6240454 18-20,167-172,193-196
+crates/core/src/operation.rs
+  s_9a82f246a2078d::t_805d2dabd3f4cb 30-33
+crates/integrations/github/Cargo.toml
+  s_9a82f246a2078d::t_9fa56ddf418575 19
+crates/integrations/google/tests/wire.rs
+  s_9a82f246a2078d::t_9fa56ddf418575 252-269
+crates/core/Cargo.toml
+  s_9a82f246a2078d::t_5c273bdf26f24a 15
+crates/integrations/linear/tests/wire.rs
+  s_9a82f246a2078d::t_82f8bcfcf6cf0a 160
+  s_9a82f246a2078d::t_bcedefa8006ab2 69-70,142-159,161-169
+docs/roadmap.md
+  s_9a82f246a2078d::t_fdf3eeb6240454 46,48
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_9a82f246a2078d::t_fdf3eeb6240454 280-282
+crates/integrations/zoom/tests/wire.rs
+  s_9a82f246a2078d::t_72e04d562c28da 87,120-159
+  s_9a82f246a2078d::t_b1ddd53c3335f9 160
+docs/integrations/slack.md
+  s_9a82f246a2078d::t_fdf3eeb6240454 62-63,77-86,289
+  s_9a82f246a2078d::t_d405c4a17e9708 242
+README.md
+  s_9a82f246a2078d::t_fdf3eeb6240454 54,56,72-74
+crates/core/src/store.rs
+  s_9a82f246a2078d::t_5c273bdf26f24a 31-35
+crates/core/src/http.rs
+  s_9a82f246a2078d::t_5c273bdf26f24a 133,165-183,503-511,607-621
+crates/core/src/auth.rs
+  s_9a82f246a2078d::t_5c273bdf26f24a 202-212,395-401
+  s_9a82f246a2078d::t_75119e1e717b81 402-404
+Cargo.lock
+  s_9a82f246a2078d::t_5b529fb797a161 1148,1168
+crates/integrations/linear/src/lib.rs
+  s_9a82f246a2078d::t_026d0a58fac2df 11-14,20-22,132-137,195-202
+crates/integrations/notion/src/lib.rs
+  s_9a82f246a2078d::t_0ebf3a0e6e25e6 91-95,104,156,191-196
+crates/integrations/notion/tests/wire.rs
+  s_9a82f246a2078d::t_ee6a82aca31106 186-188,190
+crates/integrations/slack/src/lib.rs
+  s_9a82f246a2078d::t_2a1f8fec830de8 3-6,371,398-412
+crates/integrations/slack/src/operations.rs
+  s_9a82f246a2078d::t_2b287931042738 318
+crates/integrations/slack/tests/operations.rs
+  s_9a82f246a2078d::t_46d0655a90b1e5 20,97,242,632-651
+crates/integrations/zoom/src/lib.rs
+  s_9a82f246a2078d::t_9157b9c32b91d1 6-7,11-13,45-59,238-241,257-260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "008b69cf7c7f7bd9f6872140ba5606a87fb41222",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
