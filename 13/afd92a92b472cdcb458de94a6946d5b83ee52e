@@ -1,0 +1,33 @@
+crates/core/src/http.rs
+  s_9a82f246a2078d::t_cb5acca4ad5e0b 248-252
+crates/core/src/typed.rs
+  s_9a82f246a2078d::t_cb5acca4ad5e0b 1-131
+crates/core/src/lib.rs
+  s_9a82f246a2078d::t_cb5acca4ad5e0b 15,29
+crates/integrations/slack/src/operations.rs
+  s_9a82f246a2078d::t_cb5acca4ad5e0b 14-15,24-25,27,35
+crates/core/Cargo.toml
+  s_9a82f246a2078d::t_cb5acca4ad5e0b 20
+crates/core/tests/wire.rs
+  s_9a82f246a2078d::t_cb5acca4ad5e0b 1325,1331-1337,1339
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_9a82f246a2078d::t_cb5acca4ad5e0b 284
+Cargo.lock
+  s_9a82f246a2078d::t_9ef0a845c69b29 1153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "13afd92a92b472cdcb458de94a6946d5b83ee52e",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
