@@ -1,0 +1,37 @@
+crates/integrations/slack/src/models/search.rs
+  s_9a82f246a2078d::t_2237c3a287f333 1-43
+crates/integrations/slack/src/models/message.rs
+  s_9a82f246a2078d::t_2237c3a287f333 1-151
+crates/integrations/slack/src/models/mod.rs
+  s_9a82f246a2078d::t_2237c3a287f333 1-25
+crates/integrations/slack/src/models/conversation.rs
+  s_9a82f246a2078d::t_2237c3a287f333 1-61
+crates/integrations/slack/src/models/file.rs
+  s_9a82f246a2078d::t_2237c3a287f333 1-32
+crates/integrations/slack/src/models/workspace.rs
+  s_9a82f246a2078d::t_2237c3a287f333 1-32
+crates/integrations/slack/src/models/paging.rs
+  s_9a82f246a2078d::t_2237c3a287f333 1-12
+crates/integrations/slack/src/models/user.rs
+  s_9a82f246a2078d::t_2237c3a287f333 1-73
+CLAUDE.md
+  s_9a82f246a2078d::t_acfea1b576a36f 1-57
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_9a82f246a2078d::t_b6832dca823dd8 396
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "78dc9045724dc87e453d3237556a70258bf04ffc",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
