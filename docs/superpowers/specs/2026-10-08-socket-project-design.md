@@ -393,7 +393,7 @@ crates/integrations/slack/
 │   ├── lib.rs          # re-exports only
 │   ├── provider.rs     # ProviderSpec, token-response parser, response classifier
 │   ├── client.rs       # the typed client, methods grouped by resource
-│   ├── models.rs       # request and response types
+│   ├── models/         # request and response types, one file per area, re-exported from mod.rs
 │   ├── resolve.rs      # Resolve implementation
 │   ├── operations.rs   # descriptors and dispatch for invoke
 │   └── webhook.rs      # when the service sends events
