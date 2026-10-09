@@ -48,6 +48,19 @@ struct Unsaved {
     tokens: TokenSet,
 }
 
+/// Forgets a connection's refresh slot when dropped, if nobody else uses it.
+struct Release<'a> {
+    socket: &'a Socket,
+    key: &'a ConnectionKey,
+    slot: &'a RefreshSlot,
+}
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        self.socket.release_slot(self.key, self.slot);
+    }
+}
+
 /// One connection's refresh lock, and what a refresh left unsaved.
 type RefreshSlot = Arc<tokio::sync::Mutex<Option<Unsaved>>>;
 
@@ -268,13 +281,18 @@ impl Socket {
         // Under the connection's refresh lock, so a refresh that was in flight
         // for the previous authorization cannot save its tokens over these.
         let slot = self.refresh_slot(&pending.key);
-        let saved = {
-            let mut unsaved = slot.lock().await;
-            *unsaved = None;
-            self.store.save(pending.key.clone(), tokens.clone()).await
+        let _release = Release {
+            socket: self,
+            key: &pending.key,
+            slot: &slot,
         };
-        self.release_slot(&pending.key, &slot);
-        saved?;
+        let mut unsaved = slot.lock().await;
+        self.store.save(pending.key.clone(), tokens.clone()).await?;
+        // Only now that the new authorization is in the store: until then, a
+        // rotation left unsaved by the old one is still that connection's
+        // only valid tokens.
+        *unsaved = None;
+        drop(unsaved);
         Ok(tokens)
     }
 
@@ -335,12 +353,15 @@ impl Socket {
             return Ok(tokens);
         }
         let slot = self.refresh_slot(key);
-        let refreshed = {
-            let mut unsaved = slot.lock().await;
-            self.refresh_under_lock(key, registered, &mut unsaved).await
+        // Dropped last, also when the caller stops waiting, so a slot nobody
+        // uses is always forgotten.
+        let _release = Release {
+            socket: self,
+            key,
+            slot: &slot,
         };
-        self.release_slot(key, &slot);
-        refreshed
+        let mut unsaved = slot.lock().await;
+        self.refresh_under_lock(key, registered, &mut unsaved).await
     }
 
     /// Refreshes one connection while holding its lock.
@@ -581,9 +602,15 @@ impl SocketBuilder {
             );
         }
 
-        // A client set on the builder wins over one given to the integration.
-        let mut oauth_clients = HashMap::new();
+        // A client set on the builder wins over one given to the integration,
+        // so the effective client is settled first and only that one is checked.
+        let mut effective: Vec<(ProviderId, OAuthClient)> = Vec::new();
         for (provider, client) in clients_from_integrations.into_iter().chain(self.oauth_clients) {
+            effective.retain(|(known, _)| *known != provider);
+            effective.push((provider, client));
+        }
+        let mut oauth_clients = HashMap::new();
+        for (provider, client) in effective {
             let config = |message: String| Error::new(ErrorKind::Config, message).with_provider(provider.clone());
             if !providers.contains_key(&provider) {
                 return Err(config(format!(

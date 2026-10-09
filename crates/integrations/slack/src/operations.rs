@@ -315,7 +315,7 @@ fn build() -> Vec<Operation> {
             |s: Slack, c: Connection, i: ChannelTopic| async move { s.conversations(&c).set_topic(&i.channel, &i.topic).await as Result<()> }),
         operation("conversations.set_purpose", "Set a channel's purpose.", Destructive, &["channels:manage"],
             |s: Slack, c: Connection, i: ChannelPurpose| async move { s.conversations(&c).set_purpose(&i.channel, &i.purpose).await as Result<()> }),
-        operation("conversations.open", "Open a direct message with one member, or a group direct message with several.", Write, &["im:write"],
+        operation("conversations.open", "Open a direct message with one member, or a group direct message with several.", Write, &["im:write", "mpim:write"],
             |s: Slack, c: Connection, i: Open| async move { s.conversations(&c).open(&i.users).await as Result<Channel> }),
         operation("conversations.mark", "Mark a conversation as read up to a message.", Write, &["channels:manage"],
             |s: Slack, c: Connection, i: ChannelTs| async move { s.conversations(&c).mark(&i.channel, &i.ts).await as Result<()> }),

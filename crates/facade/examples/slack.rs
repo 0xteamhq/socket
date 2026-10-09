@@ -15,7 +15,9 @@
 //! `SLACK_CHANNEL` is the id of a channel the token's bot or user is a member of.
 //! The read-only tour needs the scopes `channels:read`, `channels:history`,
 //! `users:read` and `team:read`. The write tour also needs `chat:write`,
-//! `reactions:write` and `pins:write`.
+//! `reactions:write` and `pins:write`. Those cover a public channel; if
+//! `SLACK_CHANNEL` is private, the token needs `groups:read` and
+//! `groups:history` as well.
 //!
 //! Reading these two environment variables is this example's choice. The
 //! library itself never reads the environment.
@@ -162,11 +164,12 @@ async fn write_tour(slack: &Slack, connection: &Connection, channel: &str) -> Re
     println!("Posted {}", posted.ts);
 
     slack.reactions(connection).add(channel, &posted.ts, "wave").await?;
-    chat.post_message(
-        channel,
-        PostMessage::text("A reply in the thread").in_thread(&posted.ts),
-    )
-    .await?;
+    let reply = chat
+        .post_message(
+            channel,
+            PostMessage::text("A reply in the thread").in_thread(&posted.ts),
+        )
+        .await?;
     chat.update(channel, &posted.ts, UpdateMessage::text("Hello from Socket (edited)"))
         .await?;
     println!("Link: {}", chat.permalink(channel, &posted.ts).await?);
@@ -187,14 +190,10 @@ async fn write_tour(slack: &Slack, connection: &Connection, channel: &str) -> Re
     chat.delete_scheduled_message(channel, &scheduled.id).await?;
     println!("Scheduled and cancelled {}", scheduled.id);
 
-    // Clean up: the thread reply, then the message.
-    let thread = slack
-        .conversations(connection)
-        .replies(channel, &posted.ts, History::default())
-        .await?;
-    for reply in thread.items.iter().rev() {
-        chat.delete(channel, &reply.ts).await?;
-    }
+    // Clean up exactly the two messages this example posted, the reply
+    // first. Anyone else's reply in the thread is left alone.
+    chat.delete(channel, &reply.ts).await?;
+    chat.delete(channel, &posted.ts).await?;
     println!("Removed what this example posted.");
     Ok(())
 }

@@ -249,3 +249,21 @@ async fn requiring_a_workspace_asks_for_the_scopes_the_check_needs_and_fails_clo
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn a_workspace_domain_that_is_not_a_domain_is_refused_when_the_socket_is_built() {
+    for bad in [
+        "",
+        "@",
+        "ada@acme.example",
+        "https://acme.example",
+        "acme",
+        "acme .example",
+    ] {
+        let integration: Arc<dyn Integration> = Arc::new(Google::new().hosted_domain(bad));
+        let err = Socket::in_memory().integration(integration).build().unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Config, "{bad:?}");
+    }
+    let fine: Arc<dyn Integration> = Arc::new(Google::new().hosted_domain("@Acme.Example"));
+    Socket::in_memory().integration(fine).build().unwrap();
+}

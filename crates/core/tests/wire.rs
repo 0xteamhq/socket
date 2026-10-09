@@ -1777,3 +1777,220 @@ async fn a_customised_exchange_still_reports_throttling_and_refusal_as_what_they
         );
     }
 }
+
+// ── Findings from the pull request review ─────────────────────────────────────
+
+#[tokio::test]
+async fn reconnecting_keeps_an_unsaved_rotation_until_the_new_authorization_is_saved() {
+    let server = MockServer::start().await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("grant_type=refresh_token"))
+        .and(body_string_contains("refresh_token=R1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "access_token": "A2", "refresh_token": "R2", "expires_in": 3600 })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("grant_type=authorization_code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "access_token": "new-account" })))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/me"))
+        .and(header("authorization", "Bearer A2"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+
+    // Every save fails until the switch is flipped, as during a database outage.
+    struct Outage {
+        inner: MemoryTokenStore,
+        down: std::sync::atomic::AtomicBool,
+    }
+    #[async_trait]
+    impl TokenStore for Outage {
+        async fn load(&self, key: ConnectionKey) -> Result<Option<TokenSet>> {
+            self.inner.load(key).await
+        }
+        async fn save(&self, key: ConnectionKey, tokens: TokenSet) -> Result<()> {
+            if self.down.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(socketkit_core::Error::new(ErrorKind::Unexpected, "store is down"));
+            }
+            self.inner.save(key, tokens).await
+        }
+        async fn delete(&self, key: ConnectionKey) -> Result<()> {
+            self.inner.delete(key).await
+        }
+    }
+    let store = Arc::new(Outage {
+        inner: MemoryTokenStore::new(),
+        down: false.into(),
+    });
+    store.save(key(), expired(Some("R1"))).await.unwrap();
+    let socket = builder_with(store.clone(), oauth_spec(&server, ClientAuth::Body, false));
+
+    store.down.store(true, std::sync::atomic::Ordering::SeqCst);
+    // The refresh spends R1 and gets R2, but cannot save it.
+    socket.request(key(), RawRequest::get("me")).await.unwrap_err();
+    // A reconnect during the outage also fails to save. It must not throw R2 away.
+    let authorization = socket.begin_authorization(key(), None).unwrap();
+    let state = authorization.pending.state.clone();
+    socket
+        .complete_authorization(authorization.pending, "code".into(), state)
+        .await
+        .unwrap_err();
+
+    store.down.store(false, std::sync::atomic::Ordering::SeqCst);
+    socket.request(key(), RawRequest::get("me")).await.unwrap();
+    let saved = store.load(key()).await.unwrap().unwrap();
+    assert_eq!(
+        saved.refresh_token.as_ref().map(SecretString::expose),
+        Some("R2"),
+        "the rotation survived the failed reconnect"
+    );
+}
+
+fn builder_with(store: Arc<dyn TokenStore>, spec: ProviderSpec) -> Socket {
+    Socket::builder(store)
+        .provider(spec)
+        .oauth_client(ProviderId::new("acme").unwrap(), client())
+        .state_secret(STATE_SECRET)
+        .retry(fast_retry())
+        .build()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_client_set_on_the_builder_replaces_a_blank_one_given_to_the_integration() {
+    let server = MockServer::start().await;
+    let blank = OAuthClient {
+        client_id: String::new(),
+        client_secret: SecretString::new(""),
+        ..client()
+    };
+    let given = Given {
+        spec: oauth_spec(&server, ClientAuth::Body, false),
+        client: Some(blank.clone()),
+        token: None,
+    };
+    let socket = Socket::in_memory()
+        .integration(Arc::new(given))
+        .oauth_client(ProviderId::new("acme").unwrap(), client())
+        .build()
+        .unwrap();
+    assert!(
+        socket
+            .begin_authorization(key(), None)
+            .unwrap()
+            .url
+            .query_pairs()
+            .any(|(n, v)| n == "client_id" && v == "client-id")
+    );
+
+    // With nothing to replace it, the blank client is still refused.
+    let alone = Given {
+        spec: oauth_spec(&server, ClientAuth::Body, false),
+        client: Some(blank),
+        token: None,
+    };
+    assert_eq!(
+        Socket::in_memory()
+            .integration(Arc::new(alone))
+            .build()
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Config
+    );
+}
+
+#[tokio::test]
+async fn an_oversized_error_page_is_still_classified_by_its_status() {
+    let server = MockServer::start().await;
+    let huge = "x".repeat(11 * 1024 * 1024);
+    Mock::given(path("/api/throttled"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "3600")
+                .set_body_string(huge.clone()),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/missing"))
+        .respond_with(ResponseTemplate::new(404).set_body_string(huge))
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("t")).await;
+    let throttled = socket.request(key(), RawRequest::get("throttled")).await.unwrap_err();
+    assert_eq!(
+        (throttled.kind(), throttled.retry()),
+        (ErrorKind::RateLimited, Retry::After(Duration::from_secs(3600)))
+    );
+    assert_eq!(
+        socket
+            .request(key(), RawRequest::get("missing"))
+            .await
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotFound
+    );
+}
+
+#[tokio::test]
+async fn the_token_endpoint_tells_a_throttle_and_a_wrong_address_apart_from_a_refusal() {
+    for (status, headers, body, kind) in [
+        (403, vec![("retry-after", "30")], json!({}), ErrorKind::RateLimited),
+        (
+            403,
+            vec![("x-ratelimit-remaining", "0")],
+            json!({}),
+            ErrorKind::RateLimited,
+        ),
+        (404, vec![], json!({ "message": "Not Found" }), ErrorKind::Config),
+        (405, vec![], Value::Null, ErrorKind::Config),
+        (
+            403,
+            vec![],
+            json!({ "error": "access_denied" }),
+            ErrorKind::ReconnectRequired,
+        ),
+        (400, vec![], Value::Null, ErrorKind::ReconnectRequired),
+    ] {
+        let server = MockServer::start().await;
+        let mut response = ResponseTemplate::new(status).set_body_json(body.clone());
+        for (name, value) in &headers {
+            response = response.insert_header(*name, *value);
+        }
+        Mock::given(path("/token")).respond_with(response).mount(&server).await;
+        let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), expired(Some("R1"))).await;
+        let err = socket.request(key(), RawRequest::get("me")).await.unwrap_err();
+        assert_eq!(err.kind(), kind, "HTTP {status} {headers:?} {body}");
+    }
+}
+
+#[tokio::test]
+async fn a_token_endpoint_that_echoes_the_request_does_not_leak_it_into_the_error() {
+    let server = MockServer::start().await;
+    let echoed = "client_secret=client-secret&code=the-code is not valid";
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "error": echoed })))
+        .mount(&server)
+        .await;
+    let socket = builder_with(
+        Arc::new(MemoryTokenStore::new()),
+        oauth_spec(&server, ClientAuth::Body, false),
+    );
+    let authorization = socket.begin_authorization(key(), None).unwrap();
+    let state = authorization.pending.state.clone();
+    let err = socket
+        .complete_authorization(authorization.pending, "the-code".into(), state)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    let everything = format!("{err} {err:?} {}", serde_json::to_string(&err.to_wire()).unwrap());
+    assert!(
+        !everything.contains("client-secret") && !everything.contains("the-code"),
+        "{everything}"
+    );
+}

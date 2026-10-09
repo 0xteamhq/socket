@@ -130,10 +130,7 @@ impl Classifier for StandardClassifier {
         let throttled = status == 429
             || (status == 403 && (response.header("x-ratelimit-remaining") == Some("0") || retry_after.is_some()));
         if throttled {
-            let retry = match retry_after.and_then(|v| v.trim().parse::<u64>().ok()) {
-                Some(secs) => Retry::After(Duration::from_secs(secs)),
-                None => Retry::Later,
-            };
+            let retry = retry_guidance(retry_after);
             return Err(
                 error(ErrorKind::RateLimited, format!("{provider} is rate limiting requests")).with_retry(retry),
             );
@@ -162,6 +159,25 @@ impl Classifier for StandardClassifier {
                 format!("{provider} returned HTTP {status}"),
             )),
         }
+    }
+}
+
+/// Reads a `Retry-After` header: a number of seconds, or an HTTP date.
+/// Anything else, or no header, means "later" with no time given.
+pub(crate) fn retry_guidance(retry_after: Option<&str>) -> Retry {
+    let Some(value) = retry_after.map(str::trim) else {
+        return Retry::Later;
+    };
+    if let Ok(secs) = value.parse::<u64>() {
+        return Retry::After(Duration::from_secs(secs));
+    }
+    match httpdate::parse_http_date(value) {
+        // A date already past means "now".
+        Ok(when) => Retry::After(
+            when.duration_since(std::time::SystemTime::now())
+                .unwrap_or(Duration::ZERO),
+        ),
+        Err(_) => Retry::Later,
     }
 }
 
@@ -484,6 +500,15 @@ async fn read(spec: &ProviderSpec, builder: reqwest::RequestBuilder) -> Result<R
         .map_err(|e| transport("read the response from", e))?
     {
         if bytes.len() + chunk.len() > MAX_BODY_BYTES {
+            // An oversized error page still has a status and headers worth
+            // acting on: a 429 stays a throttle. Its body is not read.
+            if !(200..300).contains(&status) {
+                return Ok(RawResponse {
+                    status,
+                    headers,
+                    body: Value::Null,
+                });
+            }
             return Err(Error::new(
                 ErrorKind::Decode,
                 format!("{} answered with a response too large to read", spec.id),
@@ -579,8 +604,21 @@ mod tests {
             Retry::After(Duration::from_secs(12))
         );
         assert_eq!(classify(429, &[], Value::Null).retry(), Retry::Later);
-        let http_date = classify(429, &[("retry-after", "Wed, 21 Oct 2026 07:28:00 GMT")], Value::Null);
-        assert_eq!(http_date.retry(), Retry::Later);
+        let garbled = classify(429, &[("retry-after", "soon")], Value::Null);
+        assert_eq!(garbled.retry(), Retry::Later);
+
+        // An HTTP date is honoured too: the wait is the time left until it.
+        let in_two_minutes = httpdate::fmt_http_date(std::time::SystemTime::now() + Duration::from_secs(120));
+        let Retry::After(wait) = classify(429, &[("retry-after", in_two_minutes.as_str())], Value::Null).retry() else {
+            panic!("a date in the future is a wait")
+        };
+        assert!((115..=120).contains(&wait.as_secs()), "{wait:?}");
+        let past = classify(429, &[("retry-after", "Wed, 21 Oct 2015 07:28:00 GMT")], Value::Null);
+        assert_eq!(
+            past.retry(),
+            Retry::After(Duration::ZERO),
+            "a date already past means now"
+        );
     }
 
     #[test]

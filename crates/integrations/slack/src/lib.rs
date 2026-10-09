@@ -1,7 +1,9 @@
 //! Socket integration for Slack.
 //!
-//! Offers the provider definition, `slack.identity.get` and
-//! `slack.resource.resolve` (a channel). Typed operations arrive in phase 2.
+//! Offers the provider definition, identity and channel lookup, and typed
+//! methods for Slack's Web API grouped by area (`chat`, `conversations`,
+//! `users`, …). Every typed method is also a named operation. See
+//! `docs/integrations/slack.md`.
 
 mod client;
 pub mod models;
@@ -366,7 +368,7 @@ impl Slack {
             let request = RawRequest::get("conversations.list")
                 .with_query("types", "public_channel")
                 .with_query("exclude_archived", "true")
-                .with_query("limit", "1000")
+                .with_query("limit", "999")
                 .with_query("cursor", cursor.as_str());
             let body = connection.request(request).await?.body;
             let found = body["channels"]
@@ -391,6 +393,21 @@ impl Slack {
 impl Integration for Slack {
     fn provider(&self) -> ProviderSpec {
         self.spec.clone()
+    }
+
+    /// Slack's operations are named `slack.…`, so the definition must keep that id.
+    fn check(&self) -> Result<()> {
+        if self.spec.id.as_str() == PROVIDER_ID {
+            return Ok(());
+        }
+        Err(Error::new(
+            ErrorKind::Config,
+            format!(
+                "the Slack integration needs the provider id {PROVIDER_ID:?}, not {:?}",
+                self.spec.id.as_str()
+            ),
+        )
+        .with_provider(self.spec.id.clone()))
     }
 
     fn oauth_client(&self) -> Option<OAuthClient> {

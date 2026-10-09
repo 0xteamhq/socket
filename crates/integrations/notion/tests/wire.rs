@@ -183,13 +183,11 @@ async fn notion_built_with_a_token_and_a_version_sends_both() {
         token: SecretString::new("secret_abc"),
         version: Some("2025-09-03".into()),
     };
-    // The real constructor decides the version; only the address is moved to the local server.
-    let real = Notion::with_token(settings);
-    let moved = Notion::with_spec(point_at(real.provider(), &server))
-        .token("secret_abc")
-        .version("2025-09-03");
+    // Built by the real constructor, so this fails if `with_token` stops applying
+    // the token or the version. Only the address is moved to the local server.
+    let moved = Notion::with_token(settings).spec(point_at(provider(), &server));
     assert_eq!(
-        format!("{:?}", real.fixed_token().unwrap().access_token),
+        format!("{:?}", moved.fixed_token().unwrap().access_token),
         "SecretString(***)"
     );
     let socket = Socket::in_memory().integration(Arc::new(moved)).build().unwrap();

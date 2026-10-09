@@ -17,7 +17,7 @@ struct Case {
     verb: &'static str,
     /// Slack's own method name, which is the last part of the URL.
     slack_method: &'static str,
-    /// Arguments that must reach Slack: in the query for a read, in the JSON body for a write.
+    /// Exactly the arguments that reach Slack: in the query for a read, in the JSON body for a write.
     sent: Value,
     response: Value,
     /// What the operation returns. Checked as a subset, so models may carry more fields.
@@ -94,7 +94,7 @@ fn cases() -> Vec<Case> {
         case("conversations.set_topic", json!({ "channel": "C1", "topic": "ship it" }), "POST", "conversations.setTopic", json!({ "channel": "C1", "topic": "ship it" }), json!({ "ok": true }), json!(null)),
         case("conversations.set_purpose", json!({ "channel": "C1", "purpose": "releases" }), "POST", "conversations.setPurpose", json!({ "channel": "C1", "purpose": "releases" }), json!({ "ok": true }), json!(null)),
         case("conversations.open", json!({ "users": ["U2"] }), "POST", "conversations.open",
-            json!({ "users": "U2" }), json!({ "ok": true, "channel": { "id": "D1", "is_im": true, "user": "U2" } }), json!({ "id": "D1", "is_im": true, "user": "U2" })),
+            json!({ "users": "U2", "return_im": true }), json!({ "ok": true, "channel": { "id": "D1", "is_im": true, "user": "U2" } }), json!({ "id": "D1", "is_im": true, "user": "U2" })),
         case("conversations.mark", json!({ "channel": "C1", "ts": TS }), "POST", "conversations.mark", json!({ "channel": "C1", "ts": TS }), json!({ "ok": true }), json!(null)),
 
         // users
@@ -239,12 +239,7 @@ async fn every_operation_calls_the_right_slack_method_and_returns_what_slack_sen
         } else {
             serde_json::from_slice(&request.body).unwrap()
         };
-        assert!(
-            contains(&sent, &case.sent),
-            "{}: sent {sent}, expected {}",
-            case.name,
-            case.sent
-        );
+        assert_eq!(sent, case.sent, "{}: exactly these arguments reach Slack", case.name);
     }
 }
 
@@ -633,4 +628,24 @@ async fn anything_that_removes_or_overwrites_is_marked_destructive_so_a_host_can
             operation.effect
         );
     }
+}
+
+#[tokio::test]
+async fn slack_under_another_provider_id_is_refused_when_the_socket_is_built() {
+    let mut spec = provider();
+    spec.id = socketkit_core::ProviderId::new("chat").unwrap();
+    let integration: Arc<dyn Integration> = Arc::new(Slack::with_spec(spec));
+    let err = Socket::in_memory().integration(integration).build().unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Config);
+    assert!(err.message().contains("slack"), "{}", err.message());
+}
+
+#[tokio::test]
+async fn opening_a_conversation_lists_the_scope_for_group_messages_too() {
+    let operations = Slack::new().operations();
+    let open = operations
+        .iter()
+        .find(|o| o.name == "slack.conversations.open")
+        .unwrap();
+    assert_eq!(open.required_scopes, ["im:write", "mpim:write"]);
 }

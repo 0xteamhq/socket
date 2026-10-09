@@ -27,6 +27,10 @@ pub enum Effect {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OperationInfo {
     /// `"<provider id>.<rest>"`, for example `"slack.chat.post_message"`.
+    ///
+    /// The rest is one or more parts joined by dots, each of lowercase ASCII
+    /// letters, digits and `_`. The name is permanent once published, and is
+    /// what an agent sees as the tool's name, so `Socket` refuses anything else.
     pub name: String,
     pub description: String,
     /// JSON Schema of the input object.
