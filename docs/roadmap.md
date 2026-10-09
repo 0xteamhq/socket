@@ -43,8 +43,6 @@ Slack now has 54 typed methods, each also a named operation with generated schem
 
 - Decide before the first release whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.
 - Retrying is decided by HTTP method. The spec says the provider's classifier should decide; Slack accepts GET for some writes, so this matters before Slack gets write operations in phase 2.
-- A refresh response that gives no lifetime leaves the new token with no expiry, so it is used until the provider rejects it. The fix is to refresh once and retry when a call is rejected and a refresh token is held; keeping the old expiry would be wrong, because it is already past.
-- A renamed GitHub repository answers with a redirect, which is not followed, so it reports an unexpected error instead of the new name.
 - Notion treats any 400 on a lookup as "not found", including a 400 that means something else. (Zoom now reads its own error code.)
 - Slack channel lookup by name reports "not found" after 20 pages even if the workspace has more.
 - A request path may climb out of `api_base` with `..` to another path on the same allowed host.
