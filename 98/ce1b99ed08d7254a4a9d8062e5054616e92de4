@@ -1,0 +1,21 @@
+crates/integrations/github/src/lib.rs
+  s_9a82f246a2078d::t_3b5eb950a4586d 488-494
+crates/integrations/linear/src/lib.rs
+  s_9a82f246a2078d::t_13fcda636a7114 219-221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "98ce1b99ed08d7254a4a9d8062e5054616e92de4",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
