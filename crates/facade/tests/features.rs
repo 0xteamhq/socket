@@ -164,4 +164,117 @@ mod every_integration {
             ErrorKind::Config
         );
     }
+
+    fn authorize_url(integration: Arc<dyn Integration>) -> url::Url {
+        let key = ConnectionKey::new(integration.provider().id, "user-1");
+        Socket::in_memory()
+            .integration(integration)
+            .build()
+            .unwrap()
+            .begin_authorization(key, None)
+            .unwrap()
+            .url
+    }
+
+    fn param(url: &url::Url, name: &str) -> Option<String> {
+        url.query_pairs().find(|(n, _)| n == name).map(|(_, v)| v.into_owned())
+    }
+
+    #[test]
+    fn slack_takes_user_scopes_as_its_own_parameter() {
+        let settings = socketkit::slack::SlackOAuth {
+            client: client("slack"),
+            scopes: Some(vec!["chat:write".into()]),
+            user_scopes: vec!["search:read".into(), "users:read".into()],
+        };
+        let url = authorize_url(Arc::new(socketkit::slack::Slack::with_oauth(settings)));
+        assert_eq!(
+            param(&url, "scope").as_deref(),
+            Some("chat:write"),
+            "the given scopes replace the defaults"
+        );
+        assert_eq!(param(&url, "user_scope").as_deref(), Some("search:read,users:read"));
+
+        let plain = authorize_url(Arc::new(socketkit::slack::Slack::with_oauth(client("slack"))));
+        assert_eq!(param(&plain, "user_scope"), None);
+        assert!(
+            param(&plain, "scope").unwrap().contains("channels:read"),
+            "the defaults stay when none are given"
+        );
+    }
+
+    #[test]
+    fn google_takes_a_workspace_domain_and_a_login_hint_and_keeps_asking_for_a_refresh_token() {
+        let settings = socketkit::google::GoogleOAuth {
+            client: client("google"),
+            scopes: None,
+            hosted_domain: Some("acme.example".into()),
+            login_hint: Some("ada@acme.example".into()),
+        };
+        let url = authorize_url(Arc::new(socketkit::google::Google::with_oauth(settings)));
+        assert_eq!(param(&url, "hd").as_deref(), Some("acme.example"));
+        assert_eq!(param(&url, "login_hint").as_deref(), Some("ada@acme.example"));
+        assert_eq!(param(&url, "access_type").as_deref(), Some("offline"));
+    }
+
+    #[test]
+    fn github_takes_an_enterprise_server_host_and_sends_nothing_to_github_com() {
+        let oauth = socketkit::github::GitHubOAuth {
+            client: client("github"),
+            scopes: Some(vec!["read:org".into()]),
+            host: Some("GitHub.Acme.Example".into()),
+        };
+        let integration = socketkit::github::GitHub::with_oauth(oauth);
+        let spec = integration.provider();
+        assert_eq!(spec.api_base.as_str(), "https://github.acme.example/api/v3/");
+        assert!(spec.allows_host(&"https://github.acme.example/api/v3/user".parse().unwrap()));
+        assert!(
+            !spec.allows_host(&"https://api.github.com/user".parse().unwrap()),
+            "an Enterprise token never goes to github.com"
+        );
+        let url = authorize_url(Arc::new(integration));
+        assert_eq!(url.host_str(), Some("github.acme.example"));
+        assert_eq!(url.path(), "/login/oauth/authorize");
+        assert_eq!(param(&url, "scope").as_deref(), Some("read:org"));
+
+        let token = socketkit::github::GitHubToken {
+            token: SecretString::new("ghp_x"),
+            host: Some("github.acme.example".into()),
+        };
+        let with_token = socketkit::github::GitHub::with_token(token);
+        assert_eq!(with_token.provider().allowed_hosts, ["github.acme.example"]);
+    }
+
+    #[test]
+    fn a_github_host_that_is_not_a_bare_host_name_is_refused_when_the_socket_is_built() {
+        for host in [
+            "https://github.acme.example",
+            "github.acme.example/api",
+            "evil.test#",
+            "a..b",
+            "host:8443",
+            "user@host",
+            "",
+            " ",
+            "-bad.example",
+        ] {
+            let token = socketkit::github::GitHubToken {
+                token: SecretString::new("ghp_x"),
+                host: Some(host.into()),
+            };
+            let integration: Arc<dyn Integration> = Arc::new(socketkit::github::GitHub::with_token(token));
+            let err = Socket::in_memory().integration(integration).build().unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Config, "{host:?}");
+        }
+    }
+
+    #[test]
+    fn scopes_can_be_replaced_on_an_integration_with_no_other_settings() {
+        let settings = socketkit::linear::LinearOAuth {
+            client: client("linear"),
+            scopes: Some(vec!["read".into()]),
+        };
+        let url = authorize_url(Arc::new(socketkit::linear::Linear::with_oauth(settings)));
+        assert_eq!(param(&url, "scope").as_deref(), Some("read"));
+    }
 }

@@ -8,8 +8,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use socketkit_core::{
     Access, Account, AuthScheme, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec, OAuthClient,
-    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, TokenSet, identity_operation, resolve_input,
-    resolve_operation, to_output,
+    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, SecretString, TokenSet, identity_operation,
+    resolve_input, resolve_operation, to_output,
 };
 
 /// This provider's id, as used in connection keys and operation names.
@@ -85,6 +85,52 @@ fn describe(mime_type: &str) -> &'static str {
     }
 }
 
+/// OAuth settings for Google. A plain [`OAuthClient`] converts into this with
+/// the defaults, so `Google::with_oauth(client)` works when nothing else is needed.
+#[derive(Debug, Clone)]
+pub struct GoogleOAuth {
+    /// The application's own OAuth app.
+    pub client: OAuthClient,
+    /// Scopes to ask for in place of the defaults.
+    pub scopes: Option<Vec<String>>,
+    /// Limits sign-in to one Google Workspace domain (Google's `hd` parameter).
+    pub hosted_domain: Option<String>,
+    /// Prefills the account chooser (Google's `login_hint` parameter).
+    pub login_hint: Option<String>,
+}
+
+impl From<OAuthClient> for GoogleOAuth {
+    fn from(client: OAuthClient) -> Self {
+        Self {
+            client,
+            scopes: None,
+            hosted_domain: None,
+            login_hint: None,
+        }
+    }
+}
+
+/// A Google access token. A plain string converts into this, so
+/// `Google::with_token("…")` works when nothing else is needed.
+#[derive(Debug, Clone)]
+pub struct GoogleToken {
+    pub token: SecretString,
+}
+
+impl From<String> for GoogleToken {
+    fn from(token: String) -> Self {
+        Self {
+            token: SecretString::new(token),
+        }
+    }
+}
+
+impl From<&str> for GoogleToken {
+    fn from(token: &str) -> Self {
+        token.to_owned().into()
+    }
+}
+
 /// The Google integration.
 #[derive(Debug, Clone)]
 pub struct Google {
@@ -106,13 +152,36 @@ impl Google {
     }
 
     /// Google with the application's OAuth app, for connecting users through OAuth.
-    pub fn with_oauth(client: OAuthClient) -> Self {
-        Self::new().oauth(client)
+    /// Takes an [`OAuthClient`], or a [`GoogleOAuth`] for the settings only Google has.
+    pub fn with_oauth(settings: impl Into<GoogleOAuth>) -> Self {
+        let settings = settings.into();
+        let mut this = Self::new();
+        if let AuthScheme::OAuth2(oauth) = &mut this.spec.auth {
+            if let Some(scopes) = settings.scopes {
+                oauth.default_scopes = scopes;
+            }
+            if let Some(domain) = settings.hosted_domain {
+                oauth.extra_authorize_params.push(("hd".into(), domain));
+            }
+            if let Some(hint) = settings.login_hint {
+                oauth.extra_authorize_params.push(("login_hint".into(), hint));
+            }
+        }
+        this.oauth(settings.client)
     }
 
     /// Google with a token the application already holds. Every call uses it.
-    pub fn with_token(token: impl Into<String>) -> Self {
-        Self::new().token(token)
+    /// Takes a string, or a [`GoogleToken`] for the settings only Google has.
+    pub fn with_token(settings: impl Into<GoogleToken>) -> Self {
+        let settings = settings.into();
+        let mut this = Self::new();
+        this.access.token = Some(TokenSet {
+            access_token: settings.token,
+            refresh_token: None,
+            expires_at: None,
+            scopes: Vec::new(),
+        });
+        this
     }
 
     /// Uses another definition, for a test server.

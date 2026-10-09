@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use socketkit_core::{
     Access, Account, AuthScheme, Classifier, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec,
     OAuthClient, OperationInfo, ProviderId, ProviderSpec, RawRequest, RawResponse, Resource, Result, Retry,
-    StandardClassifier, TokenSet, identity_operation, resolve_input, resolve_operation, to_output,
+    SecretString, StandardClassifier, TokenSet, identity_operation, resolve_input, resolve_operation, to_output,
 };
 
 /// This provider's id, as used in connection keys and operation names.
@@ -109,6 +109,43 @@ pub fn parse_team_key(input: &str) -> Result<String> {
     }
 }
 
+/// OAuth settings for Linear. A plain [`OAuthClient`] converts into this with
+/// the defaults, so `Linear::with_oauth(client)` works when nothing else is needed.
+#[derive(Debug, Clone)]
+pub struct LinearOAuth {
+    /// The application's own OAuth app.
+    pub client: OAuthClient,
+    /// Scopes to ask for in place of the defaults.
+    pub scopes: Option<Vec<String>>,
+}
+
+impl From<OAuthClient> for LinearOAuth {
+    fn from(client: OAuthClient) -> Self {
+        Self { client, scopes: None }
+    }
+}
+
+/// A Linear API key or access token. A plain string converts into this, so
+/// `Linear::with_token("…")` works when nothing else is needed.
+#[derive(Debug, Clone)]
+pub struct LinearToken {
+    pub token: SecretString,
+}
+
+impl From<String> for LinearToken {
+    fn from(token: String) -> Self {
+        Self {
+            token: SecretString::new(token),
+        }
+    }
+}
+
+impl From<&str> for LinearToken {
+    fn from(token: &str) -> Self {
+        token.to_owned().into()
+    }
+}
+
 /// The Linear integration.
 #[derive(Debug, Clone)]
 pub struct Linear {
@@ -130,13 +167,30 @@ impl Linear {
     }
 
     /// Linear with the application's OAuth app, for connecting users through OAuth.
-    pub fn with_oauth(client: OAuthClient) -> Self {
-        Self::new().oauth(client)
+    /// Takes an [`OAuthClient`], or a [`LinearOAuth`] for the settings only Linear has.
+    pub fn with_oauth(settings: impl Into<LinearOAuth>) -> Self {
+        let settings = settings.into();
+        let mut this = Self::new();
+        if let AuthScheme::OAuth2(oauth) = &mut this.spec.auth {
+            if let Some(scopes) = settings.scopes {
+                oauth.default_scopes = scopes;
+            }
+        }
+        this.oauth(settings.client)
     }
 
     /// Linear with a token the application already holds. Every call uses it.
-    pub fn with_token(token: impl Into<String>) -> Self {
-        Self::new().token(token)
+    /// Takes a string, or a [`LinearToken`] for the settings only Linear has.
+    pub fn with_token(settings: impl Into<LinearToken>) -> Self {
+        let settings = settings.into();
+        let mut this = Self::new();
+        this.access.token = Some(TokenSet {
+            access_token: settings.token,
+            refresh_token: None,
+            expires_at: None,
+            scopes: Vec::new(),
+        });
+        this
     }
 
     /// Uses another definition, for a test server.

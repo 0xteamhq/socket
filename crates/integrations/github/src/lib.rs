@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use socketkit_core::{
     Access, Account, AuthScheme, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec, OAuthClient,
-    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, TokenSet, identity_operation, resolve_input,
-    resolve_operation, to_output,
+    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, SecretString, TokenSet, identity_operation,
+    resolve_input, resolve_operation, to_output,
 };
 
 /// This provider's id, as used in connection keys and operation names.
@@ -39,11 +39,83 @@ pub fn provider() -> ProviderSpec {
     }
 }
 
+/// OAuth settings for GitHub. A plain [`OAuthClient`] converts into this with
+/// the defaults, so `GitHub::with_oauth(client)` works when nothing else is needed.
+#[derive(Debug, Clone)]
+pub struct GitHubOAuth {
+    /// The application's own OAuth app.
+    pub client: OAuthClient,
+    /// Scopes to ask for in place of the defaults.
+    pub scopes: Option<Vec<String>>,
+    /// The host of a GitHub Enterprise Server, such as `github.acme.example`. `None` means github.com.
+    pub host: Option<String>,
+}
+
+impl From<OAuthClient> for GitHubOAuth {
+    fn from(client: OAuthClient) -> Self {
+        Self {
+            client,
+            scopes: None,
+            host: None,
+        }
+    }
+}
+
+/// A GitHub personal access token or app token. A plain string converts into this, so
+/// `GitHub::with_token("…")` works when nothing else is needed.
+#[derive(Debug, Clone)]
+pub struct GitHubToken {
+    pub token: SecretString,
+    /// The host of a GitHub Enterprise Server, such as `github.acme.example`. `None` means github.com.
+    pub host: Option<String>,
+}
+
+impl From<String> for GitHubToken {
+    fn from(token: String) -> Self {
+        Self {
+            token: SecretString::new(token),
+            host: None,
+        }
+    }
+}
+
+impl From<&str> for GitHubToken {
+    fn from(token: &str) -> Self {
+        token.to_owned().into()
+    }
+}
+
+/// GitHub Enterprise Server's definition for `host`, or `None` when `host` is
+/// not a bare host name.
+pub fn provider_for_host(host: &str) -> Option<ProviderSpec> {
+    let host = host.trim().to_ascii_lowercase();
+    let is_label = |label: &str| {
+        !label.is_empty()
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    };
+    if host.is_empty() || !host.split('.').all(is_label) {
+        return None;
+    }
+    let url = |path: &str| format!("https://{host}{path}").parse().ok();
+    let mut spec = provider();
+    spec.api_base = url("/api/v3/")?;
+    if let AuthScheme::OAuth2(oauth) = &mut spec.auth {
+        oauth.authorize_url = url("/login/oauth/authorize")?;
+        oauth.token_url = url("/login/oauth/access_token")?;
+    }
+    spec.allowed_hosts = vec![host];
+    Some(spec)
+}
+
 /// The GitHub integration.
 #[derive(Debug, Clone)]
 pub struct GitHub {
     spec: ProviderSpec,
     access: Access,
+    /// What is wrong with the settings it was created with, if anything.
+    problem: Option<String>,
 }
 
 impl Default for GitHub {
@@ -60,13 +132,44 @@ impl GitHub {
     }
 
     /// GitHub with the application's OAuth app, for connecting users through OAuth.
-    pub fn with_oauth(client: OAuthClient) -> Self {
-        Self::new().oauth(client)
+    /// Takes an [`OAuthClient`], or a [`GitHubOAuth`] to set scopes or an Enterprise Server host.
+    pub fn with_oauth(settings: impl Into<GitHubOAuth>) -> Self {
+        let settings = settings.into();
+        let mut this = Self::on_host(settings.host);
+        if let (Some(scopes), AuthScheme::OAuth2(oauth)) = (settings.scopes, &mut this.spec.auth) {
+            oauth.default_scopes = scopes;
+        }
+        this.oauth(settings.client)
     }
 
     /// GitHub with a token the application already holds. Every call uses it.
-    pub fn with_token(token: impl Into<String>) -> Self {
-        Self::new().token(token)
+    /// Takes a string, or a [`GitHubToken`] to set an Enterprise Server host.
+    pub fn with_token(settings: impl Into<GitHubToken>) -> Self {
+        let settings = settings.into();
+        let mut this = Self::on_host(settings.host);
+        this.access.token = Some(TokenSet {
+            access_token: settings.token,
+            refresh_token: None,
+            expires_at: None,
+            scopes: Vec::new(),
+        });
+        this
+    }
+
+    fn on_host(host: Option<String>) -> Self {
+        let Some(host) = host else {
+            return Self::new();
+        };
+        match provider_for_host(&host) {
+            Some(spec) => Self::with_spec(spec),
+            None => {
+                let mut this = Self::new();
+                this.problem = Some(format!(
+                    "{host:?} is not a host name; give the host alone, such as github.acme.example"
+                ));
+                this
+            }
+        }
     }
 
     /// Uses another definition, for GitHub Enterprise Server or a test server.
@@ -74,6 +177,7 @@ impl GitHub {
         Self {
             spec,
             access: Access::default(),
+            problem: None,
         }
     }
 
@@ -200,6 +304,13 @@ fn is_name(s: &str) -> bool {
 impl Integration for GitHub {
     fn provider(&self) -> ProviderSpec {
         self.spec.clone()
+    }
+
+    fn check(&self) -> Result<()> {
+        match &self.problem {
+            Some(problem) => Err(Error::new(ErrorKind::Config, problem.clone()).with_provider(self.spec.id.clone())),
+            None => Ok(()),
+        }
     }
 
     fn oauth_client(&self) -> Option<OAuthClient> {

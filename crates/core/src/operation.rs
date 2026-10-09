@@ -177,9 +177,11 @@ impl fmt::Debug for Connection {
     }
 }
 
-/// The connection details an application hands to an integration: its OAuth
-/// app, a token it already holds, or neither when it sets them on the
-/// `Socket` builder and its own token store.
+/// What an integration's own settings come down to once it has read them.
+///
+/// Each integration crate defines its own settings types, with whatever
+/// fields that service needs (extra scopes, a host name, a workspace). This
+/// is only where the two things the core understands end up.
 #[derive(Debug, Clone, Default)]
 pub struct Access {
     pub oauth: Option<OAuthClient>,
@@ -197,6 +199,12 @@ pub trait Integration: Send + Sync {
     /// Runs the operation called `operation` with `input`, a JSON object.
     /// `operation` is always one of the names returned by [`Integration::operations`].
     async fn invoke(&self, connection: Connection, operation: String, input: Value) -> Result<Value>;
+
+    /// Reports a problem with the settings this integration was created with,
+    /// such as a host name that is not one. Checked when the `Socket` is built.
+    fn check(&self) -> Result<()> {
+        Ok(())
+    }
 
     /// The application's OAuth app for this provider, when it was given to the
     /// integration itself, as in `Slack::with_oauth(client)`.

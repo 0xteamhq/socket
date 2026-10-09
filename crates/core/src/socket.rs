@@ -592,6 +592,9 @@ impl SocketBuilder {
                     operations.push(info);
                 }
             }
+            if let Some(integration) = &integration {
+                integration.check()?;
+            }
             let (given_client, fixed_token) = match &integration {
                 Some(integration) => (integration.oauth_client(), integration.fixed_token()),
                 None => (None, None),

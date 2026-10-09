@@ -165,3 +165,37 @@ async fn bad_input_is_refused_without_calling_notion() {
     );
     assert!(server.received_requests().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn notion_built_with_a_token_and_a_version_sends_both() {
+    use socketkit_core::SecretString;
+    use socketkit_notion::NotionToken;
+
+    let server = MockServer::start().await;
+    Mock::given(path("/v1/users/me"))
+        .and(header("authorization", "Bearer secret_abc"))
+        .and(header("notion-version", "2025-09-03"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "bot-1", "name": "Acme bot" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let settings = NotionToken {
+        token: SecretString::new("secret_abc"),
+        version: Some("2025-09-03".into()),
+    };
+    // The real constructor decides the version; only the address is moved to the local server.
+    let real = Notion::with_token(settings);
+    let moved = Notion::with_spec(point_at(real.provider(), &server))
+        .token("secret_abc")
+        .version("2025-09-03");
+    assert_eq!(
+        format!("{:?}", real.fixed_token().unwrap().access_token),
+        "SecretString(***)"
+    );
+    let socket = Socket::in_memory().integration(Arc::new(moved)).build().unwrap();
+    let key = ConnectionKey::new(provider().id, "anyone");
+    socket
+        .invoke(key, "notion.identity.get".into(), json!({}))
+        .await
+        .unwrap();
+}

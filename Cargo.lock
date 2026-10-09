@@ -1059,6 +1059,7 @@ dependencies = [
  "socketkit-notion",
  "socketkit-slack",
  "socketkit-zoom",
+ "url",
 ]
 
 [[package]]

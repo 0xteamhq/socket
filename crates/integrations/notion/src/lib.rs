@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use socketkit_core::{
     Access, Account, AuthScheme, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec, OAuthClient,
-    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, TokenSet, identity_operation, resolve_input,
-    resolve_operation, to_output,
+    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, SecretString, TokenSet, identity_operation,
+    resolve_input, resolve_operation, to_output,
 };
 
 /// This provider's id, as used in connection keys and operation names.
@@ -88,11 +88,52 @@ fn plain_text(rich_text: &Value) -> String {
     if text.is_empty() { "Untitled".into() } else { text }
 }
 
+/// OAuth settings for Notion. A plain [`OAuthClient`] converts into this with
+/// the defaults, so `Notion::with_oauth(client)` works when nothing else is needed.
+#[derive(Debug, Clone)]
+pub struct NotionOAuth {
+    /// The application's own OAuth app.
+    pub client: OAuthClient,
+    /// Scopes to ask for in place of the defaults.
+    pub scopes: Option<Vec<String>>,
+}
+
+impl From<OAuthClient> for NotionOAuth {
+    fn from(client: OAuthClient) -> Self {
+        Self { client, scopes: None }
+    }
+}
+
+/// A Notion internal integration secret or access token. A plain string converts into this, so
+/// `Notion::with_token("…")` works when nothing else is needed.
+#[derive(Debug, Clone)]
+pub struct NotionToken {
+    pub token: SecretString,
+    /// The Notion API version to declare, in place of [`NOTION_VERSION`].
+    pub version: Option<String>,
+}
+
+impl From<String> for NotionToken {
+    fn from(token: String) -> Self {
+        Self {
+            token: SecretString::new(token),
+            version: None,
+        }
+    }
+}
+
+impl From<&str> for NotionToken {
+    fn from(token: &str) -> Self {
+        token.to_owned().into()
+    }
+}
+
 /// The Notion integration.
 #[derive(Debug, Clone)]
 pub struct Notion {
     spec: ProviderSpec,
     access: Access,
+    version: String,
 }
 
 impl Default for Notion {
@@ -109,13 +150,33 @@ impl Notion {
     }
 
     /// Notion with the application's OAuth app, for connecting users through OAuth.
-    pub fn with_oauth(client: OAuthClient) -> Self {
-        Self::new().oauth(client)
+    /// Takes an [`OAuthClient`], or a [`NotionOAuth`] for the settings only Notion has.
+    pub fn with_oauth(settings: impl Into<NotionOAuth>) -> Self {
+        let settings = settings.into();
+        let mut this = Self::new();
+        if let AuthScheme::OAuth2(oauth) = &mut this.spec.auth {
+            if let Some(scopes) = settings.scopes {
+                oauth.default_scopes = scopes;
+            }
+        }
+        this.oauth(settings.client)
     }
 
     /// Notion with a token the application already holds. Every call uses it.
-    pub fn with_token(token: impl Into<String>) -> Self {
-        Self::new().token(token)
+    /// Takes a string, or a [`NotionToken`] for the settings only Notion has.
+    pub fn with_token(settings: impl Into<NotionToken>) -> Self {
+        let settings = settings.into();
+        let mut this = Self::new();
+        if let Some(version) = settings.version {
+            this.version = version;
+        }
+        this.access.token = Some(TokenSet {
+            access_token: settings.token,
+            refresh_token: None,
+            expires_at: None,
+            scopes: Vec::new(),
+        });
+        this
     }
 
     /// Uses another definition, for a test server.
@@ -123,6 +184,7 @@ impl Notion {
         Self {
             spec,
             access: Access::default(),
+            version: NOTION_VERSION.to_owned(),
         }
     }
 
@@ -132,20 +194,26 @@ impl Notion {
         self
     }
 
+    /// Sets the Notion API version to declare.
+    pub fn version(mut self, version: impl Into<String>) -> Self {
+        self.version = version.into();
+        self
+    }
+
     /// Sets a token the application already holds.
     pub fn token(mut self, token: impl Into<String>) -> Self {
         self.access.token = Some(TokenSet::bearer(token));
         self
     }
 
-    fn request(path: String) -> RawRequest {
-        RawRequest::get(path).with_header("Notion-Version", NOTION_VERSION)
+    fn request(&self, path: String) -> RawRequest {
+        RawRequest::get(path).with_header("Notion-Version", self.version.as_str())
     }
 
     /// The account the connection is authorised as: the integration's bot
     /// user, shown by the person or workspace that owns it.
     pub async fn identity(&self, connection: &Connection) -> Result<Account> {
-        let body = connection.request(Self::request("users/me".into())).await?.body;
+        let body = connection.request(self.request("users/me".into())).await?.body;
         let Some(id) = body["id"].as_str().filter(|id| !id.is_empty()) else {
             return Err(
                 Error::new(ErrorKind::Decode, "notion answered without an account").with_provider(self.spec.id.clone())
@@ -182,7 +250,7 @@ impl Notion {
     /// `None` when Notion says the id is not an object of this kind: it
     /// answers 404, or 400 when the id belongs to the other kind.
     async fn fetch(&self, connection: &Connection, kind: &str, id: &str) -> Result<Option<Value>> {
-        let body = match connection.request(Self::request(format!("{kind}/{id}"))).await {
+        let body = match connection.request(self.request(format!("{kind}/{id}"))).await {
             Ok(response) => response.body,
             Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::InvalidInput) => return Ok(None),
             Err(e) => return Err(e),

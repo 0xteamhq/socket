@@ -30,5 +30,8 @@ socketkit-notion = { workspace = true, optional = true }
 socketkit-google = { workspace = true, optional = true }
 socketkit-zoom = { workspace = true, optional = true }
 
+[dev-dependencies]
+url.workspace = true
+
 [lints]
 workspace = true
