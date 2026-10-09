@@ -1322,20 +1322,21 @@ async fn header_names_that_servers_treat_alike_are_reserved_too_and_content_type
 }
 
 #[tokio::test]
-async fn idempotent_writes_are_retried_on_a_server_error() {
+async fn no_write_is_repeated_after_a_server_error_whatever_its_verb() {
     let server = MockServer::start().await;
     Mock::given(path("/api/item"))
         .respond_with(ResponseTemplate::new(502))
         .mount(&server)
         .await;
-    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("t")).await;
-    for (n, verb) in ["PUT", "DELETE"].into_iter().enumerate() {
+    let (socket, _) = connected(
+        oauth_spec(&server, ClientAuth::Body, false),
+        TokenSet::bearer("token-502"),
+    )
+    .await;
+    // A repeated merge or delete would be answered with an error for something that worked.
+    for (n, verb) in ["PUT", "DELETE", "PATCH", "POST"].into_iter().enumerate() {
         socket.request(key(), RawRequest::new(verb, "item")).await.unwrap_err();
-        assert_eq!(
-            hits(&server, "/api/item").await,
-            3 * (n + 1),
-            "{verb} is safe to repeat"
-        );
+        assert_eq!(hits(&server, "/api/item").await, n + 1, "{verb} is sent once");
     }
 }
 

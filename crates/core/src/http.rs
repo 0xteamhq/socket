@@ -245,7 +245,11 @@ impl Transport {
         }
         let method = reqwest::Method::from_bytes(request.method.to_ascii_uppercase().as_bytes())
             .map_err(|_| invalid(format!("{:?} is not an HTTP method", request.method)))?;
-        let idempotent = matches!(method.as_str(), "GET" | "HEAD" | "PUT" | "DELETE" | "OPTIONS");
+        // Only a request that changes nothing is safe to send again after a
+        // failure that may have been processed. `PUT` and `DELETE` are
+        // idempotent on paper, but a provider answers a repeated merge or
+        // delete with an error, which would report failure for a success.
+        let idempotent = matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS");
         if let AuthScheme::ApiKey(ApiKeySpec {
             placement: KeyPlacement::Query { name },
         }) = &spec.auth

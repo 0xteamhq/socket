@@ -9,11 +9,10 @@ use std::future::Future;
 use std::sync::OnceLock;
 
 use schemars::JsonSchema;
-use serde::Deserialize;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
-use socketkit_core::{Connection, Effect, Error, ErrorKind, OperationInfo, Page, Result, schema_of};
+use socketkit_core::operation_input as input;
+use socketkit_core::{Connection, Effect, Page, Result, TypedOperation, typed_operation};
 
 use crate::Slack;
 use crate::models::{
@@ -22,26 +21,10 @@ use crate::models::{
     Reminder, ScheduledMessage, Search, SearchResults, Team, UpdateMessage, User, UserGroup,
 };
 
-type Running = std::pin::Pin<Box<dyn Future<Output = Result<Value>> + Send>>;
+/// One Slack operation.
+pub(crate) type Operation = TypedOperation<Slack>;
 
-/// One named operation: what it says about itself, and how to run it.
-pub(crate) struct Operation {
-    pub(crate) info: OperationInfo,
-    run: Box<dyn Fn(Slack, Connection, Value) -> Running + Send + Sync>,
-}
-
-impl Operation {
-    pub(crate) fn run(&self, slack: Slack, connection: Connection, input: Value) -> Running {
-        (self.run)(slack, connection, input)
-    }
-}
-
-fn invalid(message: String) -> Error {
-    Error::new(ErrorKind::InvalidInput, message)
-}
-
-/// Builds an operation from a typed handler. The input type gives the input
-/// schema and the parsing; the output type gives the output schema.
+/// Builds an operation named `slack.<name>` from a typed handler.
 fn operation<I, O, F, Fut>(name: &str, description: &str, effect: Effect, scopes: &[&str], handler: F) -> Operation
 where
     I: DeserializeOwned + JsonSchema + Send + 'static,
@@ -49,65 +32,7 @@ where
     F: Fn(Slack, Connection, I) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<O>> + Send + 'static,
 {
-    let info = OperationInfo {
-        name: format!("slack.{name}"),
-        description: description.to_owned(),
-        input_schema: schema_of::<I>(),
-        output_schema: schema_of::<O>(),
-        effect,
-        required_scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
-    };
-    let run = move |slack: Slack, connection: Connection, input: Value| -> Running {
-        let provider = connection.provider().id.clone();
-        match serde_path_to_error::deserialize::<_, I>(input) {
-            Err(e) => {
-                // serde's own message quotes the offending value, which may be
-                // message text or a credential. Only the field's name, which
-                // comes from our own types, goes into the error.
-                let path = e.path().to_string();
-                let inner = e.inner().to_string();
-                let message = if inner.starts_with("missing field") {
-                    inner
-                } else if path == "." {
-                    "the input has a field of the wrong type".to_owned()
-                } else {
-                    format!("`{path}` has the wrong type")
-                };
-                Box::pin(std::future::ready(Err(invalid(message).with_provider(provider))))
-            }
-            Ok(input) => {
-                let output = handler(slack, connection, input);
-                Box::pin(async move {
-                    serde_json::to_value(output.await?).map_err(|e| {
-                        Error::new(ErrorKind::Unexpected, "could not encode the result")
-                            .with_provider(provider)
-                            .with_source(e)
-                    })
-                })
-            }
-        }
-    };
-    Operation {
-        info,
-        run: Box::new(run),
-    }
-}
-
-/// Defines an operation's input: its plain arguments, and optionally one
-/// options struct whose fields sit beside them.
-macro_rules! input {
-    ($name:ident { $($(#[$doc:meta])* $field:ident : $kind:ty),* $(,)? }) => {
-        #[derive(Debug, Deserialize, JsonSchema)]
-        struct $name { $($(#[$doc])* $field: $kind,)* }
-    };
-    ($name:ident { $($(#[$doc:meta])* $field:ident : $kind:ty),* $(,)? } + $options:ty) => {
-        #[derive(Debug, Deserialize, JsonSchema)]
-        struct $name {
-            $($(#[$doc])* $field: $kind,)*
-            #[serde(flatten)]
-            options: $options,
-        }
-    };
+    typed_operation(format!("slack.{name}"), description, effect, scopes, handler)
 }
 
 input!(Nothing {});

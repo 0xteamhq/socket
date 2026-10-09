@@ -12,6 +12,7 @@ mod provider;
 mod secret;
 mod socket;
 mod store;
+mod typed;
 
 pub use auth::{Authorization, OAuthClient, PendingAuthorization, standard_token_response};
 pub use error::{Error, ErrorKind, Result, Retry, WireError};
@@ -25,3 +26,4 @@ pub use provider::{ApiKeySpec, AuthScheme, ClientAuth, KeyPlacement, OAuth2Spec,
 pub use secret::{SecretString, TokenSet};
 pub use socket::{Socket, SocketBuilder};
 pub use store::{ConnectionKey, MemoryTokenStore, TokenStore};
+pub use typed::{TypedOperation, typed_operation};
