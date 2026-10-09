@@ -1,0 +1,23 @@
+crates/integrations/github/src/operations.rs
+  s_9a82f246a2078d::t_e74c066e2bcb9d 266-268,362,400,404
+crates/integrations/github/tests/operations.rs
+  s_9a82f246a2078d::t_7e161d6ea438d1 327-331
+docs/integrations/github.md
+  s_9a82f246a2078d::t_36331fa8f37b45 183,228,243,245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "627b797b18bdbaa0ec11a28321475759470c4b19",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
