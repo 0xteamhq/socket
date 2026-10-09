@@ -7,8 +7,9 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use socketkit_core::{
-    Account, AuthScheme, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec, OperationInfo, ProviderId,
-    ProviderSpec, RawRequest, Resource, Result, identity_operation, resolve_input, resolve_operation, to_output,
+    Access, Account, AuthScheme, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec, OAuthClient,
+    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, TokenSet, identity_operation, resolve_input,
+    resolve_operation, to_output,
 };
 
 /// This provider's id, as used in connection keys and operation names.
@@ -88,6 +89,7 @@ fn describe(mime_type: &str) -> &'static str {
 #[derive(Debug, Clone)]
 pub struct Google {
     spec: ProviderSpec,
+    access: Access,
 }
 
 impl Default for Google {
@@ -97,13 +99,40 @@ impl Default for Google {
 }
 
 impl Google {
+    /// Google with no connection details of its own: the OAuth app is set on the
+    /// `Socket` builder and tokens come from the application's token store.
     pub fn new() -> Self {
-        Self { spec: provider() }
+        Self::with_spec(provider())
+    }
+
+    /// Google with the application's OAuth app, for connecting users through OAuth.
+    pub fn with_oauth(client: OAuthClient) -> Self {
+        Self::new().oauth(client)
+    }
+
+    /// Google with a token the application already holds. Every call uses it.
+    pub fn with_token(token: impl Into<String>) -> Self {
+        Self::new().token(token)
     }
 
     /// Uses another definition, for a test server.
     pub fn with_spec(spec: ProviderSpec) -> Self {
-        Self { spec }
+        Self {
+            spec,
+            access: Access::default(),
+        }
+    }
+
+    /// Sets the application's OAuth app.
+    pub fn oauth(mut self, client: OAuthClient) -> Self {
+        self.access.oauth = Some(client);
+        self
+    }
+
+    /// Sets a token the application already holds.
+    pub fn token(mut self, token: impl Into<String>) -> Self {
+        self.access.token = Some(TokenSet::bearer(token));
+        self
     }
 
     /// The account the connection is authorised as.
@@ -166,6 +195,14 @@ impl Google {
 impl Integration for Google {
     fn provider(&self) -> ProviderSpec {
         self.spec.clone()
+    }
+
+    fn oauth_client(&self) -> Option<OAuthClient> {
+        self.access.oauth.clone()
+    }
+
+    fn fixed_token(&self) -> Option<TokenSet> {
+        self.access.token.clone()
     }
 
     fn operations(&self) -> Vec<OperationInfo> {

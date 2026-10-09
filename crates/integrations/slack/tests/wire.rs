@@ -204,3 +204,22 @@ async fn a_lookup_that_answers_with_another_channel_or_a_blank_account_is_refuse
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Decode);
 }
+
+#[tokio::test]
+async fn slack_built_with_a_token_calls_slack_with_it_and_needs_no_stored_connection() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/auth.test"))
+        .and(header("authorization", "Bearer xoxb-given"))
+        .respond_with(ok(json!({ "ok": true, "user_id": "U1", "user": "bot" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let slack = Slack::with_spec(point_at(provider(), &server)).token("xoxb-given");
+    let socket = Socket::in_memory().integration(Arc::new(slack)).build().unwrap();
+    let key = ConnectionKey::new(provider().id, "anyone");
+    let account = socket
+        .invoke(key, "slack.identity.get".into(), json!({}))
+        .await
+        .unwrap();
+    assert_eq!(account["id"], "U1");
+}

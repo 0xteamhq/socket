@@ -80,6 +80,14 @@ fn random_token(bytes: usize) -> Result<String> {
     Ok(B64.encode(buffer))
 }
 
+/// A fresh state-signing secret.
+pub(crate) fn random_secret() -> Result<Vec<u8>> {
+    let mut secret = vec![0u8; MIN_STATE_SECRET];
+    getrandom::fill(&mut secret)
+        .map_err(|e| Error::new(ErrorKind::Unexpected, format!("the system random source failed: {e}")))?;
+    Ok(secret)
+}
+
 fn mac(secret: &[u8], data: &[u8]) -> Hmac<Sha256> {
     // HMAC accepts a key of any length, so this cannot fail.
     let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret).expect("HMAC accepts any key length");

@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::auth::standard_token_response;
+use crate::auth::{OAuthClient, standard_token_response};
 use crate::error::{Error, ErrorKind, Result};
 use crate::http::{Classifier, RawRequest, RawResponse, StandardClassifier, Transport};
 use crate::provider::{ProviderId, ProviderSpec};
@@ -177,6 +177,15 @@ impl fmt::Debug for Connection {
     }
 }
 
+/// The connection details an application hands to an integration: its OAuth
+/// app, a token it already holds, or neither when it sets them on the
+/// `Socket` builder and its own token store.
+#[derive(Debug, Clone, Default)]
+pub struct Access {
+    pub oauth: Option<OAuthClient>,
+    pub token: Option<TokenSet>,
+}
+
 /// One service's operations. Implemented once per integration crate.
 #[async_trait]
 pub trait Integration: Send + Sync {
@@ -188,6 +197,19 @@ pub trait Integration: Send + Sync {
     /// Runs the operation called `operation` with `input`, a JSON object.
     /// `operation` is always one of the names returned by [`Integration::operations`].
     async fn invoke(&self, connection: Connection, operation: String, input: Value) -> Result<Value>;
+
+    /// The application's OAuth app for this provider, when it was given to the
+    /// integration itself, as in `Slack::with_oauth(client)`.
+    fn oauth_client(&self) -> Option<OAuthClient> {
+        None
+    }
+
+    /// A token every call should use, when it was given to the integration
+    /// itself, as in `Slack::with_token("xoxb-…")`. With one set, the token
+    /// store is not consulted for this provider and every tenant shares it.
+    fn fixed_token(&self) -> Option<TokenSet> {
+        None
+    }
 
     /// How this provider's responses are told apart. Override when the provider
     /// reports errors inside a successful status.

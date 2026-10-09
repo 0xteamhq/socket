@@ -20,6 +20,8 @@ struct Registered {
     spec: Arc<ProviderSpec>,
     /// `None` for a provider registered as a definition only.
     integration: Option<Arc<dyn Integration>>,
+    /// A token given to the integration itself; used in place of the store.
+    fixed_token: Option<TokenSet>,
 }
 
 impl Registered {
@@ -57,7 +59,7 @@ pub struct Socket {
     /// Every operation, sorted by name.
     operations: Vec<OperationInfo>,
     oauth_clients: HashMap<ProviderId, OAuthClient>,
-    state_secret: Option<Vec<u8>>,
+    state_secret: Vec<u8>,
     transport: Transport,
     refreshes: Mutex<HashMap<ConnectionKey, RefreshSlot>>,
 }
@@ -74,6 +76,12 @@ impl fmt::Debug for Socket {
 }
 
 impl Socket {
+    /// A builder whose tokens are kept in memory. Enough when every
+    /// integration is given a token directly, and for tools and tests.
+    pub fn in_memory() -> SocketBuilder {
+        Self::builder(Arc::new(crate::store::MemoryTokenStore::new()))
+    }
+
     pub fn builder(store: Arc<dyn TokenStore>) -> SocketBuilder {
         SocketBuilder {
             store,
@@ -252,11 +260,7 @@ impl Socket {
             .oauth_clients
             .get(provider)
             .ok_or_else(|| config(format!("no OAuth client is set for {provider}")))?;
-        let secret = self
-            .state_secret
-            .as_deref()
-            .ok_or_else(|| config("no state secret is set".into()))?;
-        Ok((oauth, client, secret))
+        Ok((oauth, client, &self.state_secret))
     }
 
     async fn token_request(
@@ -282,6 +286,9 @@ impl Socket {
     /// The connection's tokens, refreshed first when they have expired.
     async fn tokens_for(&self, key: &ConnectionKey, registered: &Registered) -> Result<TokenSet> {
         let provider = &registered.spec.id;
+        if let Some(fixed) = &registered.fixed_token {
+            return Ok(fixed.clone());
+        }
         let Some(tokens) = self.store.load(key.clone()).await? else {
             return Err(reconnect(provider, format!("no stored connection for {provider}")));
         };
@@ -513,6 +520,10 @@ impl SocketBuilder {
 
     /// Sets the secret that signs the OAuth `state` value. At least 32 bytes
     /// of high-entropy data; the same value on every instance of the application.
+    ///
+    /// Without one, Socket generates a secret that lasts as long as this
+    /// `Socket`: fine for a single process, but a connection begun on one
+    /// instance, or before a restart, cannot be completed on another.
     pub fn state_secret(mut self, secret: impl Into<Vec<u8>>) -> Self {
         self.state_secret = Some(secret.into());
         self
@@ -544,6 +555,7 @@ impl SocketBuilder {
         let mut providers: HashMap<ProviderId, Registered> = HashMap::new();
         let mut owners = HashMap::new();
         let mut operations = Vec::new();
+        let mut clients_from_integrations = Vec::new();
 
         let entries = self
             .integrations
@@ -580,17 +592,32 @@ impl SocketBuilder {
                     operations.push(info);
                 }
             }
+            let (given_client, fixed_token) = match &integration {
+                Some(integration) => (integration.oauth_client(), integration.fixed_token()),
+                None => (None, None),
+            };
+            if fixed_token
+                .as_ref()
+                .is_some_and(|token| token.access_token.expose().trim().is_empty())
+            {
+                return Err(config(format!("the token given to {id} is blank")));
+            }
+            if let Some(client) = given_client {
+                clients_from_integrations.push((id.clone(), client));
+            }
             providers.insert(
                 id,
                 Registered {
                     spec: Arc::new(spec),
                     integration,
+                    fixed_token,
                 },
             );
         }
 
+        // A client set on the builder wins over one given to the integration.
         let mut oauth_clients = HashMap::new();
-        for (provider, client) in self.oauth_clients {
+        for (provider, client) in clients_from_integrations.into_iter().chain(self.oauth_clients) {
             let config = |message: String| Error::new(ErrorKind::Config, message).with_provider(provider.clone());
             if !providers.contains_key(&provider) {
                 return Err(config(format!(
@@ -604,14 +631,18 @@ impl SocketBuilder {
             }
             oauth_clients.insert(provider, client);
         }
-        if let Some(secret) = &self.state_secret {
-            if secret.len() < auth::MIN_STATE_SECRET {
+        let state_secret = match self.state_secret {
+            Some(secret) if secret.len() < auth::MIN_STATE_SECRET => {
                 return Err(Error::new(
                     ErrorKind::Config,
                     format!("the state secret must be at least {} bytes", auth::MIN_STATE_SECRET),
                 ));
             }
-        }
+            Some(secret) => secret,
+            // Good for one process. An application that runs several instances,
+            // or must finish a connection begun before a restart, sets its own.
+            None => auth::random_secret()?,
+        };
         // An application that supplies no client still gets timeouts: a
         // provider that accepts a connection and never answers must not hang a
         // caller, or hold a connection's refresh lock, for ever.
@@ -641,7 +672,7 @@ impl SocketBuilder {
             owners,
             operations,
             oauth_clients,
-            state_secret: self.state_secret,
+            state_secret,
             transport: Transport::new(client, self.retry),
             refreshes: Mutex::new(HashMap::new()),
         })

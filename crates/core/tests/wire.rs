@@ -758,15 +758,13 @@ async fn connecting_without_a_client_or_a_state_secret_is_a_configuration_error(
         no_client.begin_authorization(key(), None).unwrap_err().kind(),
         ErrorKind::Config
     );
+    // Without a state secret Socket signs with one of its own, so a single process needs none.
     let no_secret = Socket::builder(store())
         .provider(spec.clone())
         .oauth_client(acme(), client())
         .build()
         .unwrap();
-    assert_eq!(
-        no_secret.begin_authorization(key(), None).unwrap_err().kind(),
-        ErrorKind::Config
-    );
+    no_secret.begin_authorization(key(), None).unwrap();
 
     let short = Socket::builder(store())
         .provider(spec.clone())
@@ -1392,4 +1390,182 @@ async fn a_pending_record_signed_by_another_application_is_refused_at_the_callba
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidInput);
     assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+// ── Connection details given to the integration itself ───────────────────────
+
+/// An integration that carries its own OAuth app or token, as the provider crates do.
+struct Given {
+    spec: ProviderSpec,
+    client: Option<OAuthClient>,
+    token: Option<TokenSet>,
+}
+
+#[async_trait]
+impl Integration for Given {
+    fn provider(&self) -> ProviderSpec {
+        self.spec.clone()
+    }
+    fn operations(&self) -> Vec<OperationInfo> {
+        Profile(self.spec.clone()).operations()
+    }
+    async fn invoke(&self, connection: Connection, _operation: String, _input: Value) -> Result<Value> {
+        Ok(connection.request(RawRequest::get("profile")).await?.body)
+    }
+    fn oauth_client(&self) -> Option<OAuthClient> {
+        self.client.clone()
+    }
+    fn fixed_token(&self) -> Option<TokenSet> {
+        self.token.clone()
+    }
+}
+
+/// A store that must never be reached.
+struct Untouchable;
+
+#[async_trait]
+impl TokenStore for Untouchable {
+    async fn load(&self, _key: ConnectionKey) -> Result<Option<TokenSet>> {
+        panic!("the store was consulted although the integration was given a token")
+    }
+    async fn save(&self, _key: ConnectionKey, _tokens: TokenSet) -> Result<()> {
+        panic!("the store was written although the integration was given a token")
+    }
+    async fn delete(&self, _key: ConnectionKey) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_token_given_to_the_integration_is_used_for_every_call_without_a_store() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/profile"))
+        .and(header("authorization", "Bearer given-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "name": "Ada" })))
+        .expect(3)
+        .mount(&server)
+        .await;
+    let spec = oauth_spec(&server, ClientAuth::Body, false);
+    let given = Given {
+        spec,
+        client: None,
+        token: Some(TokenSet::bearer("given-token")),
+    };
+    let socket = Socket::builder(Arc::new(Untouchable))
+        .integration(Arc::new(given))
+        .build()
+        .unwrap();
+
+    let out = socket
+        .invoke(key(), "acme.profile.get".into(), json!({}))
+        .await
+        .unwrap();
+    assert_eq!(out["name"], "Ada");
+    // Any tenant shares the one token, and the generic request uses it too.
+    let other = ConnectionKey::new(ProviderId::new("acme").unwrap(), "someone-else");
+    socket
+        .invoke(other, "acme.profile.get".into(), json!({}))
+        .await
+        .unwrap();
+    socket.request(key(), RawRequest::get("profile")).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_blank_token_given_to_an_integration_is_refused_when_the_socket_is_built() {
+    let server = MockServer::start().await;
+    for blank in ["", "   "] {
+        let given = Given {
+            spec: oauth_spec(&server, ClientAuth::Body, false),
+            client: None,
+            token: Some(TokenSet::bearer(blank)),
+        };
+        let err = Socket::in_memory().integration(Arc::new(given)).build().unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Config, "{blank:?}");
+    }
+}
+
+#[tokio::test]
+async fn an_oauth_app_given_to_the_integration_connects_a_user_with_nothing_set_on_the_builder() {
+    let server = MockServer::start().await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("client_id=client-id"))
+        .and(body_string_contains("client_secret=client-secret"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "access_token": "granted" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let store = Arc::new(MemoryTokenStore::new());
+    let given = Given {
+        spec: oauth_spec(&server, ClientAuth::Body, false),
+        client: Some(client()),
+        token: None,
+    };
+    let socket = Socket::builder(store.clone())
+        .integration(Arc::new(given))
+        .build()
+        .unwrap();
+
+    let authorization = socket.begin_authorization(key(), None).unwrap();
+    assert!(
+        authorization
+            .url
+            .query_pairs()
+            .any(|(n, v)| n == "client_id" && v == "client-id")
+    );
+    let state = authorization.pending.state.clone();
+    socket
+        .complete_authorization(authorization.pending, "code".into(), state)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.load(key()).await.unwrap().unwrap().access_token.expose(),
+        "granted"
+    );
+}
+
+#[tokio::test]
+async fn an_oauth_app_set_on_the_builder_wins_over_the_one_given_to_the_integration() {
+    let server = MockServer::start().await;
+    let given = Given {
+        spec: oauth_spec(&server, ClientAuth::Body, false),
+        client: Some(client()),
+        token: None,
+    };
+    let explicit = OAuthClient {
+        client_id: "builder-id".into(),
+        ..client()
+    };
+    let socket = Socket::in_memory()
+        .integration(Arc::new(given))
+        .oauth_client(ProviderId::new("acme").unwrap(), explicit)
+        .build()
+        .unwrap();
+    let url = socket.begin_authorization(key(), None).unwrap().url;
+    assert!(
+        url.query_pairs().any(|(n, v)| n == "client_id" && v == "builder-id"),
+        "{url}"
+    );
+}
+
+#[tokio::test]
+async fn a_state_signed_by_one_socket_is_not_accepted_by_another_with_its_own_generated_secret() {
+    let server = MockServer::start().await;
+    let build = || builder_without_secret(oauth_spec(&server, ClientAuth::Body, false));
+    let (first, second) = (build(), build());
+    let pending = first.begin_authorization(key(), None).unwrap().pending;
+    let state = pending.state.clone();
+    let err = second
+        .complete_authorization(pending, "code".into(), state)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput, "each generated secret is its own");
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+fn builder_without_secret(spec: ProviderSpec) -> Socket {
+    Socket::in_memory()
+        .provider(spec)
+        .oauth_client(ProviderId::new("acme").unwrap(), client())
+        .build()
+        .unwrap()
 }

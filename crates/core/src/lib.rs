@@ -16,7 +16,7 @@ pub use auth::{Authorization, OAuthClient, PendingAuthorization, standard_token_
 pub use error::{Error, ErrorKind, Result, Retry, WireError};
 pub use http::{Classifier, Page, RawRequest, RawResponse, RetryPolicy, StandardClassifier, provider_message};
 pub use operation::{
-    Account, Connection, Effect, Integration, OperationInfo, Resource, identity_operation, resolve_input,
+    Access, Account, Connection, Effect, Integration, OperationInfo, Resource, identity_operation, resolve_input,
     resolve_operation, to_output,
 };
 pub use provider::{ApiKeySpec, AuthScheme, ClientAuth, KeyPlacement, OAuth2Spec, ProviderId, ProviderSpec};

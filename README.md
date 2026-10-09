@@ -28,27 +28,46 @@ The first prints the six providers and their operations. The second registers an
 
 ## Use it
 
+Each integration is given its connection details when it is created.
+
+With a token you already hold:
+
 ```rust
 use std::sync::Arc;
-use socketkit::{ConnectionKey, MemoryTokenStore, ProviderId, RawRequest, Socket, TokenSet, TokenStore};
+use socketkit::{ConnectionKey, ProviderId, RawRequest, Socket};
 
-// Your own store in production; this one keeps tokens in memory.
-let store = Arc::new(MemoryTokenStore::new());
-let key = ConnectionKey::new(ProviderId::new("github")?, "user-42");
-store.save(key.clone(), TokenSet::bearer("a token you already hold")).await?;
-
-let socket = Socket::builder(store)
-    .integration(Arc::new(socketkit::github::GitHub::new()))
+let socket = Socket::in_memory()
+    .integration(Arc::new(socketkit::slack::Slack::with_token("xoxb-your-token")))
     .build()?;
+let slack = ConnectionKey::new(ProviderId::new("slack")?, "me");
 
 // Whose token is this?
-let account = socket.invoke(key.clone(), "github.identity.get".into(), serde_json::json!({})).await?;
-
+let account = socket.invoke(slack.clone(), "slack.identity.get".into(), serde_json::json!({})).await?;
 // Any endpoint, with the token, retries and error mapping handled.
-let issues = socket.request(key, RawRequest::get("repos/acme/api/issues")).await?;
+let channels = socket.request(slack, RawRequest::get("conversations.list")).await?;
 ```
 
-To connect a user through OAuth, give the builder your OAuth app with `oauth_client` and a `state_secret`, then call `begin_authorization` and, at your callback route, `complete_authorization`. Keep the pending record tied to the session of the person who started the flow, and delete it after one use.
+With your own OAuth app, to connect your users:
+
+```rust
+let socket = Socket::builder(Arc::new(my_token_store))        // where your users' tokens are kept
+    .integration(Arc::new(socketkit::github::GitHub::with_oauth(OAuthClient {
+        client_id: config.github_client_id,
+        client_secret: SecretString::new(config.github_client_secret),
+        redirect_uri: "https://yourapp.example/oauth/callback".parse()?,
+    })))
+    .build()?;
+
+// When a user clicks "Connect GitHub":
+let key = ConnectionKey::new(ProviderId::new("github")?, user.id);
+let authorization = socket.begin_authorization(key, None)?;
+// keep `authorization.pending` in that user's session, then redirect them to `authorization.url`
+
+// At your callback route:
+socket.complete_authorization(pending, code, state).await?;
+```
+
+Keep the pending record tied to the session of the person who started the flow, and delete it after one use. An application that runs more than one instance must also set `state_secret` on the builder, so that every instance signs with the same secret.
 
 ## Develop
 
