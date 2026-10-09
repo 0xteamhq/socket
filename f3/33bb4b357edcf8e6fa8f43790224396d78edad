@@ -1,0 +1,19 @@
+README.md
+  s_3ca04f6c1d450b::t_1172e9e2f3a6c1 3,5,7,9,11-52,56-57,59-63,66,68-69,73,85-91,95-97,103-118,121,123,126-129,140-141,145,150-194,201-243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f333bb4b357edcf8e6fa8f43790224396d78edad",
+  "prompts": {},
+  "sessions": {
+    "s_3ca04f6c1d450b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3254f56-32a0-4d5e-98da-30dd4386eb89",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
