@@ -1,4 +1,6 @@
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -27,6 +29,10 @@ pub enum Effect {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OperationInfo {
     /// `"<provider id>.<rest>"`, for example `"slack.chat.post_message"`.
+    ///
+    /// The rest is one or more parts joined by dots, each of lowercase ASCII
+    /// letters, digits and `_`. The name is permanent once published, and is
+    /// what an agent sees as the tool's name, so `Socket` refuses anything else.
     pub name: String,
     pub description: String,
     /// JSON Schema of the input object.
@@ -133,6 +139,15 @@ pub fn to_output<T: Serialize>(provider: &ProviderId, value: &T) -> Result<Value
     })
 }
 
+/// Gets new tokens for a connection whose access token the provider rejected.
+pub(crate) trait Renew: Send + Sync {
+    fn renew(
+        &self,
+        key: ConnectionKey,
+        rejected: TokenSet,
+    ) -> Pin<Box<dyn Future<Output = Result<TokenSet>> + Send + '_>>;
+}
+
 /// One stored authorization, loaded and ready to use.
 #[derive(Clone)]
 pub struct Connection {
@@ -141,6 +156,7 @@ pub struct Connection {
     spec: Arc<ProviderSpec>,
     transport: Transport,
     classifier: Arc<dyn Classifier>,
+    renew: Option<Arc<dyn Renew>>,
 }
 
 impl Connection {
@@ -150,6 +166,7 @@ impl Connection {
         spec: Arc<ProviderSpec>,
         transport: Transport,
         classifier: Arc<dyn Classifier>,
+        renew: Option<Arc<dyn Renew>>,
     ) -> Self {
         Self {
             key,
@@ -157,6 +174,7 @@ impl Connection {
             spec,
             transport,
             classifier,
+            renew,
         }
     }
 
@@ -166,9 +184,36 @@ impl Connection {
     }
 
     /// Sends `request` with this connection's credentials through the shared transport.
+    ///
+    /// When the provider rejects the access token and a refresh token is
+    /// held, the token is refreshed once and the request sent once more. This
+    /// is what keeps a connection working when the provider never said when
+    /// its token expires. A rejected request was not carried out, so sending
+    /// it again is safe for a write too.
+    ///
+    /// Two limits apply. A connection is renewed this way at most once in
+    /// five minutes, so an endpoint that rejects every call cannot rotate its
+    /// tokens on every call. And only the tokens this connection was loaded
+    /// with are renewed: if the store has since been given different ones,
+    /// the rejection is reported and the request is not sent again.
     pub async fn request(&self, request: RawRequest) -> Result<RawResponse> {
+        let rejected = match self.send(&self.tokens, request.clone()).await {
+            Err(error) if error.kind() == ErrorKind::ReconnectRequired => error,
+            outcome => return outcome,
+        };
+        let (Some(renew), Some(_)) = (&self.renew, &self.tokens.refresh_token) else {
+            return Err(rejected);
+        };
+        let fresh = renew.renew(self.key.clone(), self.tokens.clone()).await?;
+        if fresh.access_token == self.tokens.access_token {
+            return Err(rejected);
+        }
+        self.send(&fresh, request).await
+    }
+
+    async fn send(&self, tokens: &TokenSet, request: RawRequest) -> Result<RawResponse> {
         self.transport
-            .send(&self.spec, &self.tokens, self.classifier.as_ref(), request)
+            .send(&self.spec, tokens, self.classifier.as_ref(), request)
             .await
     }
 }

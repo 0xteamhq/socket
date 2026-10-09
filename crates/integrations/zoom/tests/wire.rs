@@ -84,6 +84,7 @@ async fn a_user_outside_the_account_is_not_found_whether_zoom_says_400_or_404() 
             .respond_with(
                 ResponseTemplate::new(status).set_body_json(json!({ "code": 1001, "message": "User does not exist" })),
             )
+            .expect(1)
             .mount(&server)
             .await;
         let err = resolve(&socket, &key, "nobody@example.test").await.unwrap_err();
@@ -115,4 +116,45 @@ async fn bad_input_is_refused_without_calling_zoom() {
         ErrorKind::InvalidInput
     );
     assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_400_that_is_not_zooms_no_such_user_code_is_reported_as_itself() {
+    let (server, socket, key) = zoom().await;
+    Mock::given(path("/v2/users/me/recordings"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "code": 300, "message": "Invalid page size" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let err = resolve(&socket, &key, "me").await.unwrap_err();
+    assert_eq!(
+        err.kind(),
+        ErrorKind::InvalidInput,
+        "not every 400 means the user is missing"
+    );
+    assert!(err.message().contains("Invalid page size"), "{}", err.message());
+}
+
+#[tokio::test]
+async fn identity_shows_the_display_name_when_zoom_gives_one() {
+    let (server, socket, key) = zoom().await;
+    Mock::given(path("/v2/users/me"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "u1", "display_name": "Countess Ada", "first_name": "Ada", "last_name": "Lovelace", "email": "ada@example.test"
+        })))
+        .mount(&server)
+        .await;
+    let account = socket.invoke(key, "zoom.identity.get".into(), json!({})).await.unwrap();
+    assert_eq!(account["name"], "Countess Ada");
+}
+
+#[tokio::test]
+async fn the_default_scopes_ask_only_for_what_the_integration_uses() {
+    let socketkit_core::AuthScheme::OAuth2(oauth) = provider().auth else {
+        panic!("zoom uses OAuth")
+    };
+    assert_eq!(
+        oauth.default_scopes,
+        ["user:read:user", "recording:read:list_user_recordings:admin"]
+    );
 }

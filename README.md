@@ -4,7 +4,7 @@
 
 Socket gives a product the layers it needs to connect to SaaS APIs: a registry of providers, an OAuth and token-refresh engine, and typed operations for each service. The application owns its OAuth apps and its token storage. Nothing is hosted.
 
-> **Status:** Early. The core, the OAuth flow, token refresh and six providers are built and tested against local servers (~12k lines of Rust, 196 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
+> **Status:** Early. The core, the OAuth flow, token refresh and six providers are built and tested against local servers (~13k lines of Rust, 225 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
 
 ## Why
 
@@ -16,11 +16,11 @@ Read [the vision](docs/vision.md) for the full picture.
 
 ## Features
 
-- **OAuth 2.0 with PKCE** — begin and complete the flow; signed, expiring state; the application owns the callback route
+- **OAuth 2.0** — begin and complete the flow; signed, expiring state; the application owns the callback route. PKCE is supported by the core and currently switched off for all six providers until each is confirmed against the real service
 - **Token refresh** — single-flight per connection so concurrent calls never race a refresh token
 - **Host allowlist** — credentials are attached only to HTTPS requests on the provider's declared hosts
 - **Retry with backoff** — honours `Retry-After`; non-idempotent requests are retried only when safe
-- **Pagination** — cursor in, page out; a stream adapter above it for Rust callers
+- **Pagination** — one model for every provider: a cursor in, a page and the next cursor out
 - **Error classification** — `ReconnectRequired`, `RateLimited`, `AccessDenied`, `NotFound` and more, each with a stable code
 - **Call by name** — every typed method is also an operation callable with JSON, with input and output schemas, so one implementation serves backend code, agents, MCP and other languages
 - **Generic authenticated request** — call any endpoint of a registered provider with auth, retries and error mapping, even without a typed integration
@@ -41,12 +41,11 @@ socket/
 │   │   ├── google/             # socketkit-google
 │   │   └── zoom/               # socketkit-zoom
 │   └── testkit/                # socketkit-testkit: wire-test server, conformance suite
-├── docs/
-│   ├── vision.md               # Why the project exists
-│   ├── catalogue.md            # The first 100 services and the order they are added
-│   ├── roadmap.md              # Phases and plans
-│   └── integrations/slack.md   # Slack: how to connect, every method and operation
-└── examples/
+└── docs/
+    ├── vision.md               # Why the project exists
+    ├── catalogue.md            # The first 100 services and the order they are added
+    ├── roadmap.md              # Phases and plans
+    └── integrations/slack.md   # Slack: how to connect, every method and operation
 ```
 
 | Crate | Purpose |
@@ -97,7 +96,9 @@ let channels = socket.request(slack, RawRequest::get("conversations.list")).awai
 Slack has 54 typed methods covering messages, conversations, users, reactions, pins, files, search, reminders, bookmarks, user groups and the workspace. Identifiers are plain arguments; content and filters are structs.
 
 ```rust
+use std::sync::Arc;
 use socketkit::slack::models::{History, PostMessage};
+use socketkit::{ConnectionKey, ProviderId, Socket};
 
 let slack = socketkit::slack::Slack::with_token("xoxb-your-token");
 let socket = Socket::in_memory()
@@ -126,7 +127,7 @@ Every typed method is also an operation an agent can call by name with JSON — 
 use std::sync::Arc;
 use socketkit::{ConnectionKey, OAuthClient, ProviderId, SecretString, Socket};
 
-let socket = Socket::builder(Arc::new(my_token_store))
+let socket = Socket::builder(Arc::new(my_token_store))        // where your users' tokens are kept
     .integration(Arc::new(socketkit::github::GitHub::with_oauth(OAuthClient {
         client_id: config.github_client_id,
         client_secret: SecretString::new(config.github_client_secret),

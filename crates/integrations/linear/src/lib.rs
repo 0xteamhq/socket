@@ -8,13 +8,17 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use socketkit_core::{
-    Access, Account, AuthScheme, Classifier, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec,
-    OAuthClient, OperationInfo, ProviderId, ProviderSpec, RawRequest, RawResponse, Resource, Result, Retry,
-    SecretString, StandardClassifier, TokenSet, identity_operation, resolve_input, resolve_operation, to_output,
+    Access, Account, ApiKeySpec, AuthScheme, Classifier, ClientAuth, Connection, Error, ErrorKind, Integration,
+    KeyPlacement, OAuth2Spec, OAuthClient, OperationInfo, ProviderId, ProviderSpec, RawRequest, RawResponse, Resource,
+    Result, Retry, SecretString, StandardClassifier, TokenSet, identity_operation, resolve_input, resolve_operation,
+    to_output,
 };
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "linear";
+
+/// How a Linear personal API key begins.
+const API_KEY_PREFIX: &str = "lin_api_";
 
 const VIEWER: &str = "query { viewer { id name email } }";
 const TEAM_BY_KEY: &str = "query($key: String!) { teams(filter: { key: { eq: $key } }) { nodes { id key name } } }";
@@ -125,8 +129,12 @@ impl From<OAuthClient> for LinearOAuth {
     }
 }
 
-/// A Linear API key or access token. A plain string converts into this, so
-/// `Linear::with_token("…")` works when nothing else is needed.
+/// A Linear personal API key or OAuth access token. A plain string converts
+/// into this, so `Linear::with_token("…")` works when nothing else is needed.
+///
+/// Linear takes the two differently: an OAuth token as `Bearer <token>`, a
+/// personal API key (`lin_api_…`) as the bare key. Socket tells them apart by
+/// that prefix.
 #[derive(Debug, Clone)]
 pub struct LinearToken {
     pub token: SecretString,
@@ -184,6 +192,14 @@ impl Linear {
     pub fn with_token(settings: impl Into<LinearToken>) -> Self {
         let settings = settings.into();
         let mut this = Self::new();
+        if settings.token.expose().starts_with(API_KEY_PREFIX) {
+            this.spec.auth = AuthScheme::ApiKey(ApiKeySpec {
+                placement: KeyPlacement::Header {
+                    name: "Authorization".into(),
+                    prefix: None,
+                },
+            });
+        }
         this.access.token = Some(TokenSet {
             access_token: settings.token,
             refresh_token: None,

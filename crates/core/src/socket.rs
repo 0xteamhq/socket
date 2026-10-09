@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -9,7 +11,7 @@ use crate::auth::{self, Authorization, OAuthClient, PendingAuthorization};
 use crate::error::{Error, ErrorKind, Result};
 use crate::http::{Classifier, RawRequest, RawResponse, RetryPolicy, StandardClassifier, Transport};
 use crate::oauth::{AuthorizationRequest, CodeGrant, OAuthContext, OAuthFlow, StandardOAuth};
-use crate::operation::{Connection, Integration, OperationInfo};
+use crate::operation::{Connection, Integration, OperationInfo, Renew};
 use crate::provider::{AuthScheme, OAuth2Spec, ProviderId, ProviderSpec};
 use crate::secret::{SecretString, TokenSet};
 use crate::store::{ConnectionKey, TokenStore};
@@ -48,11 +50,43 @@ struct Unsaved {
     tokens: TokenSet,
 }
 
+/// How long after a forced renewal another one is refused for the same connection.
+const RENEWAL_COOLING_OFF: Duration = Duration::from_secs(300);
+
+/// A renewal forced by a rejected access token.
+#[derive(Clone)]
+struct Renewal {
+    /// The access token the provider rejected.
+    replaced: SecretString,
+    /// The access token the renewal produced.
+    produced: SecretString,
+    at: std::time::Instant,
+}
+
+/// Forgets a connection's refresh slot when dropped, if nobody else uses it.
+struct Release<'a> {
+    socket: &'a Inner,
+    key: &'a ConnectionKey,
+    slot: &'a RefreshSlot,
+}
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        self.socket.release_slot(self.key, self.slot);
+    }
+}
+
 /// One connection's refresh lock, and what a refresh left unsaved.
 type RefreshSlot = Arc<tokio::sync::Mutex<Option<Unsaved>>>;
 
 /// The handle an application builds once and shares.
 pub struct Socket {
+    inner: Arc<Inner>,
+}
+
+/// What a `Socket` holds. Behind an `Arc` so that a [`Connection`] can come
+/// back for new tokens when its own are rejected.
+struct Inner {
     store: Arc<dyn TokenStore>,
     providers: HashMap<ProviderId, Registered>,
     /// Operation name to the provider that owns it.
@@ -63,15 +97,17 @@ pub struct Socket {
     state_secret: Vec<u8>,
     transport: Transport,
     refreshes: Mutex<HashMap<ConnectionKey, RefreshSlot>>,
+    /// The last forced renewal of each connection, while it is recent.
+    renewals: Mutex<HashMap<ConnectionKey, Renewal>>,
 }
 
 impl fmt::Debug for Socket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut providers: Vec<_> = self.providers.keys().collect();
+        let mut providers: Vec<_> = self.inner.providers.keys().collect();
         providers.sort();
         f.debug_struct("Socket")
             .field("providers", &providers)
-            .field("operations", &self.operations.len())
+            .field("operations", &self.inner.operations.len())
             .finish_non_exhaustive()
     }
 }
@@ -97,11 +133,114 @@ impl Socket {
 
     /// Every operation of every registered integration, sorted by name.
     pub fn operations(&self) -> Vec<OperationInfo> {
-        self.operations.clone()
+        self.inner.operations.clone()
     }
 
     /// The definitions of every registered provider, sorted by id.
     pub fn providers(&self) -> Vec<ProviderSpec> {
+        self.inner.providers()
+    }
+
+    /// Runs the operation called `operation` on the connection `key`.
+    ///
+    /// `input` must be a JSON object. An expired token is refreshed first.
+    pub async fn invoke(&self, key: ConnectionKey, operation: String, input: Value) -> Result<Value> {
+        self.inner.invoke(key, operation, input).await
+    }
+
+    /// The connection `key`, loaded and ready for an integration's typed
+    /// methods, as in `slack.chat(&connection).post_message(…)`. An expired
+    /// token is refreshed first.
+    pub async fn connection(&self, key: ConnectionKey) -> Result<Connection> {
+        self.inner.connection(key).await
+    }
+
+    /// Calls any endpoint of a registered provider with the connection's
+    /// credentials, retry and error classification applied.
+    pub async fn request(&self, key: ConnectionKey, request: RawRequest) -> Result<RawResponse> {
+        self.inner.connection(key).await?.request(request).await
+    }
+
+    /// Starts connecting `key`: returns the URL to send the person to and the
+    /// record to keep, server-side, until the provider calls back.
+    ///
+    /// `scopes` replaces the provider's default scopes when given.
+    pub fn begin_authorization(&self, key: ConnectionKey, scopes: Option<Vec<String>>) -> Result<Authorization> {
+        self.inner.begin_authorization(key, scopes)
+    }
+
+    /// Finishes connecting: checks `state`, exchanges `code` for tokens, saves
+    /// them in the store, and returns them.
+    ///
+    /// `code` and `state` are the query parameters the provider sent to the callback.
+    pub async fn complete_authorization(
+        &self,
+        pending: PendingAuthorization,
+        code: String,
+        state: String,
+    ) -> Result<TokenSet> {
+        self.inner.complete_authorization(pending, code, state).await
+    }
+}
+
+impl Renew for Inner {
+    fn renew(
+        &self,
+        key: ConnectionKey,
+        rejected: TokenSet,
+    ) -> Pin<Box<dyn Future<Output = Result<TokenSet>> + Send + '_>> {
+        Box::pin(async move {
+            let registered = self.registered(&key.provider)?;
+            let provider = &registered.spec.id;
+            let refuse = || reconnect(provider, format!("{provider} rejected the stored authorization"));
+            // A token given to the integration, or an API key, cannot be renewed.
+            if registered.fixed_token.is_some() || !matches!(registered.spec.auth, AuthScheme::OAuth2(_)) {
+                return Err(refuse());
+            }
+            let slot = self.refresh_slot(&key);
+            let _release = Release {
+                socket: self,
+                key: &key,
+                slot: &slot,
+            };
+            let mut unsaved = slot.lock().await;
+
+            // A renewal is forced at most once per connection per cooling-off
+            // period. Without that, an endpoint that rejects every call would
+            // rotate the connection's tokens on every call.
+            let recent = self.recent_renewal(&key);
+            if let Some(recent) = &recent {
+                // This caller's token is the one that renewal replaced: it
+                // gets what the renewal produced, if the store still holds it.
+                if rejected.access_token == recent.replaced {
+                    let current = self.store.load(key.clone()).await?;
+                    return current
+                        .filter(|tokens| tokens.access_token == recent.produced)
+                        .ok_or_else(refuse);
+                }
+                // The renewed token was rejected as well. Renewing again would not help.
+                return Err(refuse());
+            }
+
+            // Only the tokens this call was made with are renewed. If the
+            // store now holds something else, the connection was replaced by
+            // other means, perhaps for a different account, and the call must
+            // not be sent again with those.
+            let stored = self.store.load(key.clone()).await?;
+            if stored.as_ref().map(|tokens| &tokens.access_token) != Some(&rejected.access_token) {
+                return Err(refuse());
+            }
+            let fresh = self
+                .refresh_under_lock(&key, registered, &mut unsaved, Some(&rejected.access_token))
+                .await?;
+            self.record_renewal(key.clone(), rejected.access_token, fresh.access_token.clone());
+            Ok(fresh)
+        })
+    }
+}
+
+impl Inner {
+    fn providers(&self) -> Vec<ProviderSpec> {
         let mut specs: Vec<_> = self.providers.values().map(|r| (*r.spec).clone()).collect();
         specs.sort_by(|a, b| a.id.cmp(&b.id));
         specs
@@ -110,7 +249,7 @@ impl Socket {
     /// Runs the operation called `operation` on the connection `key`.
     ///
     /// `input` must be a JSON object. An expired token is refreshed first.
-    pub async fn invoke(&self, key: ConnectionKey, operation: String, input: Value) -> Result<Value> {
+    async fn invoke(self: &Arc<Self>, key: ConnectionKey, operation: String, input: Value) -> Result<Value> {
         let Some(owner) = self.owners.get(&operation) else {
             return Err(Error::new(
                 ErrorKind::Unsupported,
@@ -133,14 +272,7 @@ impl Socket {
             );
         }
         let registered = &self.providers[owner];
-        let tokens = self.tokens_for(&key, registered).await?;
-        let connection = Connection::new(
-            key,
-            tokens,
-            registered.spec.clone(),
-            self.transport.clone(),
-            registered.classifier(),
-        );
+        let connection = self.connection(key).await?;
         match &registered.integration {
             Some(integration) => integration.invoke(connection, operation, input).await,
             // `owners` only holds operations that came from an integration.
@@ -151,36 +283,25 @@ impl Socket {
         }
     }
 
-    /// The connection `key`, loaded and ready for an integration's typed
-    /// methods, as in `slack.chat(&connection).post_message(…)`. An expired
-    /// token is refreshed first.
-    pub async fn connection(&self, key: ConnectionKey) -> Result<Connection> {
+    async fn connection(self: &Arc<Self>, key: ConnectionKey) -> Result<Connection> {
         let registered = self.registered(&key.provider)?;
         let tokens = self.tokens_for(&key, registered).await?;
+        let renew: Arc<dyn Renew> = self.clone();
         Ok(Connection::new(
             key,
             tokens,
             registered.spec.clone(),
             self.transport.clone(),
             registered.classifier(),
+            Some(renew),
         ))
-    }
-
-    /// Calls any endpoint of a registered provider with the connection's
-    /// credentials, retry and error classification applied.
-    pub async fn request(&self, key: ConnectionKey, request: RawRequest) -> Result<RawResponse> {
-        let registered = self.registered(&key.provider)?;
-        let tokens = self.tokens_for(&key, registered).await?;
-        self.transport
-            .send(&registered.spec, &tokens, registered.classifier().as_ref(), request)
-            .await
     }
 
     /// Starts connecting `key`: returns the URL to send the person to and the
     /// record to keep, server-side, until the provider calls back.
     ///
     /// `scopes` replaces the provider's default scopes when given.
-    pub fn begin_authorization(&self, key: ConnectionKey, scopes: Option<Vec<String>>) -> Result<Authorization> {
+    fn begin_authorization(&self, key: ConnectionKey, scopes: Option<Vec<String>>) -> Result<Authorization> {
         let registered = self.registered(&key.provider)?;
         let (oauth, _, secret) = self.oauth_parts(registered)?;
         let state = auth::sign_state(&key, secret, SystemTime::now())?;
@@ -230,7 +351,7 @@ impl Socket {
     /// them in the store, and returns them.
     ///
     /// `code` and `state` are the query parameters the provider sent to the callback.
-    pub async fn complete_authorization(
+    async fn complete_authorization(
         &self,
         pending: PendingAuthorization,
         code: String,
@@ -268,13 +389,18 @@ impl Socket {
         // Under the connection's refresh lock, so a refresh that was in flight
         // for the previous authorization cannot save its tokens over these.
         let slot = self.refresh_slot(&pending.key);
-        let saved = {
-            let mut unsaved = slot.lock().await;
-            *unsaved = None;
-            self.store.save(pending.key.clone(), tokens.clone()).await
+        let _release = Release {
+            socket: self,
+            key: &pending.key,
+            slot: &slot,
         };
-        self.release_slot(&pending.key, &slot);
-        saved?;
+        let mut unsaved = slot.lock().await;
+        self.store.save(pending.key.clone(), tokens.clone()).await?;
+        // Only now that the new authorization is in the store: until then, a
+        // rotation left unsaved by the old one is still that connection's
+        // only valid tokens.
+        *unsaved = None;
+        drop(unsaved);
         Ok(tokens)
     }
 
@@ -335,12 +461,15 @@ impl Socket {
             return Ok(tokens);
         }
         let slot = self.refresh_slot(key);
-        let refreshed = {
-            let mut unsaved = slot.lock().await;
-            self.refresh_under_lock(key, registered, &mut unsaved).await
+        // Dropped last, also when the caller stops waiting, so a slot nobody
+        // uses is always forgotten.
+        let _release = Release {
+            socket: self,
+            key,
+            slot: &slot,
         };
-        self.release_slot(key, &slot);
-        refreshed
+        let mut unsaved = slot.lock().await;
+        self.refresh_under_lock(key, registered, &mut unsaved, None).await
     }
 
     /// Refreshes one connection while holding its lock.
@@ -358,6 +487,8 @@ impl Socket {
         key: &ConnectionKey,
         registered: &Registered,
         unsaved: &mut Option<Unsaved>,
+        // The access token the provider just rejected, when that is why this was called.
+        rejected: Option<&SecretString>,
     ) -> Result<TokenSet> {
         let provider = &registered.spec.id;
         let Some(mut current) = self.store.load(key.clone()).await? else {
@@ -376,7 +507,11 @@ impl Socket {
                 current = pending.tokens;
             }
         }
-        if !current.is_expired(SystemTime::now(), EXPIRY_SKEW) {
+        // A token that has not expired is used as it is, unless it is the very
+        // one the provider rejected. If the store already holds a different
+        // one, another caller renewed it first.
+        let was_rejected = rejected == Some(&current.access_token);
+        if !current.is_expired(SystemTime::now(), EXPIRY_SKEW) && !was_rejected {
             return Ok(current);
         }
         let Some(refresh_token) = current.refresh_token.clone() else {
@@ -409,6 +544,29 @@ impl Socket {
         self.store.save(key.clone(), fresh.clone()).await?;
         *unsaved = None;
         Ok(fresh)
+    }
+
+    /// The last forced renewal of `key`, if it is recent enough to count.
+    fn recent_renewal(&self, key: &ConnectionKey) -> Option<Renewal> {
+        let renewals = self.renewals.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        renewals
+            .get(key)
+            .filter(|renewal| renewal.at.elapsed() < RENEWAL_COOLING_OFF)
+            .cloned()
+    }
+
+    fn record_renewal(&self, key: ConnectionKey, replaced: SecretString, produced: SecretString) {
+        let mut renewals = self.renewals.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Forget the ones that no longer count, so the map holds only recent renewals.
+        renewals.retain(|_, renewal| renewal.at.elapsed() < RENEWAL_COOLING_OFF);
+        renewals.insert(
+            key,
+            Renewal {
+                replaced,
+                produced,
+                at: std::time::Instant::now(),
+            },
+        );
     }
 
     fn refresh_slot(&self, key: &ConnectionKey) -> RefreshSlot {
@@ -498,8 +656,9 @@ impl SocketBuilder {
     /// holds the call open; the client Socket builds by default allows 30 seconds.
     ///
     /// Socket takes a builder, not a finished client, because it always turns
-    /// redirect-following off: a redirect would carry an API key in a header
-    /// or query string to a host outside the provider's allowed hosts.
+    /// the client's own redirect-following off: left to the client, a redirect
+    /// would carry an API key in a header or query string to any host. Socket
+    /// follows a redirect itself only for a read and only to an allowed host.
     pub fn http_client(mut self, client: reqwest::ClientBuilder) -> Self {
         self.http_client = Some(client);
         self
@@ -581,9 +740,15 @@ impl SocketBuilder {
             );
         }
 
-        // A client set on the builder wins over one given to the integration.
-        let mut oauth_clients = HashMap::new();
+        // A client set on the builder wins over one given to the integration,
+        // so the effective client is settled first and only that one is checked.
+        let mut effective: Vec<(ProviderId, OAuthClient)> = Vec::new();
         for (provider, client) in clients_from_integrations.into_iter().chain(self.oauth_clients) {
+            effective.retain(|(known, _)| *known != provider);
+            effective.push((provider, client));
+        }
+        let mut oauth_clients = HashMap::new();
+        for (provider, client) in effective {
             let config = |message: String| Error::new(ErrorKind::Config, message).with_provider(provider.clone());
             if !providers.contains_key(&provider) {
                 return Err(config(format!(
@@ -633,14 +798,17 @@ impl SocketBuilder {
 
         operations.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(Socket {
-            store: self.store,
-            providers,
-            owners,
-            operations,
-            oauth_clients,
-            state_secret,
-            transport: Transport::new(client, self.retry),
-            refreshes: Mutex::new(HashMap::new()),
+            inner: Arc::new(Inner {
+                store: self.store,
+                providers,
+                owners,
+                operations,
+                oauth_clients,
+                state_secret,
+                transport: Transport::new(client, self.retry),
+                refreshes: Mutex::new(HashMap::new()),
+                renewals: Mutex::new(HashMap::new()),
+            }),
         })
     }
 }

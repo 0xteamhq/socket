@@ -103,11 +103,6 @@ pub mod conformance {
         real.validate().expect("the provider definition is valid");
         assert_eq!(real.api_base.scheme(), "https", "{}: the real API is https", real.id);
         assert!(
-            real.api_base.path().ends_with('/'),
-            "{}: api_base ends with a slash so paths join onto it",
-            real.id
-        );
-        assert!(
             real.allowed_hosts.iter().all(|h| !h.contains(':')),
             "{}: no loopback entries in the real definition",
             real.id

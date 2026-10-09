@@ -6,7 +6,7 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -14,7 +14,7 @@ use url::Url;
 
 use crate::auth::{self, OAuthClient};
 use crate::error::{Error, ErrorKind, Result, Retry};
-use crate::http::{RawResponse, Transport, shortened};
+use crate::http::{RawResponse, Transport, retry_guidance};
 use crate::provider::{ClientAuth, OAuth2Spec, ProviderId, ProviderSpec};
 use crate::secret::{SecretString, TokenSet};
 
@@ -29,10 +29,20 @@ pub struct AuthorizationRequest {
 }
 
 /// What the provider sent to the callback, once Socket has checked the state.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CodeGrant {
     pub code: String,
     pub pkce_verifier: Option<SecretString>,
+}
+
+/// The code is a one-time credential, so it is not printed.
+impl fmt::Debug for CodeGrant {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CodeGrant")
+            .field("code", &"***")
+            .field("pkce_verifier", &self.pkce_verifier)
+            .finish()
+    }
 }
 
 /// Which grant a token response answers.
@@ -172,8 +182,9 @@ pub trait OAuthFlow: Send + Sync {
         if let Some(verifier) = &grant.pkce_verifier {
             form.push(("code_verifier".to_owned(), verifier.expose().to_owned()));
         }
-        let now = SystemTime::now();
         let response = context.post_token(form).await?;
+        // The lifetime the provider states is counted from when its answer arrived.
+        let now = SystemTime::now();
         let body = context.granted(response, Grant::Code)?;
         self.parse_token_response(context.provider().id.clone(), body, now)
     }
@@ -193,8 +204,9 @@ pub trait OAuthFlow: Send + Sync {
             ("grant_type".to_owned(), "refresh_token".to_owned()),
             ("refresh_token".to_owned(), refresh_token.expose().to_owned()),
         ];
-        let now = SystemTime::now();
         let response = context.post_token(form).await?;
+        // The lifetime the provider states is counted from when its answer arrived.
+        let now = SystemTime::now();
         let body = context.granted(response, Grant::Refresh)?;
         let mut fresh = self.parse_token_response(provider, body, now)?;
         // Providers that do not rotate omit the refresh token and often the scopes.
@@ -226,35 +238,94 @@ impl OAuthFlow for StandardOAuth {}
 /// Everything else is an error that is not the person's to fix.
 fn token_outcome(provider: &ProviderId, response: &RawResponse) -> Result<Option<String>> {
     let error = |kind, message: String| Error::new(kind, message).with_provider(provider.clone());
-    let refusal = auth::grant_refusal(&response.body).map(|code| shortened(&code, 80));
+    let status = response.status;
+    let refusal = auth::grant_refusal(&response.body).map(|code| safe_code(&code));
     let client_rejected = matches!(refusal.as_deref(), Some("invalid_client" | "unauthorized_client"));
-    if response.status == 429 {
-        let retry = match response
-            .header("retry-after")
-            .and_then(|v| v.trim().parse::<u64>().ok())
-        {
-            Some(secs) => Retry::After(Duration::from_secs(secs)),
-            None => Retry::Later,
-        };
-        return Err(error(ErrorKind::RateLimited, format!("{provider} is rate limiting requests")).with_retry(retry));
+    // The same signs of throttling the transport reads on an API call.
+    let retry_after = response.header("retry-after");
+    let throttled = status == 429
+        || (status == 403 && (response.header("x-ratelimit-remaining") == Some("0") || retry_after.is_some()));
+    if throttled {
+        return Err(
+            error(ErrorKind::RateLimited, format!("{provider} is rate limiting requests"))
+                .with_retry(retry_guidance(retry_after)),
+        );
     }
-    if response.status == 401 || client_rejected {
+    if status == 401 || client_rejected {
         return Err(error(
             ErrorKind::Config,
             format!("{provider} rejected the application's OAuth client; check its client id and secret"),
         ));
     }
-    match response.status {
+    match status {
         200..=299 => Ok(refusal),
-        408 | 500..=599 => Err(error(
-            ErrorKind::Unexpected,
-            format!("{provider} returned HTTP {}", response.status),
-        )
-        .with_retry(Retry::Later)),
-        400..=499 => Ok(Some(refusal.unwrap_or_else(|| "refused".into()))),
-        status => Err(error(
+        408 | 500..=599 => {
+            Err(error(ErrorKind::Unexpected, format!("{provider} returned HTTP {status}")).with_retry(Retry::Later))
+        }
+        // The standard's status for a declined grant, with or without a code.
+        400 => Ok(Some(refusal.unwrap_or_else(|| "refused".into()))),
+        // Any other client error that names a refusal is one too.
+        401..=499 if refusal.is_some() => Ok(refusal),
+        // Otherwise the endpoint itself is wrong (a 404, a 405): not something
+        // reconnecting can fix.
+        401..=499 => Err(error(
+            ErrorKind::Config,
+            format!("the token endpoint of {provider} returned HTTP {status}; check the provider's definition"),
+        )),
+        _ => Err(error(
             ErrorKind::Unexpected,
             format!("{provider} returned HTTP {status}"),
         )),
+    }
+}
+
+/// A refusal code that is safe to put in a message.
+///
+/// The code is text the provider chose. An OAuth error code is a short token
+/// such as `invalid_grant`; anything else could be an echo of the request,
+/// which holds the client secret and the authorization code.
+fn safe_code(code: &str) -> String {
+    let is_token = (1..=64).contains(&code.len())
+        && code
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+    if is_token {
+        code.to_owned()
+    } else {
+        "refused".to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_short_error_token_is_kept_as_a_refusal_code() {
+        assert_eq!(safe_code("invalid_grant"), "invalid_grant");
+        assert_eq!(safe_code("bad_verification_code"), "bad_verification_code");
+        for echoed in [
+            "",
+            "client_secret=shh&code=abc",
+            "invalid grant",
+            "Bearer xoxb-1",
+            &"x".repeat(65),
+            "a\nb",
+        ] {
+            assert_eq!(safe_code(echoed), "refused", "{echoed:?}");
+        }
+    }
+
+    #[test]
+    fn a_code_grant_does_not_print_its_code() {
+        let grant = CodeGrant {
+            code: "one-time-code".into(),
+            pkce_verifier: Some(SecretString::new("pkce-secret-value")),
+        };
+        let shown = format!("{grant:?}");
+        assert!(
+            !shown.contains("one-time-code") && !shown.contains("pkce-secret-value"),
+            "{shown}"
+        );
     }
 }

@@ -35,8 +35,6 @@ Phase 6 is new in this roadmap: the spec lists bindings under "later", and they 
 - **PKCE is switched off for all six providers**, matching the code they were ported from. Each should be switched on once it is confirmed against the real provider.
 - **Zoom's `user:read:user` scope is new.** The earlier code did not ask for it; `zoom.identity.get` needs it.
 
-Plans 1B to 1D are written one at a time, each after the one before it has landed, because each depends on the exact types the earlier one produced.
-
 ## Slack, built out ahead of phase 2
 
 Slack now has 54 typed methods, each also a named operation with generated schemas: chat, conversations, users, reactions, pins, files, search, reminders, bookmarks, user groups, and the workspace (team, emoji, Do Not Disturb). Not covered: uploading a file (it sends raw bytes to a different host, which the transport does not do yet), modals and views, admin and SCIM methods, incoming events, and Socket Mode. None of it has been run against the real Slack; the request and response shapes follow Slack's documentation.
@@ -45,8 +43,7 @@ Slack now has 54 typed methods, each also a named operation with generated schem
 
 - Decide before the first release whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.
 - Retrying is decided by HTTP method. The spec says the provider's classifier should decide; Slack accepts GET for some writes, so this matters before Slack gets write operations in phase 2.
-- A renamed GitHub repository answers with a redirect, which is not followed, so it reports an unexpected error instead of the new name.
-- Notion and Zoom treat any 400 on a lookup as "not found", including a 400 that means something else.
+- Notion treats any 400 on a lookup as "not found", including a 400 that means something else. (Zoom now reads its own error code.)
 - Slack channel lookup by name reports "not found" after 20 pages even if the workspace has more.
 - A request path may climb out of `api_base` with `..` to another path on the same allowed host.
 - An application-supplied HTTP client builder is trusted apart from redirects: a shared cookie store or default headers would apply to every tenant.

@@ -89,23 +89,26 @@ impl From<&str> for GitHubToken {
 /// not a bare host name.
 pub fn provider_for_host(host: &str) -> Option<ProviderSpec> {
     let host = host.trim().to_ascii_lowercase();
+    // A DNS name: labels of at most 63 characters, 253 in all.
     let is_label = |label: &str| {
-        !label.is_empty()
+        (1..=63).contains(&label.len())
             && !label.starts_with('-')
             && !label.ends_with('-')
             && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     };
-    if host.is_empty() || !host.split('.').all(is_label) {
+    if host.is_empty() || host.len() > 253 || !host.split('.').all(is_label) {
         return None;
     }
-    let url = |path: &str| format!("https://{host}{path}").parse().ok();
+    let url = |path: &str| format!("https://{host}{path}").parse::<url::Url>().ok();
     let mut spec = provider();
     spec.api_base = url("/api/v3/")?;
     if let AuthScheme::OAuth2(oauth) = &mut spec.auth {
         oauth.authorize_url = url("/login/oauth/authorize")?;
         oauth.token_url = url("/login/oauth/access_token")?;
     }
-    spec.allowed_hosts = vec![host];
+    // The host as the URL parser wrote it: `127.1` becomes `127.0.0.1`, and
+    // the allowlist must name the host requests will really go to.
+    spec.allowed_hosts = vec![spec.api_base.host_str()?.to_owned()];
     Some(spec)
 }
 
@@ -116,6 +119,8 @@ pub struct GitHub {
     access: Access,
     /// What is wrong with the settings it was created with, if anything.
     problem: Option<String>,
+    /// The host people paste repository URLs from: `github.com`, or an Enterprise Server's.
+    web_host: String,
 }
 
 impl Default for GitHub {
@@ -161,7 +166,13 @@ impl GitHub {
             return Self::new();
         };
         match provider_for_host(&host) {
-            Some(spec) => Self::with_spec(spec),
+            Some(spec) => {
+                // The host as the URL parser wrote it, which is what a pasted URL will carry.
+                let web_host = spec.allowed_hosts.first().cloned().unwrap_or_default();
+                let mut this = Self::with_spec(spec);
+                this.web_host = web_host;
+                this
+            }
             None => {
                 let mut this = Self::new();
                 this.problem = Some(format!(
@@ -178,6 +189,7 @@ impl GitHub {
             spec,
             access: Access::default(),
             problem: None,
+            web_host: "github.com".to_owned(),
         }
     }
 
@@ -224,7 +236,7 @@ impl GitHub {
     /// Accepts `owner/repo`, a github.com URL, or an SSH remote. The result
     /// carries the name with GitHub's own casing.
     pub async fn resolve(&self, connection: &Connection, input: &str) -> Result<Resource> {
-        let (owner, repo) = parse_repo(input).map_err(|e| e.with_provider(self.spec.id.clone()))?;
+        let (owner, repo) = parse_repo_on(input, &self.web_host).map_err(|e| e.with_provider(self.spec.id.clone()))?;
         let response = connection
             .request(Self::request(format!("repos/{owner}/{repo}")))
             .await
@@ -256,10 +268,25 @@ impl GitHub {
 
 /// Reads `owner/repo`, a github.com URL, or an SSH remote.
 pub fn parse_repo(input: &str) -> Result<(String, String)> {
+    parse_repo_on(input, "github.com")
+}
+
+/// Reads `owner/repo`, or a URL or SSH remote on `host`: `github.com`, or the
+/// host of a GitHub Enterprise Server.
+pub fn parse_repo_on(input: &str, host: &str) -> Result<(String, String)> {
     let trimmed = input.trim().trim_end_matches('/');
-    let (path, is_url) = ["https://github.com/", "http://github.com/", "git@github.com:"]
+    // Host names are not case sensitive, so the prefix is matched without regard to case.
+    let prefixes = [
+        format!("https://{host}/"),
+        format!("http://{host}/"),
+        format!("git@{host}:"),
+    ];
+    let (path, is_url) = prefixes
         .iter()
-        .find_map(|prefix| trimmed.strip_prefix(prefix))
+        .find_map(|prefix| {
+            let head = trimmed.get(..prefix.len())?;
+            head.eq_ignore_ascii_case(prefix).then(|| &trimmed[prefix.len()..])
+        })
         .map_or((trimmed, false), |rest| (rest, true));
 
     // A pasted URL often carries `?tab=…` or `#readme`.
@@ -363,6 +390,54 @@ mod tests {
             "https://github.com/acme/front.end.git?ref=main",
         ] {
             assert_eq!(parse_repo(input).unwrap(), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn an_enterprise_host_accepts_its_own_urls_and_not_github_coms() {
+        let expected = ("acme".to_owned(), "api".to_owned());
+        for input in [
+            "acme/api",
+            "https://github.acme.example/acme/api",
+            "https://GitHub.Acme.Example/acme/api/pulls/3",
+            "git@github.acme.example:acme/api.git",
+        ] {
+            assert_eq!(
+                parse_repo_on(input, "github.acme.example").unwrap(),
+                expected,
+                "{input}"
+            );
+        }
+        for input in [
+            "https://github.com/acme/api",
+            "https://github.acme.example.evil.test/acme/api",
+        ] {
+            let err = parse_repo_on(input, "github.acme.example").unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::InvalidInput, "{input}");
+        }
+    }
+
+    #[test]
+    fn an_enterprise_definition_names_the_host_requests_really_go_to() {
+        let spec = provider_for_host("GitHub.Acme.Example").unwrap();
+        assert_eq!(spec.allowed_hosts, ["github.acme.example"]);
+        spec.validate().unwrap();
+        // A numeric host is rewritten by the URL parser; the allowlist follows it, so the definition is valid.
+        let numeric = provider_for_host("127.1").unwrap();
+        assert_eq!(numeric.allowed_hosts, ["127.0.0.1"]);
+        numeric.validate().unwrap();
+        let too_long_label = format!("{}.example", "a".repeat(64));
+        let too_long = format!("{}.example", ["a".repeat(60).as_str(); 5].join("."));
+        for bad in [
+            too_long_label.as_str(),
+            too_long.as_str(),
+            "",
+            "a..b",
+            "-a.example",
+            "a/b",
+            "a:8443",
+        ] {
+            assert!(provider_for_host(bad).is_none(), "{bad:?}");
         }
     }
 

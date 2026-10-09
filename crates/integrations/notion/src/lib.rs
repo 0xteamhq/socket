@@ -88,19 +88,20 @@ fn plain_text(rich_text: &Value) -> String {
     if text.is_empty() { "Untitled".into() } else { text }
 }
 
-/// OAuth settings for Notion. A plain [`OAuthClient`] converts into this with
-/// the defaults, so `Notion::with_oauth(client)` works when nothing else is needed.
+/// OAuth settings for Notion. A plain [`OAuthClient`] converts into this, so
+/// `Notion::with_oauth(client)` works.
+///
+/// There are no scopes to set: Notion has none. The person chooses which
+/// pages to share when they approve.
 #[derive(Debug, Clone)]
 pub struct NotionOAuth {
     /// The application's own OAuth app.
     pub client: OAuthClient,
-    /// Scopes to ask for in place of the defaults.
-    pub scopes: Option<Vec<String>>,
 }
 
 impl From<OAuthClient> for NotionOAuth {
     fn from(client: OAuthClient) -> Self {
-        Self { client, scopes: None }
+        Self { client }
     }
 }
 
@@ -152,14 +153,7 @@ impl Notion {
     /// Notion with the application's OAuth app, for connecting users through OAuth.
     /// Takes an [`OAuthClient`], or a [`NotionOAuth`] for the settings only Notion has.
     pub fn with_oauth(settings: impl Into<NotionOAuth>) -> Self {
-        let settings = settings.into();
-        let mut this = Self::new();
-        if let AuthScheme::OAuth2(oauth) = &mut this.spec.auth {
-            if let Some(scopes) = settings.scopes {
-                oauth.default_scopes = scopes;
-            }
-        }
-        this.oauth(settings.client)
+        Self::new().oauth(settings.into().client)
     }
 
     /// Notion with a token the application already holds. Every call uses it.
@@ -191,6 +185,12 @@ impl Notion {
     /// Sets the application's OAuth app.
     pub fn oauth(mut self, client: OAuthClient) -> Self {
         self.access.oauth = Some(client);
+        self
+    }
+
+    /// Uses another definition while keeping the token, OAuth app and version already set.
+    pub fn spec(mut self, spec: ProviderSpec) -> Self {
+        self.spec = spec;
         self
     }
 

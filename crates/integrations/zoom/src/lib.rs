@@ -3,12 +3,14 @@
 //! Offers the provider definition, `zoom.identity.get` and
 //! `zoom.resource.resolve` (a user's cloud recordings).
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use serde_json::Value;
 use socketkit_core::{
-    Access, Account, AuthScheme, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec, OAuthClient,
-    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, SecretString, TokenSet, identity_operation,
-    resolve_input, resolve_operation, to_output,
+    Access, Account, AuthScheme, Classifier, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec,
+    OAuthClient, OperationInfo, ProviderId, ProviderSpec, RawRequest, RawResponse, Resource, Result, SecretString,
+    StandardClassifier, TokenSet, identity_operation, resolve_input, resolve_operation, to_output,
 };
 
 /// This provider's id, as used in connection keys and operation names.
@@ -31,13 +33,27 @@ pub fn provider() -> ProviderSpec {
             default_scopes: vec![
                 "user:read:user".into(),
                 "recording:read:list_user_recordings:admin".into(),
-                "recording:read:recording_token:admin".into(),
             ],
             scope_separator: " ".into(),
             pkce: false,
             client_auth: ClientAuth::Basic,
             extra_authorize_params: Vec::new(),
         }),
+    }
+}
+
+/// Zoom reports "no such user" as HTTP 400 with its own code 1001.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ZoomClassifier;
+
+impl Classifier for ZoomClassifier {
+    fn classify(&self, provider: &ProviderId, response: &RawResponse) -> Result<()> {
+        if response.status == 400 && response.body["code"] == 1001 {
+            return Err(
+                Error::new(ErrorKind::NotFound, format!("{provider} has no such user")).with_provider(provider.clone())
+            );
+        }
+        StandardClassifier.classify(provider, response)
     }
 }
 
@@ -219,8 +235,10 @@ impl Zoom {
                 };
                 Ok(Resource::new(user, label, "Zoom cloud recordings"))
             }
-            // Zoom answers 400 (code 1001) or 404 for a user outside the account.
-            Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::InvalidInput) => Err(Error::new(
+            // Zoom answers 404, or 400 with code 1001, for a user outside the
+            // account. The classifier turns both into `NotFound`; any other
+            // refused request is reported as itself.
+            Err(e) if e.kind() == ErrorKind::NotFound => Err(Error::new(
                 ErrorKind::NotFound,
                 format!("Zoom user {user} was not found"),
             )
@@ -234,6 +252,10 @@ impl Zoom {
 impl Integration for Zoom {
     fn provider(&self) -> ProviderSpec {
         self.spec.clone()
+    }
+
+    fn classifier(&self) -> Arc<dyn Classifier> {
+        Arc::new(ZoomClassifier)
     }
 
     fn oauth_client(&self) -> Option<OAuthClient> {

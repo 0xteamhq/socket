@@ -191,3 +191,29 @@ async fn a_200_that_names_no_single_repository_or_account_is_refused() {
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Decode);
 }
+
+#[tokio::test]
+async fn a_renamed_repository_resolves_to_its_new_name() {
+    let (server, socket, key) = github().await;
+    // GitHub answers the old name with a redirect to the repository by its id.
+    Mock::given(path("/repos/acme/old-name"))
+        .respond_with(ResponseTemplate::new(301).insert_header("location", format!("{}/repositories/42", server.uri())))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/repositories/42"))
+        .and(header("authorization", "Bearer good-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "full_name": "acme/new-name" })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let resolved = socket
+        .invoke(
+            key,
+            "github.resource.resolve".into(),
+            json!({ "input": "acme/old-name" }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resolved["id"], "acme/new-name");
+}
