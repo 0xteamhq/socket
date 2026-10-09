@@ -1,0 +1,44 @@
+crates/integrations/github/src/lib.rs
+  s_9a82f246a2078d::t_4df101efe45141 10-11,42-111,117-118,135-142,146-172,180,309-314
+  s_9a82f246a2078d::t_1d7232c1457e16 315
+crates/integrations/notion/tests/wire.rs
+  s_9a82f246a2078d::t_01a908352ec103 168-201
+crates/facade/Cargo.toml
+  s_9a82f246a2078d::t_01a908352ec103 33-35
+crates/integrations/linear/src/lib.rs
+  s_9a82f246a2078d::t_6f26329b87f681 13,112-148,170-179,183-193
+crates/integrations/slack/src/lib.rs
+  s_9a82f246a2078d::t_4df101efe45141 14-15,139-181,203-217,221-231
+crates/integrations/google/src/lib.rs
+  s_9a82f246a2078d::t_4df101efe45141 11-12,88-133,155-170,174-184
+crates/facade/tests/features.rs
+  s_9a82f246a2078d::t_01a908352ec103 167-279
+crates/integrations/zoom/src/lib.rs
+  s_9a82f246a2078d::t_6f26329b87f681 10-11,66-102,124-133,137-147
+crates/core/src/operation.rs
+  s_9a82f246a2078d::t_6f26329b87f681 180-184,203-207
+  s_9a82f246a2078d::t_408512002a8bbd 208
+crates/core/src/socket.rs
+  s_9a82f246a2078d::t_6f26329b87f681 595-597
+crates/integrations/notion/src/lib.rs
+  s_9a82f246a2078d::t_4df101efe45141 10-11,91-130,136,153-162,166-179,187,209-210,216,253
+  s_9a82f246a2078d::t_01a908352ec103 197-202
+Cargo.lock
+  s_9a82f246a2078d::t_511e184e263d2b 1062
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2ca034ca4446867178c034bf30f041b039492bc1",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
