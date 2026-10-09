@@ -87,6 +87,12 @@ impl Error {
         self
     }
 
+    /// Rewrites the message. Used to strip a credential a provider echoed back.
+    pub(crate) fn map_message(mut self, f: impl FnOnce(String) -> String) -> Self {
+        self.message = f(self.message);
+        self
+    }
+
     pub fn kind(&self) -> ErrorKind {
         self.kind
     }

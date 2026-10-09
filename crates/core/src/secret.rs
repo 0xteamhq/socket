@@ -55,7 +55,8 @@ impl TokenSet {
     pub fn is_expired(&self, now: SystemTime, skew: Duration) -> bool {
         match self.expires_at {
             None => false,
-            Some(expires_at) => expires_at <= now + skew,
+            // A skew too large to add means "treat everything with an expiry as expired".
+            Some(expires_at) => now.checked_add(skew).is_none_or(|limit| expires_at <= limit),
         }
     }
 }
@@ -138,5 +139,6 @@ mod tests {
         );
         tokens.expires_at = Some(now - Duration::from_secs(1));
         assert!(tokens.is_expired(now, Duration::ZERO));
+        assert!(tokens.is_expired(now, Duration::MAX), "an absurd skew must not panic");
     }
 }

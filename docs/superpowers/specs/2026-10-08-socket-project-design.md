@@ -265,7 +265,9 @@ Requirements:
 
 - **The host owns the callback route.** Socket builds the URL and completes the exchange; it never listens on a port.
 - **State is signed and expires** (HMAC-SHA256, ten minutes). The PKCE verifier travels in a pending record the host keeps server-side, never in the URL.
-- **Refresh is single-flight per `ConnectionKey`.** Two concurrent calls with an expired token cause one refresh. Providers that rotate refresh tokens invalidate the old one on use, so a second refresh would break the connection. Single-flight is done by awaiting one shared in-flight refresh, not by holding a lock across calls into the store.
+- **Refresh is single-flight per `ConnectionKey`.** Two concurrent calls with an expired token cause one refresh. Providers that rotate refresh tokens invalidate the old one on use, so a second refresh would break the connection. Single-flight is a per-connection async lock held across the store's load and save for that connection, so a caller that waited re-reads what the caller before it saved. A store must not call back into Socket for the same connection from inside those methods. If a save fails after a successful refresh, the rotated token is kept in memory and saved on the next call, so it is not lost.
+- **The token endpoint's failures are told apart.** A declined code or refresh token means reconnect. Throttling is reported as throttling, and a rejected client id or secret as a configuration error, so that neither tells every user to reconnect.
+- **The pending record belongs to the session that started the flow.** The application must look it up by that session at the callback, not by the `state` in the URL, and delete it after one use. Socket cannot enforce this, because only the application knows who is asking.
 - **A rejected refresh is reported as "reconnect required"**, distinct from a transient failure.
 
 This lifecycle is the part of Socket with no library equivalent elsewhere: the login catalogues return a token and stop, and the projects that do refresh in-process dictate the application's database schema.
@@ -274,8 +276,10 @@ This lifecycle is the part of Socket with no library equivalent elsewhere: the l
 
 One HTTP path for every integration:
 
-- A single `reqwest::Client`, built once or supplied by the application. TLS through `rustls`.
-- **Host allowlist.** Credentials are attached only to requests over https, on port 443, whose host is in the provider's `allowed_hosts`. The OAuth token endpoint must be one of those hosts too, because it receives the client secret and refresh tokens. A bug or a malicious change in an integration crate cannot send a token elsewhere.
+- A single `reqwest::Client`, built once. An application may supply a client builder with its own proxies, timeouts and certificates; Socket builds the client from it so that redirect-following is always off. TLS through `rustls`.
+- **Host allowlist.** Credentials are attached only to requests over https, on port 443, whose host is in the provider's `allowed_hosts`. The OAuth token endpoint must be one of those hosts too, because it receives the client secret and refresh tokens. The one exception is plain http to a loopback address listed with its port, for tests and local development.
+- **Nothing a caller supplies can move or replace the credentials.** Redirects are never followed. A caller cannot set the headers that carry credentials or choose the host, cannot repeat the API key's query parameter under any spelling, and cannot put a username or password in the URL. A provider's error text is shortened and has the credential removed before it reaches an error message.
+- **Bounded waiting and reading.** The default client times out after 30 seconds, and a response larger than 10 MB is refused. A bug or a malicious change in an integration crate cannot send a token elsewhere.
 - **Retry** with backoff for retryable failures, honouring `Retry-After`. Non-idempotent requests are retried only when the provider's classifier says the request was not processed.
 - **Pagination** as one model: a call takes an optional cursor and returns a `Page<T>` with the next cursor. A stream adapter sits above that for Rust callers. Each integration maps its vendor's style (cursor, `Link` header, GraphQL `pageInfo`) onto it.
 - GraphQL is a first-class request shape, not an afterthought on a REST helper. Linear is GraphQL-only.
@@ -373,7 +377,7 @@ Bindings and the local server come later, but these rules apply from the first c
 1. **Everything is reachable by name with plain data** (section 5.6). Public input and output types have no lifetimes or generics and derive `serde`.
 2. **Interfaces the application implements are object-safe traits** held as `Arc<dyn Trait>`, `Send + Sync`, with owned parameters and `Result` returns. No `impl Trait` parameters for the token store or any other hook.
 3. **No ambient runtime.** The core runs on a Tokio runtime handle it is given or creates. It never assumes it is being called from inside one.
-4. **The store may be slow, re-entrant, and bound to a thread the host owns.** The core holds no lock while calling it.
+4. **The store may be slow and bound to a thread the host owns.** The core holds no thread lock while calling it. The one lock it does hold is the async per-connection refresh lock (section 5.3), so a store must not call back into Socket for the same connection.
 5. **Pagination is cursor in, page out** at the lowest public layer. Streams are a convenience above it.
 6. **Dropping a call cancels it.** The core starts no detached background work.
 7. **Errors are flat and serialisable** (section 5.5).
@@ -388,8 +392,8 @@ crates/integrations/slack/
 ├── src/
 │   ├── lib.rs          # re-exports only
 │   ├── provider.rs     # ProviderSpec, token-response parser, response classifier
-│   ├── client.rs       # the typed client, methods grouped by resource
-│   ├── models.rs       # request and response types
+│   ├── client/         # the typed client, one file per area of the API, re-exported from mod.rs
+│   ├── models/         # request and response types, one file per area, re-exported from mod.rs
 │   ├── resolve.rs      # Resolve implementation
 │   ├── operations.rs   # descriptors and dispatch for invoke
 │   └── webhook.rs      # when the service sends events

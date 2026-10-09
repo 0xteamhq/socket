@@ -17,10 +17,13 @@ jobs:
       - run: cargo test --workspace
       - run: cargo test --workspace --all-features
       - run: cargo run -p socketkit-core --example invoke_by_name
+      - run: cargo run -p socketkit --all-features --example catalogue
+      - run: cargo run -p socketkit --features slack --example slack -- operations
 
   msrv:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.85
-      - run: cargo check --workspace --all-targets
+      # Library crates only: the test kit's mock server needs a newer Rust than the libraries do.
+      - run: cargo check --workspace --exclude socketkit-testkit --all-features

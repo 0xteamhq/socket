@@ -13,7 +13,16 @@ tier = "unreleased"
 owner = "Vasanth"
 
 [dependencies]
+async-trait.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_path_to_error.workspace = true
 socketkit-core.workspace = true
+
+[dev-dependencies]
+socketkit-testkit.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true
