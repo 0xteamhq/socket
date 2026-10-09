@@ -18,6 +18,7 @@ jobs:
       - run: cargo test --workspace --all-features
       - run: cargo run -p socketkit-core --example invoke_by_name
       - run: cargo run -p socketkit --all-features --example catalogue
+      - run: cargo run -p socketkit --features slack --example slack -- operations
 
   msrv:
     runs-on: ubuntu-latest

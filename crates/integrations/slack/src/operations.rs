@@ -61,12 +61,17 @@ where
         let provider = connection.provider().id.clone();
         match serde_path_to_error::deserialize::<_, I>(input) {
             Err(e) => {
-                // Name the field when the path is known, so a caller can fix the input.
+                // serde's own message quotes the offending value, which may be
+                // message text or a credential. Only the field's name, which
+                // comes from our own types, goes into the error.
                 let path = e.path().to_string();
-                let message = if path == "." {
-                    e.inner().to_string()
+                let inner = e.inner().to_string();
+                let message = if inner.starts_with("missing field") {
+                    inner
+                } else if path == "." {
+                    "the input has a field of the wrong type".to_owned()
                 } else {
-                    format!("`{path}`: {}", e.inner())
+                    format!("`{path}` has the wrong type")
                 };
                 Box::pin(std::future::ready(Err(invalid(message).with_provider(provider))))
             }
@@ -247,6 +252,8 @@ input!(Snooze {
     minutes: u32
 });
 
+// `Destructive` is anything that deletes, removes or overwrites what was
+// there, or takes away someone's access. A host uses it to ask a person first.
 use Effect::{Destructive, Read, Write};
 
 /// Every Slack operation except identity and resource lookup, which the
@@ -264,7 +271,7 @@ fn build() -> Vec<Operation> {
             |s: Slack, c: Connection, i: ChannelPost| async move { s.chat(&c).post_message(&i.channel, i.options).await as Result<PostedMessage> }),
         operation("chat.post_ephemeral", "Post a message that only one member can see. Returns its timestamp.", Write, &["chat:write"],
             |s: Slack, c: Connection, i: ChannelUserPost| async move { s.chat(&c).post_ephemeral(&i.channel, &i.user, i.options).await as Result<String> }),
-        operation("chat.update", "Replace the content of a message.", Write, &["chat:write"],
+        operation("chat.update", "Replace the content of a message.", Destructive, &["chat:write"],
             |s: Slack, c: Connection, i: ChannelTsUpdate| async move { s.chat(&c).update(&i.channel, &i.ts, i.options).await as Result<PostedMessage> }),
         operation("chat.delete", "Delete a message.", Destructive, &["chat:write"],
             |s: Slack, c: Connection, i: ChannelTs| async move { s.chat(&c).delete(&i.channel, &i.ts).await as Result<()> }),
@@ -292,7 +299,7 @@ fn build() -> Vec<Operation> {
             |s: Slack, c: Connection, i: Create| async move { s.conversations(&c).create(&i.name, i.options).await as Result<Channel> }),
         operation("conversations.join", "Join a public channel.", Write, &["channels:join"],
             |s: Slack, c: Connection, i: InChannel| async move { s.conversations(&c).join(&i.channel).await as Result<Channel> }),
-        operation("conversations.leave", "Leave a conversation.", Write, &["channels:manage"],
+        operation("conversations.leave", "Leave a conversation.", Destructive, &["channels:manage"],
             |s: Slack, c: Connection, i: InChannel| async move { s.conversations(&c).leave(&i.channel).await as Result<()> }),
         operation("conversations.invite", "Invite members to a channel.", Write, &["channels:manage"],
             |s: Slack, c: Connection, i: ChannelUsers| async move { s.conversations(&c).invite(&i.channel, &i.users).await as Result<Channel> }),
@@ -302,11 +309,11 @@ fn build() -> Vec<Operation> {
             |s: Slack, c: Connection, i: InChannel| async move { s.conversations(&c).archive(&i.channel).await as Result<()> }),
         operation("conversations.unarchive", "Restore an archived channel.", Write, &["channels:manage"],
             |s: Slack, c: Connection, i: InChannel| async move { s.conversations(&c).unarchive(&i.channel).await as Result<()> }),
-        operation("conversations.rename", "Rename a channel.", Write, &["channels:manage"],
+        operation("conversations.rename", "Rename a channel.", Destructive, &["channels:manage"],
             |s: Slack, c: Connection, i: ChannelName| async move { s.conversations(&c).rename(&i.channel, &i.name).await as Result<Channel> }),
-        operation("conversations.set_topic", "Set a channel's topic.", Write, &["channels:manage"],
+        operation("conversations.set_topic", "Set a channel's topic.", Destructive, &["channels:manage"],
             |s: Slack, c: Connection, i: ChannelTopic| async move { s.conversations(&c).set_topic(&i.channel, &i.topic).await as Result<()> }),
-        operation("conversations.set_purpose", "Set a channel's purpose.", Write, &["channels:manage"],
+        operation("conversations.set_purpose", "Set a channel's purpose.", Destructive, &["channels:manage"],
             |s: Slack, c: Connection, i: ChannelPurpose| async move { s.conversations(&c).set_purpose(&i.channel, &i.purpose).await as Result<()> }),
         operation("conversations.open", "Open a direct message with one member, or a group direct message with several.", Write, &["im:write"],
             |s: Slack, c: Connection, i: Open| async move { s.conversations(&c).open(&i.users).await as Result<Channel> }),
@@ -328,7 +335,7 @@ fn build() -> Vec<Operation> {
         // ── reactions ──
         operation("reactions.add", "Add an emoji reaction to a message.", Write, &["reactions:write"],
             |s: Slack, c: Connection, i: React| async move { s.reactions(&c).add(&i.channel, &i.timestamp, &i.name).await as Result<()> }),
-        operation("reactions.remove", "Remove the token's own reaction from a message.", Write, &["reactions:write"],
+        operation("reactions.remove", "Remove the token's own reaction from a message.", Destructive, &["reactions:write"],
             |s: Slack, c: Connection, i: React| async move { s.reactions(&c).remove(&i.channel, &i.timestamp, &i.name).await as Result<()> }),
         operation("reactions.get", "List the reactions on a message.", Read, &["reactions:read"],
             |s: Slack, c: Connection, i: ChannelTimestamp| async move { s.reactions(&c).get(&i.channel, &i.timestamp).await as Result<Vec<Reaction>> }),
@@ -336,7 +343,7 @@ fn build() -> Vec<Operation> {
         // ── pins ──
         operation("pins.add", "Pin a message to its channel.", Write, &["pins:write"],
             |s: Slack, c: Connection, i: ChannelTimestamp| async move { s.pins(&c).add(&i.channel, &i.timestamp).await as Result<()> }),
-        operation("pins.remove", "Unpin a message.", Write, &["pins:write"],
+        operation("pins.remove", "Unpin a message.", Destructive, &["pins:write"],
             |s: Slack, c: Connection, i: ChannelTimestamp| async move { s.pins(&c).remove(&i.channel, &i.timestamp).await as Result<()> }),
         operation("pins.list", "List what is pinned to a channel.", Read, &["pins:read"],
             |s: Slack, c: Connection, i: InChannel| async move { s.pins(&c).list(&i.channel).await as Result<Vec<Pin>> }),

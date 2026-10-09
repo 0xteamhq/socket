@@ -540,3 +540,97 @@ async fn the_typed_methods_take_identifiers_as_arguments_and_content_as_structs(
     let body: Value = serde_json::from_slice(&server.received_requests().await.unwrap()[0].body).unwrap();
     assert_eq!(body, json!({ "channel": "C1", "text": "hello", "thread_ts": TS }));
 }
+
+#[tokio::test]
+async fn an_input_error_names_the_field_but_never_repeats_the_callers_values() {
+    let (server, socket, key) = slack().await;
+    let secret = "xoxb-PRIVATE-do-not-log";
+    let bad = [
+        (
+            "slack.chat.schedule_message",
+            json!({ "channel": "C1", "post_at": secret, "text": "x" }),
+            "post_at",
+        ),
+        (
+            "slack.conversations.invite",
+            json!({ "channel": "C1", "users": secret }),
+            "users",
+        ),
+        (
+            "slack.chat.post_message",
+            json!({ "channel": { "nested": secret }, "text": "x" }),
+            "channel",
+        ),
+        (
+            "slack.chat.post_message",
+            json!({ "channel": "C1", "text": [secret] }),
+            "input",
+        ),
+        ("slack.dnd.set_snooze", json!({ "minutes": secret }), "minutes"),
+    ];
+    for (operation, input, names) in bad {
+        let err = socket.invoke(key.clone(), operation.into(), input).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{operation}");
+        let everything = format!("{err} {err:?} {}", serde_json::to_string(&err.to_wire()).unwrap());
+        assert!(!everything.contains("PRIVATE"), "{operation}: {everything}");
+        assert!(err.message().contains(names), "{operation}: {}", err.message());
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn anything_that_removes_or_overwrites_is_marked_destructive_so_a_host_can_ask_first() {
+    let operations = Slack::new().operations();
+    let effect = |name: &str| {
+        operations
+            .iter()
+            .find(|o| o.name == format!("slack.{name}"))
+            .unwrap_or_else(|| panic!("{name}"))
+            .effect
+    };
+    let destructive = [
+        "chat.update",
+        "chat.delete",
+        "chat.delete_scheduled_message",
+        "conversations.leave",
+        "conversations.kick",
+        "conversations.archive",
+        "conversations.rename",
+        "conversations.set_topic",
+        "conversations.set_purpose",
+        "reactions.remove",
+        "pins.remove",
+        "files.delete",
+        "reminders.delete",
+        "bookmarks.remove",
+    ];
+    for name in destructive {
+        assert_eq!(effect(name), Effect::Destructive, "{name}");
+    }
+    // Everything else that changes Slack is a write; nothing that changes Slack is a read.
+    for operation in &operations {
+        let name = operation.name.trim_start_matches("slack.");
+        let reads = [
+            "list",
+            "info",
+            "history",
+            "replies",
+            "members",
+            "get",
+            "presence",
+            "profile",
+            "permalink",
+            "messages",
+            "lookup_by_email",
+            "scheduled_messages",
+            "resolve",
+        ];
+        let is_read_name = reads.iter().any(|r| name.ends_with(r));
+        assert_eq!(
+            operation.effect == Effect::Read,
+            is_read_name,
+            "{name} is {:?}",
+            operation.effect
+        );
+    }
+}

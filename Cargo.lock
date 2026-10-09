@@ -1125,6 +1125,7 @@ dependencies = [
 name = "socketkit"
 version = "0.0.0"
 dependencies = [
+ "serde_json",
  "socketkit-core",
  "socketkit-github",
  "socketkit-google",
@@ -1132,6 +1133,7 @@ dependencies = [
  "socketkit-notion",
  "socketkit-slack",
  "socketkit-zoom",
+ "tokio",
  "url",
 ]
 

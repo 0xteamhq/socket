@@ -7,6 +7,7 @@ Status: early, and not yet run against the real services. The core, the OAuth fl
 - [Vision](docs/vision.md)
 - [Design](docs/superpowers/specs/2026-10-08-socket-project-design.md)
 - [Catalogue](docs/catalogue.md)
+- [Slack guide](docs/integrations/slack.md): how to connect, and every method and operation
 
 ## What is here
 

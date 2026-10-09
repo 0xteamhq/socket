@@ -18,6 +18,10 @@ google = ["dep:socketkit-google"]
 zoom = ["dep:socketkit-zoom"]
 
 [[example]]
+name = "slack"
+required-features = ["slack"]
+
+[[example]]
 name = "catalogue"
 required-features = ["github", "google", "linear", "notion", "slack", "zoom"]
 
@@ -31,6 +35,8 @@ socketkit-google = { workspace = true, optional = true }
 socketkit-zoom = { workspace = true, optional = true }
 
 [dev-dependencies]
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 url.workspace = true
 
 [lints]
