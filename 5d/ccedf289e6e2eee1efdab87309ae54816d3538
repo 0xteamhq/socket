@@ -1,0 +1,22 @@
+crates/core/tests/wire.rs
+  s_9a82f246a2078d::t_23b033a2ab1e63 2567-2570,2573-2581,2583-2586
+  s_9a82f246a2078d::t_27c3ae9c692726 2561-2566,2571-2572,2582,2587-2608
+crates/core/src/socket.rs
+  s_9a82f246a2078d::t_23b033a2ab1e63 498-512
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5dccedf289e6e2eee1efdab87309ae54816d3538",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
