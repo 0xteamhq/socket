@@ -1,0 +1,61 @@
+crates/core/tests/wire.rs
+  s_9a82f246a2078d::t_80d802529aa7bd 2545-2549
+  s_9a82f246a2078d::t_2e08867e3c9404 2086-2087,2099-2102,2337-2544,2550-2560
+crates/core/src/oauth.rs
+  s_9a82f246a2078d::t_804f330a7a9a87 254-255,270-271,275-280,288,290-312,314,329,334-337
+crates/integrations/slack/tests/operations.rs
+  s_9a82f246a2078d::t_a0f790dc52f4b8 20
+crates/integrations/google/src/lib.rs
+  s_9a82f246a2078d::t_f59c7d6ed09d73 197-200,203-206
+crates/integrations/linear/src/lib.rs
+  s_9a82f246a2078d::t_f59c7d6ed09d73 137-141,166-167,199,205-208,221-223,225-235
+docs/integrations/slack.md
+  s_9a82f246a2078d::t_a0f790dc52f4b8 289
+crates/integrations/github/tests/wire.rs
+  s_9a82f246a2078d::t_a0f790dc52f4b8 220-246
+crates/integrations/linear/tests/wire.rs
+  s_9a82f246a2078d::t_f59c7d6ed09d73 170-185
+crates/integrations/github/src/lib.rs
+  s_9a82f246a2078d::t_a0f790dc52f4b8 122-123,172-177,192,197,244-254,284-298,474-488
+  s_9a82f246a2078d::t_ee0235773784b8 489-490
+crates/integrations/google/tests/wire.rs
+  s_9a82f246a2078d::t_a0f790dc52f4b8 262-263,272-289
+  s_9a82f246a2078d::t_299ebe0a4e9ce2 290
+crates/core/src/http.rs
+  s_9a82f246a2078d::t_804f330a7a9a87 154-157,437-439,441
+crates/core/src/operation.rs
+  s_9a82f246a2078d::t_804f330a7a9a87 160-161,180,194-197,205-208,212,215-218,221,225-229
+  s_9a82f246a2078d::t_13cebb44a7f448 230-231
+crates/core/src/provider.rs
+  s_9a82f246a2078d::t_2e08867e3c9404 419
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_9a82f246a2078d::t_a0f790dc52f4b8 272
+crates/core/src/socket.rs
+  s_9a82f246a2078d::t_804f330a7a9a87 225-226,397-402,501,509-524,568-572
+.claude/worktrees/readme-overhaul
+  s_3ca04f6c1d450b::t_1ce16d80b4b407 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eab7210ec3609913745359610cc13f9ef9c86846",
+  "prompts": {},
+  "sessions": {
+    "s_3ca04f6c1d450b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3254f56-32a0-4d5e-98da-30dd4386eb89",
+        "model": "unknown"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    },
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
