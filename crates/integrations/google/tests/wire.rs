@@ -154,3 +154,40 @@ async fn the_docs_and_sheets_hosts_may_receive_the_token_and_no_other_google_hos
     );
     assert!(!allows("https://storage.googleapis.com/"));
 }
+
+fn restricted(server: &MockServer, domain: &str) -> Arc<dyn Integration> {
+    Arc::new(Google::with_spec(point_at(provider(), server)).hosted_domain(domain))
+}
+
+async fn identity_as(email: serde_json::Value, domain: &str) -> socketkit_core::Result<serde_json::Value> {
+    let server = MockServer::start().await;
+    Mock::given(path("/drive/v3/about"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "user": { "displayName": "Someone", "emailAddress": email, "permissionId": "42" }
+        })))
+        .mount(&server)
+        .await;
+    let (socket, key) = connect(restricted(&server, domain), "ya29.good").await;
+    socket.invoke(key, "google.identity.get".into(), json!({})).await
+}
+
+#[tokio::test]
+async fn an_account_outside_the_required_workspace_domain_is_refused_by_identity() {
+    // Google's `hd` parameter only filters the sign-in page; a person can approve with any account.
+    for outsider in [
+        json!("mallory@gmail.com"),
+        json!("ada@acme.example.evil.test"),
+        json!("ada@notacme.example"),
+        json!("acme.example"),
+        json!(null),
+    ] {
+        let err = identity_as(outsider.clone(), "acme.example").await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::AccessDenied, "{outsider}");
+    }
+}
+
+#[tokio::test]
+async fn an_account_in_the_required_workspace_domain_is_accepted_whatever_its_case() {
+    let account = identity_as(json!("Ada@ACME.example"), "acme.example").await.unwrap();
+    assert_eq!(account["email"], "Ada@ACME.example");
+}

@@ -93,7 +93,14 @@ pub struct GoogleOAuth {
     pub client: OAuthClient,
     /// Scopes to ask for in place of the defaults.
     pub scopes: Option<Vec<String>>,
-    /// Limits sign-in to one Google Workspace domain (Google's `hd` parameter).
+    /// The Google Workspace domain accounts must belong to, such as `acme.example`.
+    ///
+    /// It does two things. It is sent as Google's `hd` parameter, which only
+    /// filters the sign-in page: a person can still approve with another
+    /// account. And `google.identity.get` refuses an account whose email is
+    /// not in the domain, which is the actual check. Connecting does not run
+    /// that check by itself: call `google.identity.get` after
+    /// `complete_authorization`, and delete the connection if it is refused.
     pub hosted_domain: Option<String>,
     /// Prefills the account chooser (Google's `login_hint` parameter).
     pub login_hint: Option<String>,
@@ -136,6 +143,8 @@ impl From<&str> for GoogleToken {
 pub struct Google {
     spec: ProviderSpec,
     access: Access,
+    /// The Workspace domain an account must belong to, lowercased.
+    hosted_domain: Option<String>,
 }
 
 impl Default for Google {
@@ -160,14 +169,25 @@ impl Google {
             if let Some(scopes) = settings.scopes {
                 oauth.default_scopes = scopes;
             }
-            if let Some(domain) = settings.hosted_domain {
-                oauth.extra_authorize_params.push(("hd".into(), domain));
+            if let Some(domain) = &settings.hosted_domain {
+                oauth.extra_authorize_params.push(("hd".into(), domain.clone()));
             }
             if let Some(hint) = settings.login_hint {
                 oauth.extra_authorize_params.push(("login_hint".into(), hint));
             }
         }
+        let this = match settings.hosted_domain {
+            Some(domain) => this.hosted_domain(domain),
+            None => this,
+        };
         this.oauth(settings.client)
+    }
+
+    /// Requires accounts to belong to one Google Workspace domain.
+    /// `google.identity.get` refuses any other account.
+    pub fn hosted_domain(mut self, domain: impl Into<String>) -> Self {
+        self.hosted_domain = Some(domain.into().trim().trim_start_matches('@').to_ascii_lowercase());
+        self
     }
 
     /// Google with a token the application already holds. Every call uses it.
@@ -189,6 +209,7 @@ impl Google {
         Self {
             spec,
             access: Access::default(),
+            hosted_domain: None,
         }
     }
 
@@ -218,6 +239,19 @@ impl Google {
                 Error::new(ErrorKind::Decode, "google answered without an account").with_provider(self.spec.id.clone())
             );
         };
+        if let Some(required) = &self.hosted_domain {
+            // The part after the last `@`, compared whole: `acme.example.evil.test` is not `acme.example`.
+            let domain = email
+                .and_then(|e| e.rsplit_once('@'))
+                .map(|(_, domain)| domain.to_ascii_lowercase());
+            if domain.as_deref() != Some(required.as_str()) {
+                return Err(Error::new(
+                    ErrorKind::AccessDenied,
+                    format!("this Google account is not in the {required} workspace"),
+                )
+                .with_provider(self.spec.id.clone()));
+            }
+        }
         let name = user["displayName"]
             .as_str()
             .filter(|n| !n.is_empty())
