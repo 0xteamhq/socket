@@ -3,6 +3,10 @@
 //! Offers the provider definition, `slack.identity.get` and
 //! `slack.resource.resolve` (a channel). Typed operations arrive in phase 2.
 
+mod client;
+pub mod models;
+mod operations;
+
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -13,6 +17,10 @@ use socketkit_core::{
     OAuthClient, OAuthFlow, OperationInfo, ProviderId, ProviderSpec, RawRequest, RawResponse, Resource, Result, Retry,
     SecretString, StandardClassifier, TokenSet, identity_operation, resolve_input, resolve_operation,
     standard_token_response, to_output,
+};
+
+pub use client::{
+    Bookmarks, Chat, Conversations, Files, Pins, Reactions, Reminders, SearchApi, UserGroups, Users, Workspace,
 };
 
 /// This provider's id, as used in connection keys and operation names.
@@ -251,6 +259,61 @@ impl Slack {
         self
     }
 
+    /// Posting, changing and scheduling messages.
+    pub fn chat<'a>(&self, connection: &'a Connection) -> Chat<'a> {
+        Chat(client::Api { connection })
+    }
+
+    /// Channels, direct messages, and what is in them.
+    pub fn conversations<'a>(&self, connection: &'a Connection) -> Conversations<'a> {
+        Conversations(client::Api { connection })
+    }
+
+    /// The members of the workspace.
+    pub fn users<'a>(&self, connection: &'a Connection) -> Users<'a> {
+        Users(client::Api { connection })
+    }
+
+    /// Emoji reactions on messages.
+    pub fn reactions<'a>(&self, connection: &'a Connection) -> Reactions<'a> {
+        Reactions(client::Api { connection })
+    }
+
+    /// Items pinned to a channel.
+    pub fn pins<'a>(&self, connection: &'a Connection) -> Pins<'a> {
+        Pins(client::Api { connection })
+    }
+
+    /// Files shared in the workspace.
+    pub fn files<'a>(&self, connection: &'a Connection) -> Files<'a> {
+        Files(client::Api { connection })
+    }
+
+    /// Searching messages. Needs a user token.
+    pub fn search<'a>(&self, connection: &'a Connection) -> SearchApi<'a> {
+        SearchApi(client::Api { connection })
+    }
+
+    /// Reminders. Needs a user token.
+    pub fn reminders<'a>(&self, connection: &'a Connection) -> Reminders<'a> {
+        Reminders(client::Api { connection })
+    }
+
+    /// Bookmarks at the top of a channel.
+    pub fn bookmarks<'a>(&self, connection: &'a Connection) -> Bookmarks<'a> {
+        Bookmarks(client::Api { connection })
+    }
+
+    /// User groups such as `@engineering`.
+    pub fn usergroups<'a>(&self, connection: &'a Connection) -> UserGroups<'a> {
+        UserGroups(client::Api { connection })
+    }
+
+    /// The workspace itself, its emoji, and Do Not Disturb.
+    pub fn workspace<'a>(&self, connection: &'a Connection) -> Workspace<'a> {
+        Workspace(client::Api { connection })
+    }
+
     fn not_found(&self, what: &str) -> Error {
         Error::new(ErrorKind::NotFound, format!("{what} was not found")).with_provider(self.spec.id.clone())
     }
@@ -339,10 +402,12 @@ impl Integration for Slack {
     }
 
     fn operations(&self) -> Vec<OperationInfo> {
-        vec![
+        let mut operations = vec![
             identity_operation(&self.spec.id),
             resolve_operation(&self.spec.id, "a public channel as #name or a channel id"),
-        ]
+        ];
+        operations.extend(operations::all().iter().map(|operation| operation.info.clone()));
+        operations
     }
 
     async fn invoke(&self, connection: Connection, operation: String, input: Value) -> Result<Value> {
@@ -350,10 +415,13 @@ impl Integration for Slack {
         match operation.strip_prefix(&format!("{id}.")) {
             Some("identity.get") => to_output(id, &self.identity(&connection).await?),
             Some("resource.resolve") => to_output(id, &self.resolve(&connection, &resolve_input(id, &input)?).await?),
-            _ => Err(
-                Error::new(ErrorKind::Unsupported, format!("slack has no operation {operation:?}"))
-                    .with_provider(id.clone()),
-            ),
+            _ => match operations::all().iter().find(|known| known.info.name == operation) {
+                Some(known) => known.run(self.clone(), connection, input).await,
+                None => Err(
+                    Error::new(ErrorKind::Unsupported, format!("slack has no operation {operation:?}"))
+                        .with_provider(id.clone()),
+                ),
+            },
         }
     }
 

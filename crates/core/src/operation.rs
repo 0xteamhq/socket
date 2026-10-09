@@ -38,7 +38,7 @@ pub struct OperationInfo {
 }
 
 /// The account behind a connection: whose token this is.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Account {
     /// The provider's stable identifier for the account.
     pub id: String,
@@ -48,7 +48,7 @@ pub struct Account {
 }
 
 /// Something a person named that the provider confirmed exists and the account can reach.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Resource {
     /// The provider's stable identifier: a repository's full name, a channel id, a team key.
     pub id: String,
@@ -110,6 +110,11 @@ pub fn resolve_operation(provider: &ProviderId, accepts: &str) -> OperationInfo 
         effect: Effect::Read,
         required_scopes: Vec::new(),
     }
+}
+
+/// The JSON Schema of `T`, for an operation's input or output.
+pub fn schema_of<T: schemars::JsonSchema>() -> Value {
+    serde_json::to_value(schemars::schema_for!(T)).unwrap_or(Value::Null)
 }
 
 /// Reads the `input` string of a `resource.resolve` call.

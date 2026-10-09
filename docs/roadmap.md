@@ -37,6 +37,10 @@ Phase 6 is new in this roadmap: the spec lists bindings under "later", and they 
 
 Plans 1B to 1D are written one at a time, each after the one before it has landed, because each depends on the exact types the earlier one produced.
 
+## Slack, built out ahead of phase 2
+
+Slack now has 54 typed methods, each also a named operation with generated schemas: chat, conversations, users, reactions, pins, files, search, reminders, bookmarks, user groups, and the workspace (team, emoji, Do Not Disturb). Not covered: uploading a file (it sends raw bytes to a different host, which the transport does not do yet), modals and views, admin and SCIM methods, incoming events, and Socket Mode. None of it has been run against the real Slack; the request and response shapes follow Slack's documentation.
+
 ## Carried forward from reviews
 
 - Decide before the first release whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.

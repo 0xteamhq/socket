@@ -151,6 +151,21 @@ impl Socket {
         }
     }
 
+    /// The connection `key`, loaded and ready for an integration's typed
+    /// methods, as in `slack.chat(&connection).post_message(…)`. An expired
+    /// token is refreshed first.
+    pub async fn connection(&self, key: ConnectionKey) -> Result<Connection> {
+        let registered = self.registered(&key.provider)?;
+        let tokens = self.tokens_for(&key, registered).await?;
+        Ok(Connection::new(
+            key,
+            tokens,
+            registered.spec.clone(),
+            self.transport.clone(),
+            registered.classifier(),
+        ))
+    }
+
     /// Calls any endpoint of a registered provider with the connection's
     /// credentials, retry and error classification applied.
     pub async fn request(&self, key: ConnectionKey, request: RawRequest) -> Result<RawResponse> {

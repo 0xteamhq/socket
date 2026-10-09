@@ -19,7 +19,7 @@ pub use http::{Classifier, Page, RawRequest, RawResponse, RetryPolicy, StandardC
 pub use oauth::{AuthorizationRequest, CodeGrant, Grant, OAuthContext, OAuthFlow, StandardOAuth};
 pub use operation::{
     Access, Account, Connection, Effect, Integration, OperationInfo, Resource, identity_operation, resolve_input,
-    resolve_operation, to_output,
+    resolve_operation, schema_of, to_output,
 };
 pub use provider::{ApiKeySpec, AuthScheme, ClientAuth, KeyPlacement, OAuth2Spec, ProviderId, ProviderSpec};
 pub use secret::{SecretString, TokenSet};

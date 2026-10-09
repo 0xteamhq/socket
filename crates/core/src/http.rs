@@ -80,7 +80,7 @@ impl RawResponse {
 }
 
 /// One page of a listing. `next_cursor` is `None` on the last page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Page<T> {
     pub items: Vec<T>,
     pub next_cursor: Option<String>,

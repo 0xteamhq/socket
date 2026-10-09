@@ -22,7 +22,7 @@ fn the_slack_feature_exposes_the_slack_crate() {
     feature = "zoom"
 ))]
 #[test]
-fn all_six_integrations_register_together_with_two_operations_each() {
+fn all_six_integrations_register_together_and_each_offers_identity_and_lookup() {
     use std::sync::Arc;
 
     let socket = socketkit::Socket::builder(Arc::new(socketkit::MemoryTokenStore::new()))
@@ -37,7 +37,9 @@ fn all_six_integrations_register_together_with_two_operations_each() {
     let ids: Vec<String> = socket.providers().into_iter().map(|p| p.id.to_string()).collect();
     assert_eq!(ids, ["github", "google", "linear", "notion", "slack", "zoom"]);
     let names: Vec<String> = socket.operations().into_iter().map(|o| o.name).collect();
-    assert_eq!(names.len(), 12);
+    // Every integration has these two; Slack has its full set besides.
+    assert!(names.len() >= 12);
+    assert!(names.contains(&"slack.chat.post_message".to_owned()));
     for id in &ids {
         assert!(names.contains(&format!("{id}.identity.get")), "{id}");
         assert!(names.contains(&format!("{id}.resource.resolve")), "{id}");

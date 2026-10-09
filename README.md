@@ -47,6 +47,22 @@ let account = socket.invoke(slack.clone(), "slack.identity.get".into(), serde_js
 let channels = socket.request(slack, RawRequest::get("conversations.list")).await?;
 ```
 
+Slack has typed methods for its whole everyday surface: messages, conversations, users, reactions, pins, files, search, reminders, bookmarks, user groups and the workspace. Identifiers are plain arguments; content and filters are structs.
+
+```rust
+use socketkit::slack::models::{History, PostMessage};
+
+let slack = socketkit::slack::Slack::with_token("xoxb-your-token");
+let socket = Socket::in_memory().integration(Arc::new(slack.clone())).build()?;
+let connection = socket.connection(ConnectionKey::new(ProviderId::new("slack")?, "me")).await?;
+
+let posted = slack.chat(&connection).post_message("C0123ABCD", PostMessage::text("Deploy finished")).await?;
+slack.reactions(&connection).add("C0123ABCD", &posted.ts, "tada").await?;
+let recent = slack.conversations(&connection).history("C0123ABCD", History { limit: Some(20), ..History::default() }).await?;
+```
+
+Each of those is also an operation an agent can call by name with JSON, for example `slack.chat.post_message` with `{ "channel": "C0123ABCD", "text": "Deploy finished" }`. `socket.operations()` lists all of them with input and output schemas.
+
 With your own OAuth app, to connect your users:
 
 ```rust
