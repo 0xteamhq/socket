@@ -485,13 +485,19 @@ mod tests {
             token: SecretString::new("t"),
             host: Some("127.1".into()),
         });
+        // The integration tries each known host, so a URL in either spelling is read.
+        let read = |input: &str| numeric.web_hosts.iter().any(|host| parse_repo_on(input, host).is_ok());
+        assert!(read("https://127.1/acme/api") && read("https://127.0.0.1/acme/api"));
+        assert!(
+            !read("https://127.0.0.2/acme/api"),
+            "a host that is neither spelling is refused"
+        );
         for spelling in ["127.1", "127.0.0.1"] {
             assert!(
                 numeric.web_hosts.contains(&spelling.to_owned()),
                 "{spelling}: {:?}",
                 numeric.web_hosts
             );
-            assert!(parse_repo_on(&format!("https://{spelling}/acme/api"), spelling).is_ok());
         }
     }
 

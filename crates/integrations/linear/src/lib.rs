@@ -216,8 +216,9 @@ impl Linear {
 
     /// Sets a token the application already holds.
     ///
-    /// A personal API key (`lin_api_…`) is sent bare and any other token as
-    /// `Bearer`, whichever was set before.
+    /// A personal API key (`lin_api_…`) is sent bare. Any other token puts back
+    /// the scheme a key had replaced; if no key replaced one, the definition's
+    /// own scheme is kept as it is.
     pub fn token(mut self, token: impl Into<String>) -> Self {
         let token = token.into();
         if token.starts_with(API_KEY_PREFIX) {
