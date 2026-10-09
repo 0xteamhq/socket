@@ -1,1 +1,3 @@
 /target
+# Working copies other sessions create here are not part of the repository.
+/.claude/worktrees/
