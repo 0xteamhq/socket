@@ -2558,3 +2558,51 @@ async fn a_303_is_followed_for_a_read_and_an_unfollowed_redirect_says_what_happe
         "the address it pointed to is not repeated"
     );
 }
+
+#[tokio::test]
+async fn a_recovered_rotation_is_not_handed_to_a_call_made_with_unrelated_tokens() {
+    let server = MockServer::start().await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("refresh_token=R1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "access_token": "A2", "refresh_token": "R2", "expires_in": 3600 })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .and(header("authorization", "Bearer A2"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/items"))
+        .respond_with(ResponseTemplate::new(401))
+        .mount(&server)
+        .await;
+
+    let store = Arc::new(FailsFirstSave {
+        inner: MemoryTokenStore::new(),
+        failed: true.into(),
+    });
+    store.save(key(), never_expiring("other-account", "RZ")).await.unwrap();
+    let socket = builder_with(store.clone(), oauth_spec(&server, ClientAuth::Body, false));
+    // A call is prepared with the tokens of the account connected at this moment.
+    let earlier = socket.connection(key()).await.unwrap();
+
+    // The connection is then replaced by a different authorization, which expires and is
+    // refreshed, but the save of that rotation fails and is left to be recovered.
+    store.inner.save(key(), expired(Some("R1"))).await.unwrap();
+    store.failed.store(false, std::sync::atomic::Ordering::SeqCst);
+    socket.request(key(), RawRequest::get("items")).await.unwrap_err();
+
+    // The earlier call is rejected. The rotation waiting to be recovered belongs to the
+    // other authorization and must not be used to send it again.
+    let err = earlier.request(RawRequest::post("items", json!({}))).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::ReconnectRequired);
+    let received = server.received_requests().await.unwrap();
+    let posts_as_a2 = received
+        .iter()
+        .filter(|r| r.method.as_str() == "POST" && r.headers.get("authorization").is_some_and(|v| v == "Bearer A2"))
+        .count();
+    assert_eq!(posts_as_a2, 0, "the call must not run under the other authorization");
+}

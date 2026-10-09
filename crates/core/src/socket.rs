@@ -495,10 +495,24 @@ impl Inner {
             *unsaved = None;
             return Err(reconnect(provider, format!("no stored connection for {provider}")));
         };
+        // A call that was rejected is only ever given tokens that descend
+        // from the ones it was made with. So the store must still hold those
+        // very tokens, on the load made here under the lock, before anything
+        // else is considered: a rotation waiting to be recovered included,
+        // since it may belong to a different authorization. If the store holds
+        // anything else, the connection was replaced by other means, perhaps
+        // for a different account, and the call must not be sent again.
+        if let Some(rejected) = rejected {
+            if current.access_token != *rejected {
+                return Err(reconnect(
+                    provider,
+                    format!("{provider} rejected the stored authorization"),
+                ));
+            }
+        }
         // Tokens from an earlier refresh whose save failed or was cancelled.
         // They are still the connection's only valid tokens, provided the
         // store has not been given a different authorization since.
-        let mut recovered = false;
         if let Some(pending) = unsaved.take() {
             if current.refresh_token.as_ref() == Some(&pending.spent) {
                 if let Err(e) = self.store.save(key.clone(), pending.tokens.clone()).await {
@@ -506,22 +520,6 @@ impl Inner {
                     return Err(e);
                 }
                 current = pending.tokens;
-                recovered = true;
-            }
-        }
-        // A call that was rejected may only be given tokens that descend from
-        // the ones it was made with: the very same ones, to be refreshed, or
-        // a rotation of them recovered just above. This is checked against
-        // the load made here, under the lock, and nothing is loaded again
-        // before the tokens are used. If the store holds anything else, the
-        // connection was replaced by other means, perhaps for a different
-        // account, and the call must not be sent again with those.
-        if let Some(rejected) = rejected {
-            if !recovered && current.access_token != *rejected {
-                return Err(reconnect(
-                    provider,
-                    format!("{provider} rejected the stored authorization"),
-                ));
             }
         }
         // A token that has not expired is used as it is, unless it is the very
