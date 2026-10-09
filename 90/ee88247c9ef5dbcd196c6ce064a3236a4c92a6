@@ -1,0 +1,19 @@
+.gitignore
+  s_9a82f246a2078d::t_7228cd80007b5a 2-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "90ee88247c9ef5dbcd196c6ce064a3236a4c92a6",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
