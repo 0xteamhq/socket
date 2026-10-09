@@ -1,0 +1,118 @@
+docs/roadmap.md
+  s_9a82f246a2078d::t_581a4e24a9bd77 42-45
+crates/integrations/github/src/client/actions.rs
+  s_9a82f246a2078d::t_a9c5fd481747d9 1-30,34,38-58,67-70,76-83
+  s_9a82f246a2078d::t_f2400e6e1b5532 31-33,35-37,59-66
+  s_9a82f246a2078d::t_a708e82b5a3baa 71-75
+crates/integrations/github/src/client/users.rs
+  s_9a82f246a2078d::t_f2400e6e1b5532 17-19,21-23,37-40
+  s_9a82f246a2078d::t_a9c5fd481747d9 1-16,20,24-36,41-43
+crates/integrations/github/src/models/search.rs
+  s_9a82f246a2078d::t_ee425ffd800063 1-39
+crates/integrations/github/src/models/paging.rs
+  s_9a82f246a2078d::t_ee425ffd800063 1-13
+docs/integrations/github.md
+  s_9a82f246a2078d::t_581a4e24a9bd77 1-133,136-151,153-277
+  s_9a82f246a2078d::t_402740958fb535 134-135,152
+crates/facade/examples/github.rs
+  s_9a82f246a2078d::t_2be59238e3bdd5 1-220
+crates/integrations/github/src/client/contents.rs
+  s_9a82f246a2078d::t_a9c5fd481747d9 1-20,24-31,35-47,53-66,72-91,95-99,104-110,114-117
+  s_9a82f246a2078d::t_f2400e6e1b5532 21-23,32-34,48-52,67-71,92-94,100-103,111-113
+crates/integrations/github/src/models/mod.rs
+  s_9a82f246a2078d::t_402740958fb535 12
+  s_9a82f246a2078d::t_ee425ffd800063 1-11,13-24,26-32
+  s_9a82f246a2078d::t_f2400e6e1b5532 25
+crates/integrations/github/src/operations.rs
+  s_9a82f246a2078d::t_f2400e6e1b5532 1-406
+crates/facade/Cargo.toml
+  s_9a82f246a2078d::t_2be59238e3bdd5 25-27
+  s_9a82f246a2078d::t_6c316074b2c8bd 24
+crates/integrations/github/src/client/mod.rs
+  s_9a82f246a2078d::t_a708e82b5a3baa 151-159
+  s_9a82f246a2078d::t_f2400e6e1b5532 51-53,84-87,94-99,108-111,117-120,144-148,192-196,204-211,219-223,239-245
+  s_9a82f246a2078d::t_a9c5fd481747d9 1-50,54-83,88-93,100-107,112-116,121-143,149-150,160-183,191,197-203,212-218,233-238,246-248
+  s_9a82f246a2078d::t_402740958fb535 184-190,224-232
+crates/integrations/github/src/client/releases.rs
+  s_9a82f246a2078d::t_f2400e6e1b5532 29-33,41-46,52-55
+  s_9a82f246a2078d::t_a9c5fd481747d9 1-28,34-40,47-51,56-59
+crates/integrations/github/Cargo.toml
+  s_9a82f246a2078d::t_ee425ffd800063 17-20
+crates/integrations/github/src/models/action.rs
+  s_9a82f246a2078d::t_ee425ffd800063 1-51
+CLAUDE.md
+  s_9a82f246a2078d::t_2be59238e3bdd5 71-76,89-90
+crates/integrations/github/src/client/search.rs
+  s_9a82f246a2078d::t_f2400e6e1b5532 32-35
+  s_9a82f246a2078d::t_a9c5fd481747d9 1-31,36-38
+crates/integrations/github/src/models/nullable.rs
+  s_9a82f246a2078d::t_402740958fb535 1-13
+crates/integrations/github/src/models/release.rs
+  s_9a82f246a2078d::t_ee425ffd800063 1-35
+Cargo.toml
+  s_9a82f246a2078d::t_ee425ffd800063 26
+crates/integrations/github/src/models/user.rs
+  s_9a82f246a2078d::t_ee425ffd800063 1-30
+crates/integrations/github/src/models/issue.rs
+  s_9a82f246a2078d::t_f2400e6e1b5532 94-97,124-127,132-135
+  s_9a82f246a2078d::t_402740958fb535 24,26
+  s_9a82f246a2078d::t_ee425ffd800063 1-23,25,27-93,98-123,128-131,136-137
+crates/integrations/github/src/models/content.rs
+  s_9a82f246a2078d::t_ee425ffd800063 1-76
+crates/integrations/github/src/client/pulls.rs
+  s_9a82f246a2078d::t_a9c5fd481747d9 1-84,89-91,95-100,104,108-112,120,124-125,132-136,141-144
+  s_9a82f246a2078d::t_f2400e6e1b5532 85-88,92-94,101-103,105-107,113-119,121-123,126-131,137-140
+crates/integrations/github/src/client/issues.rs
+  s_9a82f246a2078d::t_402740958fb535 89-90
+  s_9a82f246a2078d::t_a708e82b5a3baa 83
+  s_9a82f246a2078d::t_f2400e6e1b5532 93-95,98-103,116-118,126-128
+  s_9a82f246a2078d::t_a9c5fd481747d9 1-82,84-88,91-92,96-97,104-115,119-125,129-132
+README.md
+  s_9a82f246a2078d::t_581a4e24a9bd77 37,48,55,124
+  s_9a82f246a2078d::t_27512683704f75 125
+crates/integrations/github/tests/operations.rs
+  s_9a82f246a2078d::t_749e2168c92470 403-404
+  s_9a82f246a2078d::t_a708e82b5a3baa 562,571-572,930-956
+  s_9a82f246a2078d::t_043f1284897e6f 1-402,405-561,563-570,573-929,957
+  s_9a82f246a2078d::t_402740958fb535 958-996
+crates/facade/tests/features.rs
+  s_9a82f246a2078d::t_2be59238e3bdd5 40,43
+crates/integrations/github/src/client/repos.rs
+  s_9a82f246a2078d::t_a9c5fd481747d9 1-30,35-40,49-54,59-70,76-77,82-94,100-101,105-131,135-138
+  s_9a82f246a2078d::t_f2400e6e1b5532 31-34,41-48,55-58,71-75,78-81,95-99,102-104,132-134
+crates/integrations/github/src/models/pull.rs
+  s_9a82f246a2078d::t_402740958fb535 26
+  s_9a82f246a2078d::t_ee425ffd800063 1-25,27-139
+crates/integrations/github/src/lib.rs
+  s_9a82f246a2078d::t_a708e82b5a3baa 52-54,88-93,97
+  s_9a82f246a2078d::t_f2400e6e1b5532 3-12,17-19,22,55-87,94-96,98-108,284-323,493,499-505,513-519
+  s_9a82f246a2078d::t_18c852a4916990 23
+crates/integrations/github/src/models/repository.rs
+  s_9a82f246a2078d::t_ee425ffd800063 1-113
+Cargo.lock
+  s_af112d0e712ecc::t_a2ade990f22437 1165-1168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7e113c53da89c1f1ac8b4da09ce0dccddc3605e8",
+  "prompts": {},
+  "sessions": {
+    "s_9a82f246a2078d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa4200a-d22b-467a-96c2-f75075f1460f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    },
+    "s_af112d0e712ecc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b5e0ba30-956d-4818-b568-ef67cf5d5168",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
