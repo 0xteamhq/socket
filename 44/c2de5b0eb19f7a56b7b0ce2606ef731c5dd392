@@ -1,0 +1,54 @@
+crates/integrations/microsoft/src/client/events.rs
+  s_dbbe1dc13eabf1::t_65ac096592a941 106,110,156-162
+  s_dbbe1dc13eabf1::t_8c51b0c9e2327f 107-109
+crates/integrations/microsoft/src/lib.rs
+  s_dbbe1dc13eabf1::t_65ac096592a941 87-95,115-116,135-136,139,144-148,509-514,516-520,650-651
+  s_dbbe1dc13eabf1::t_b930eff9ec2991 119
+  s_dbbe1dc13eabf1::t_8c51b0c9e2327f 630-646,652-655
+crates/integrations/microsoft/src/models/message.rs
+  s_dbbe1dc13eabf1::t_65ac096592a941 85-86
+crates/integrations/microsoft/tests/wire.rs
+  s_dbbe1dc13eabf1::t_8d77e118ad7386 206-213,786-789,867-903
+  s_dbbe1dc13eabf1::t_eff9aa4a3a1c9f 904-905
+crates/integrations/microsoft/src/client/mail_compose.rs
+  s_dbbe1dc13eabf1::t_8c51b0c9e2327f 11,18-22,74,97
+crates/integrations/microsoft/src/client/mod.rs
+  s_dbbe1dc13eabf1::t_65ac096592a941 90-92,126-129
+  s_dbbe1dc13eabf1::t_0b250227502272 130
+crates/integrations/microsoft/tests/mail.rs
+  s_dbbe1dc13eabf1::t_8d77e118ad7386 363-379
+crates/integrations/microsoft/src/models/event.rs
+  s_dbbe1dc13eabf1::t_65ac096592a941 7,198-200
+crates/integrations/microsoft/src/models/nullable.rs
+  s_dbbe1dc13eabf1::t_65ac096592a941 1,4-10
+docs/integrations/microsoft.md
+  s_dbbe1dc13eabf1::t_b930eff9ec2991 77,160,166,212,214,263-265,291-292,364,402
+docs/roadmap.md
+  s_dbbe1dc13eabf1::t_b930eff9ec2991 46
+crates/integrations/microsoft/src/client/mail.rs
+  s_dbbe1dc13eabf1::t_65ac096592a941 44-51
+crates/integrations/microsoft/Cargo.toml
+  s_dbbe1dc13eabf1::t_8d77e118ad7386 18
+crates/integrations/microsoft/tests/operations.rs
+  s_dbbe1dc13eabf1::t_8d77e118ad7386 370-374,511-521,534-541,545-590,1142-1153
+Cargo.lock
+  s_dbbe1dc13eabf1::t_fa7fec82934670 1200
+README.md
+  s_dbbe1dc13eabf1::t_2b76a6a66b6062 7,19,65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "44c2de5b0eb19f7a56b7b0ce2606ef731c5dd392",
+  "prompts": {},
+  "sessions": {
+    "s_dbbe1dc13eabf1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a613a42-f563-420a-9c41-cee8bd04b5b1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
