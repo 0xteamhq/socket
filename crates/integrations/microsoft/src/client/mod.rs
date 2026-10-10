@@ -117,30 +117,23 @@ impl Api<'_> {
     /// crate built for the list, and the cursor supplies only the query,
     /// where Graph keeps its place.
     ///
-    /// The cursor's own host and path are still compared with the list's, so
-    /// that a cursor from another list is refused instead of being applied to
-    /// this one. That comparison decides nothing about where the request
-    /// goes, so it can afford to ignore case and encoding.
+    /// The cursor's path is not compared with the list's. Graph writes the
+    /// same list in more than one way (`me/events('id')`, `users('id')/…`),
+    /// and since the path is never used, a comparison could only refuse a
+    /// good cursor. Its host is checked, so that what is plainly not from
+    /// this API is refused and not read for a query.
     fn next_page(&self, cursor: &str, listing: &str) -> Result<String> {
         let base = &self.connection.provider().api_base;
-        let expected = format!(
-            "{}/{}",
-            base.path().trim_end_matches('/'),
-            listing.trim_start_matches('/')
-        );
         let place = Url::parse(cursor).ok().and_then(|next| {
-            let same_list = next.origin() == base.origin()
-                && next.username().is_empty()
-                && next.password().is_none()
-                && same_path(next.path(), &expected);
+            let from_here = next.origin() == base.origin() && next.username().is_empty() && next.password().is_none();
             let query = next.query().filter(|query| !query.is_empty())?;
-            same_list.then(|| query.to_owned())
+            from_here.then(|| query.to_owned())
         });
         match place {
             Some(query) => Ok(format!("{listing}?{query}")),
             None => Err(self.error(
                 ErrorKind::InvalidInput,
-                "`cursor` is not the next page of this list; pass back `next_cursor` unchanged, with the same arguments",
+                "`cursor` is not the address of a next page; pass back `next_cursor` unchanged",
             )),
         }
     }
@@ -173,50 +166,6 @@ impl Api<'_> {
         }
         Ok(encoded)
     }
-}
-
-/// True when two paths name the same thing, segment by segment.
-///
-/// Graph may write the address of a next page in another case than the
-/// request (`calendarview`), and may leave unencoded what Socket encodes
-/// (`=`), so each segment is compared decoded and without regard to ASCII
-/// case. Segments are never joined: an encoded `/` stays inside its segment.
-fn same_path(left: &str, right: &str) -> bool {
-    let mut left = left.split('/');
-    let mut right = right.split('/');
-    loop {
-        match (left.next(), right.next()) {
-            (Some(a), Some(b)) if decoded(a).eq_ignore_ascii_case(&decoded(b)) => {}
-            (None, None) => return true,
-            _ => return false,
-        }
-    }
-}
-
-/// A path segment with its percent-encoding undone.
-fn decoded(segment: &str) -> Vec<u8> {
-    let hex = |byte: u8| char::from(byte).to_digit(16);
-    let bytes = segment.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut at = 0;
-    while at < bytes.len() {
-        let pair = (
-            bytes.get(at + 1).copied().and_then(hex),
-            bytes.get(at + 2).copied().and_then(hex),
-        );
-        match (bytes[at], pair) {
-            (b'%', (Some(high), Some(low))) => {
-                // Two hex digits make a value below 256.
-                out.push(u8::try_from(high * 16 + low).unwrap_or(b'%'));
-                at += 3;
-            }
-            (byte, _) => {
-                out.push(byte);
-                at += 1;
-            }
-        }
-    }
-    out
 }
 
 /// `base` with the set fields of `options` added. Unset fields are left out

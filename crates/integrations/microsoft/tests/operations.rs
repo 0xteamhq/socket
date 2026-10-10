@@ -739,7 +739,7 @@ async fn the_address_of_the_next_page_is_the_cursor_and_is_requested_as_it_is() 
 }
 
 #[tokio::test]
-async fn a_cursor_that_is_not_an_address_in_graph_is_refused_and_the_token_goes_nowhere() {
+async fn a_cursor_from_another_host_or_with_no_place_in_the_list_is_refused() {
     // Microsoft has two hosts: Graph, and the one that signs people in. Here
     // `elsewhere` stands for the second: the provider may send it credentials,
     // but it is not the API.
@@ -752,21 +752,8 @@ async fn a_cursor_that_is_not_an_address_in_graph_is_refused_and_the_token_goes_
     for cursor in [
         format!("{}/v1.0/me/calendars?%24skip=10", elsewhere.uri()),
         "https://graph.microsoft.com/v1.0/me/calendars?$skip=10".to_owned(),
-        "https://evil.example/v1.0/me/calendars".to_owned(),
-        // The right server, outside the API.
-        format!("{}/common/oauth2/v2.0/token", server.uri()),
-        format!("{}/beta/me/calendars", server.uri()),
-        format!("{}/v1.0/../beta/me/calendars", server.uri()),
-        format!("{}/v1.0/%2e%2e/beta/me/calendars", server.uri()),
-        // Inside the API, but not this list: a calendar listing must not read mail,
-        // another person's calendars, or anything below or beside its own address.
-        format!("{}/v1.0/me/messages?%24skip=10", server.uri()),
-        format!("{}/v1.0/users/someone-else/calendars", server.uri()),
-        format!("{}/v1.0/me/calendars/cal-1/events", server.uri()),
-        format!("{}/v1.0/me/calendars%2Fcal-1", server.uri()),
-        format!("{}/v1.0/me", server.uri()),
-        format!("{}/v1.0/me/calendars/", server.uri()),
-        // This list, but no place in it: that is the first page, not a next one.
+        "https://evil.example/v1.0/me/calendars?$skip=10".to_owned(),
+        // No place in the list: that is the first page, not a next one.
         format!("{}/v1.0/me/calendars", server.uri()),
         format!("{}/v1.0/me/calendars?", server.uri()),
         format!("{}/v1.0/me/calendars#%24skip=10", server.uri()),
@@ -774,6 +761,7 @@ async fn a_cursor_that_is_not_an_address_in_graph_is_refused_and_the_token_goes_
         format!("{}/v1.0/me/calendars?%24skip=10", server.uri()).replace("http://", "http://user:pw@"),
         // Not an address at all.
         "me/calendars?$skip=10".to_owned(),
+        "%24skip=10".to_owned(),
         "page-2".to_owned(),
     ] {
         let err = invoke(&socket, &key, "calendars.list", json!({ "cursor": cursor }))
@@ -791,11 +779,39 @@ async fn a_cursor_that_is_not_an_address_in_graph_is_refused_and_the_token_goes_
 }
 
 #[tokio::test]
-async fn a_next_page_written_another_way_is_still_the_same_list() {
-    // Graph may write the address of the next page in another case, or leave
-    // unencoded what Socket encodes. It is the same list either way. What is
-    // requested is always the address Socket built from the arguments; the
-    // cursor supplies the query, where Graph keeps its place, and nothing else.
+async fn whatever_address_a_cursor_names_the_request_goes_to_the_lists_own() {
+    // A cursor comes back from the caller. Only its query is used: the page
+    // is requested at the address built from the operation's own arguments.
+    // So a cursor that names mail, another person, another version of the
+    // API or the sign-in endpoint reads none of them.
+    for path in [
+        "/v1.0/me/messages",
+        "/v1.0/users/someone-else/calendars",
+        "/v1.0/me/calendars/cal-1/events",
+        "/v1.0/me",
+        "/beta/me/calendars",
+        "/v1.0/../beta/me/calendars",
+        "/common/oauth2/v2.0/token",
+        "/",
+    ] {
+        let (server, socket, key) = answering(200, json!({ "value": [calendar()] })).await;
+        let cursor = format!("{}{path}?%24skip=10", server.uri());
+        let page = invoke(&socket, &key, "calendars.list", json!({ "cursor": cursor }))
+            .await
+            .unwrap_or_else(|e| panic!("{path}: {e}"));
+        assert_eq!(page["items"][0]["id"], "cal-1");
+        let request = only_request(&server).await;
+        assert_eq!(request.method.as_str(), "GET", "{path}");
+        assert_eq!(request.url.path(), "/v1.0/me/calendars", "{path}");
+        assert_eq!(request.url.query(), Some("%24skip=10"), "{path}");
+    }
+}
+
+#[tokio::test]
+async fn a_next_page_is_found_however_graph_writes_its_address() {
+    // Graph may write the address of the next page in another case, with a
+    // key in brackets, or leaving unencoded what Socket encodes. The query,
+    // where Graph keeps its place, is passed on whole and unchanged.
     for (name, input, cursor_path, cursor_query, asked_path) in [
         (
             "events.list_between",
@@ -807,21 +823,14 @@ async fn a_next_page_written_another_way_is_still_the_same_list() {
         (
             "events.instances",
             json!({ "event": "AAMk=", "start": "2026-10-12", "end": "2026-10-19" }),
-            "/v1.0/me/events/AAMk=/instances",
+            "/v1.0/me/events('AAMk=')/instances",
             "%24skiptoken=abc%2Fdef%3d%3d",
-            "/v1.0/me/events/AAMk%3D/instances",
-        ),
-        (
-            "events.instances",
-            json!({ "event": "AAMk=", "start": "2026-10-12", "end": "2026-10-19" }),
-            "/v1.0/me/events/AAMk%3d/instances",
-            "%24skip=10",
             "/v1.0/me/events/AAMk%3D/instances",
         ),
         (
             "events.list_between",
             json!({ "start": "2026-10-12", "end": "2026-10-19", "calendar": "cal 1" }),
-            "/V1.0/Me/Calendars/cal%201/calendarView",
+            "/v1.0/users('48d31887-5fad-4d73-a9f5-3c356e68a038')/calendars('cal%201')/calendarView",
             "%24skip=10",
             "/v1.0/me/calendars/cal%201/calendarView",
         ),
@@ -837,20 +846,8 @@ async fn a_next_page_written_another_way_is_still_the_same_list() {
         assert_eq!(request.url.path(), asked_path, "the address is Socket's own");
         assert_eq!(request.url.query(), Some(cursor_query), "the query is Graph's, whole");
         assert_eq!(request.url.fragment(), None);
+        assert_eq!(prefer(&request), Some(IN_UTC));
     }
-
-    // The cursor of one event's occurrences is not a cursor for another's.
-    let (server, socket, key) = answering(200, json!({ "value": [event()] })).await;
-    let other = format!("{}/v1.0/me/events/evt-2/instances?%24skip=10", server.uri());
-    let input = json!({ "event": "evt-1", "start": "2026-10-12", "end": "2026-10-19", "cursor": other });
-    let err = invoke(&socket, &key, "events.instances", input).await.unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::InvalidInput);
-    // An id that holds a slash does not make a longer address match.
-    let nested = format!("{}/v1.0/me/events/evt-1/x/instances", server.uri());
-    let input = json!({ "event": "evt-1/x", "start": "2026-10-12", "end": "2026-10-19", "cursor": nested });
-    let err = invoke(&socket, &key, "events.instances", input).await.unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::InvalidInput);
-    assert!(server.received_requests().await.unwrap().is_empty());
 }
 
 #[tokio::test]

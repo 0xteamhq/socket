@@ -183,7 +183,7 @@ loop {
 
 The cursor is the address Graph gave for the next page (`@odata.nextLink`), and its query carries the rest of the request: the range, the page size, and Graph's own position marker. Pass it back unchanged, with the same arguments it came from.
 
-A cursor comes back from the caller, so Socket does not trust it to be what Graph sent. **Nothing in a cursor is used as a host or a path.** The next page is requested at the address Socket builds from the method's own arguments, and the cursor supplies only the query. So a cursor cannot send the token to another host, the sign-in host included, and cannot make a listing read anything but its own list. The cursor's host and path are still compared with the list's, without regard to case or to how a character is encoded, and a cursor that belongs to another list, or has no query, is refused before any request is made.
+A cursor comes back from the caller, so Socket does not trust it to be what Graph sent. **Nothing in a cursor is used as a host or a path.** The next page is requested at the address Socket builds from the method's own arguments, and the cursor supplies only the query. So a cursor cannot send the token to another host, the sign-in host included, and cannot make a listing read anything but its own list, whatever address it names. A cursor from another host, or with no query, is refused before any request is made. The cursor's path is not looked at: Graph writes the same list in more than one way, and a cursor from a different list simply continues this one at that cursor's position.
 
 `limit` is Graph's `$top` and applies to the first page; later pages keep it. A calendar view takes from 1 to 1000.
 
@@ -286,7 +286,7 @@ Not confirmed:
 - **`$` in a parameter name written as `%24`**, as in `%24top`. This is ordinary URL encoding, not confirmed for Graph specifically.
 - **An id that contains `/`.** Socket percent-encodes an id as one path segment. Whether Graph issues such ids on v1.0, and how it reads an encoded one, was not confirmed.
 - **The default page size** of a calendar view. Pass `limit` to choose one.
-- **That the address of a next page has the same path as the first.** Microsoft's examples show it so, but its guidance is to request the whole address as it stands. Socket requests its own address with that address's query, which is the same request whenever the two paths name the same list. If Graph ever writes the path another way, such as `users('…')` for `me`, Socket refuses that cursor with `InvalidInput` and the comparison has to be widened.
+- **That the query of a next page's address is all that is needed.** Microsoft's guidance is to request the whole address as it stands. Socket requests its own address for the list with that address's query, which is the same request as long as the two addresses name the same list, however Graph writes the path (`me/events('…')`, `users('…')/…`). If Graph ever keeps part of its place in the path, paging would return the wrong page; nothing in the documentation suggests it does.
 - **What Graph does with an attendee's `status` in a request.** Socket leaves it out.
 
 ## Not supported yet
