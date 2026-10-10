@@ -1130,6 +1130,7 @@ dependencies = [
  "socketkit-github",
  "socketkit-google",
  "socketkit-linear",
+ "socketkit-microsoft",
  "socketkit-notion",
  "socketkit-slack",
  "socketkit-zoom",
@@ -1188,6 +1189,22 @@ dependencies = [
  "socketkit-core",
  "socketkit-testkit",
  "tokio",
+]
+
+[[package]]
+name = "socketkit-microsoft"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "percent-encoding",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "socketkit-core",
+ "socketkit-testkit",
+ "tokio",
+ "url",
 ]
 
 [[package]]

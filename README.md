@@ -16,7 +16,7 @@ Read [the vision](docs/vision.md) for the full picture.
 
 ## Features
 
-- **OAuth 2.0** — begin and complete the flow; signed, expiring state; the application owns the callback route. PKCE is supported by the core and currently switched off for all six providers until each is confirmed against the real service
+- **OAuth 2.0** — begin and complete the flow; signed, expiring state; the application owns the callback route. PKCE is supported by the core. It is on for Microsoft, whose documentation recommends it, and switched off for the other six providers until each is confirmed against the real service
 - **Token refresh** — single-flight per connection so concurrent calls never race a refresh token
 - **Host allowlist** — credentials are attached only to HTTPS requests on the provider's declared hosts
 - **Retry with backoff** — honours `Retry-After`; non-idempotent requests are retried only when safe
@@ -38,6 +38,7 @@ socket/
 │   │   ├── slack/              # socketkit-slack (54 typed methods)
 │   │   ├── linear/             # socketkit-linear
 │   │   ├── notion/             # socketkit-notion
+│   │   ├── microsoft/          # socketkit-microsoft (Teams meetings: 9 typed methods)
 │   │   ├── google/             # socketkit-google
 │   │   └── zoom/               # socketkit-zoom
 │   └── testkit/                # socketkit-testkit: wire-test server, conformance suite
@@ -50,7 +51,7 @@ socket/
 
 | Crate | Purpose |
 | --- | --- |
-| `socketkit` | What an application depends on. One feature per provider: `github`, `google`, `linear`, `notion`, `slack`, `zoom`. |
+| `socketkit` | What an application depends on. One feature per provider: `github`, `google`, `linear`, `microsoft`, `notion`, `slack`, `zoom`. |
 | `socketkit-core` | Providers, the token store interface, the HTTP transport, OAuth, refresh, and call-by-name. |
 | `socketkit-<provider>` | The provider's definition, plus operations (`identity.get`, `resource.resolve`, and for Slack its full typed API). |
 | `socketkit-testkit` | A local test server and the conformance checks every provider must pass. |
@@ -62,7 +63,7 @@ socket/
 Neither needs a network or credentials:
 
 ```sh
-# Print the six providers and their operations
+# Print the providers and their operations
 cargo run -p socketkit --all-features --example catalogue
 
 # Register an integration, invoke an operation by name with JSON
@@ -158,8 +159,9 @@ Keep the pending record tied to the session of the person who started the flow, 
 | Notion | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Google | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Zoom | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
+| Microsoft | OAuth 2.0 | `identity.get`, and 9 typed methods for Teams meetings: transcripts, recordings and attendance | Wire-tested only |
 
-All six support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
+All seven support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
 
 ## How breadth grows
 
@@ -238,6 +240,7 @@ See [CLAUDE.md](CLAUDE.md) for the full conventions (models, clients, naming).
 - [Catalogue](docs/catalogue.md) — the first 100 services and the order they are added
 - [Roadmap](docs/roadmap.md) — phases and implementation plans
 - [Slack guide](docs/integrations/slack.md) — how to connect, and every method and operation
+- [Microsoft guide](docs/integrations/microsoft.md) — how to connect, Teams meeting transcripts, recordings and attendance, and their limits
 
 ## License
 

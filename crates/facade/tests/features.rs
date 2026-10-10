@@ -280,3 +280,37 @@ mod every_integration {
         assert_eq!(param(&url, "scope").as_deref(), Some("read"));
     }
 }
+
+#[cfg(feature = "microsoft")]
+#[test]
+fn the_microsoft_feature_offers_teams_meetings_and_signs_in_at_the_tenant_it_was_given() {
+    use std::sync::Arc;
+
+    use socketkit::microsoft::{Microsoft, MicrosoftOAuth};
+    use socketkit::{ConnectionKey, Effect, OAuthClient, ProviderId, SecretString, Socket};
+
+    let microsoft = Microsoft::with_oauth(MicrosoftOAuth {
+        tenant: Some("contoso.onmicrosoft.com".into()),
+        ..OAuthClient {
+            client_id: "ms-client-id".into(),
+            client_secret: SecretString::new("ms-client-secret"),
+            redirect_uri: "https://statustool.example/oauth/callback".parse().unwrap(),
+        }
+        .into()
+    });
+    let socket = Socket::in_memory().integration(Arc::new(microsoft)).build().unwrap();
+
+    let operations = socket.operations();
+    let content = operations
+        .iter()
+        .find(|o| o.name == "microsoft.transcripts.content")
+        .expect("reading a transcript is offered");
+    assert_eq!(content.effect, Effect::Read);
+    assert!(operations.iter().any(|o| o.name == "microsoft.identity.get"));
+
+    let key = ConnectionKey::new(ProviderId::new(socketkit::microsoft::PROVIDER_ID).unwrap(), "user-42");
+    let url = socket.begin_authorization(key, None).unwrap().url;
+    assert_eq!(url.host_str(), Some("login.microsoftonline.com"));
+    assert_eq!(url.path(), "/contoso.onmicrosoft.com/oauth2/v2.0/authorize");
+    assert!(!url.as_str().contains("ms-client-secret"));
+}

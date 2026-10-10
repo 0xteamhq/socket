@@ -16,6 +16,7 @@ linear = ["dep:socketkit-linear"]
 notion = ["dep:socketkit-notion"]
 google = ["dep:socketkit-google"]
 zoom = ["dep:socketkit-zoom"]
+microsoft = ["dep:socketkit-microsoft"]
 
 [[example]]
 name = "slack"
@@ -23,7 +24,7 @@ required-features = ["slack"]
 
 [[example]]
 name = "catalogue"
-required-features = ["github", "google", "linear", "notion", "slack", "zoom"]
+required-features = ["github", "google", "linear", "microsoft", "notion", "slack", "zoom"]
 
 [dependencies]
 socketkit-core.workspace = true
@@ -33,6 +34,7 @@ socketkit-linear = { workspace = true, optional = true }
 socketkit-notion = { workspace = true, optional = true }
 socketkit-google = { workspace = true, optional = true }
 socketkit-zoom = { workspace = true, optional = true }
+socketkit-microsoft = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true

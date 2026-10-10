@@ -32,12 +32,20 @@ Phase 6 is new in this roadmap: the spec lists bindings under "later", and they 
 ## What phase 1 has not done
 
 - **Nothing has been run against a real service.** Every test uses a local server that answers the way the provider's documentation and the earlier private code say it does. The spec's phase 1 criterion, a real consumer running connect, refresh and lookup against the real providers, is still open. It needs an OAuth app and a test account for each of the six.
-- **PKCE is switched off for all six providers**, matching the code they were ported from. Each should be switched on once it is confirmed against the real provider.
+- **PKCE is switched off for the six phase 1 providers**, matching the code they were ported from. Each should be switched on once it is confirmed against the real provider.
 - **Zoom's `user:read:user` scope is new.** The earlier code did not ask for it; `zoom.identity.get` needs it.
 
 ## Slack, built out ahead of phase 2
 
 Slack now has 54 typed methods, each also a named operation with generated schemas: chat, conversations, users, reactions, pins, files, search, reminders, bookmarks, user groups, and the workspace (team, emoji, Do Not Disturb). Not covered: uploading a file (it sends raw bytes to a different host, which the transport does not do yet), modals and views, admin and SCIM methods, incoming events, and Socket Mode. None of it has been run against the real Slack; the request and response shapes follow Slack's documentation.
+
+## Microsoft, started ahead of wave 2
+
+The `microsoft` provider exists: Graph v1.0, sign-in with a tenant setting, identity, and PKCE switched on as Microsoft's documentation recommends. On it, Teams meetings have 9 typed methods, each also a named operation: finding an online meeting by id or join link, its transcripts and what was said in them (WebVTT parsed into speaker, start, end and text), its recordings, and attendance reports and records. All are reads.
+
+To carry a transcript, the transport gained one thing: a request can say its answer is text (`RawRequest::as_text`), and a successful body then comes back as a string. Bytes, content served from another host, and larger bodies are still not done, so a recording's video cannot be downloaded yet.
+
+Not covered: resource lookup for OneDrive and SharePoint links, reporting a missing administrator's consent at sign-in as such, Outlook mail and calendar, Teams chats and channels, access as the application itself, and the national clouds. None of it has been run against a real Microsoft 365 organisation; the request and response shapes follow Microsoft's documentation, and the guide, `docs/integrations/microsoft.md`, lists what that documentation left unconfirmed.
 
 ## Carried forward from reviews
 
