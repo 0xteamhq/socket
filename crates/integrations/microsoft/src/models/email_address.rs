@@ -31,3 +31,12 @@ pub struct Recipient {
     #[serde(deserialize_with = "nullable")]
     pub email_address: EmailAddress,
 }
+
+impl Recipient {
+    /// A recipient known only by its address.
+    pub fn new(address: impl Into<String>) -> Self {
+        Self {
+            email_address: EmailAddress::new(address),
+        }
+    }
+}

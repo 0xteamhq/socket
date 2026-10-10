@@ -6,7 +6,7 @@ use socketkit_core::{ErrorKind, Page, RawRequest, Result};
 use super::{Api, with};
 use crate::models::{
     Attendee, CancelEvent, CreateEvent, DateTimeTimeZone, Event, EventResponse, FindMeetingTimes, GetSchedule,
-    ItemBody, MeetingTimeSuggestions, Paging, RespondToEvent, ScheduleInformation, UpdateEvent,
+    MeetingTimeSuggestions, Paging, RespondToEvent, ScheduleInformation, UpdateEvent,
 };
 
 /// The host of an online meeting when the caller asks for one and names none.
@@ -129,7 +129,7 @@ impl Events<'_> {
         self.time("a start time", &event.start)?;
         self.time("an end time", &event.end)?;
         self.attendees(event.attendees.as_deref())?;
-        self.body(event.body.as_ref())?;
+        self.0.body(event.body.as_ref())?;
         let mut content = invitable(with(json!({}), &event));
         if event.is_online_meeting == Some(true) && event.online_meeting_provider.is_none() {
             content["onlineMeetingProvider"] = json!(TEAMS);
@@ -147,7 +147,7 @@ impl Events<'_> {
             }
         }
         self.attendees(changes.attendees.as_deref())?;
-        self.body(changes.body.as_ref())?;
+        self.0.body(changes.body.as_ref())?;
         let content = invitable(with(json!({}), &changes));
         if content.as_object().is_none_or(serde_json::Map::is_empty) {
             return Err(self
@@ -224,15 +224,6 @@ impl Events<'_> {
             return Err(self
                 .0
                 .error(ErrorKind::InvalidInput, "every attendee needs `emailAddress.address`"));
-        }
-        Ok(())
-    }
-
-    /// A body that is sent replaces the event's text, so it has to carry
-    /// some, even if empty.
-    fn body(&self, body: Option<&ItemBody>) -> Result<()> {
-        if body.is_some_and(|body| body.content.is_none()) {
-            return Err(self.0.error(ErrorKind::InvalidInput, "a body needs `content`"));
         }
         Ok(())
     }

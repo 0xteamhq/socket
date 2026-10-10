@@ -3,38 +3,22 @@
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use socketkit_core::{ConnectionKey, Effect, ErrorKind, Integration, Socket};
+use socketkit_core::{Effect, ErrorKind, Integration};
 use socketkit_microsoft::models::{
     Attendee, CreateEvent, DateTimeTimeZone, EventResponse, Paging, RespondToEvent, UpdateEvent,
 };
 use socketkit_microsoft::{Microsoft, provider};
 use socketkit_testkit::wiremock::matchers::{any, method, path};
-use socketkit_testkit::wiremock::{Mock, MockServer, Request, ResponseTemplate};
+use socketkit_testkit::wiremock::{Mock, MockServer, ResponseTemplate};
 use socketkit_testkit::{connect, point_at};
 
-/// The header that asks Graph to write every time in UTC.
-const IN_UTC: &str = "outlook.timezone=\"UTC\"";
+mod support;
+use support::{
+    AS_TEXT, Case, IN_UTC, answer, answering, body_of, contains, graph_error, invoke, message, message_returned,
+    microsoft, only_request, prefer, query_of, to,
+};
 
 const JOIN_URL: &str = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0";
-
-/// One operation's expected behaviour.
-struct Case {
-    name: &'static str,
-    input: Value,
-    verb: &'static str,
-    /// The path below Graph's `v1.0`.
-    path: &'static str,
-    /// Exactly the query parameters that reach Graph.
-    query: Value,
-    /// Exactly the JSON body that reaches Graph; `null` when there is none.
-    body: Value,
-    /// Whether the request asks for times in UTC.
-    in_utc: bool,
-    status: u16,
-    response: Value,
-    /// What the operation returns. Checked as a subset, so models may carry more fields.
-    returns: Value,
-}
 
 fn at(date_time: &str) -> Value {
     json!({ "dateTime": date_time, "timeZone": "UTC" })
@@ -102,7 +86,7 @@ fn event_returned() -> Value {
 
 #[rustfmt::skip]
 fn cases() -> Vec<Case> {
-    let case = |name, input, verb, path, query, body, in_utc, status, response, returns| Case { name, input, verb, path, query, body, in_utc, status, response, returns };
+    let case = |name, input, verb, path, query, body, in_utc: bool, status, response, returns| Case { name, input, verb, path, query, body, prefer: in_utc.then_some(IN_UTC), status, response, returns };
     let week = json!({ "startDateTime": "2026-10-12T00:00:00Z", "endDateTime": "2026-10-19T00:00:00Z" });
     let attendee = json!({ "type": "required", "emailAddress": { "address": "grace@contoso.example" } });
     vec![
@@ -172,81 +156,79 @@ fn cases() -> Vec<Case> {
     ]
 }
 
-/// True when every part of `expected` is present in `actual`.
-fn contains(actual: &Value, expected: &Value) -> bool {
-    match (actual, expected) {
-        (Value::Object(a), Value::Object(e)) => e.iter().all(|(k, v)| a.get(k).is_some_and(|av| contains(av, v))),
-        (Value::Array(a), Value::Array(e)) => a.len() == e.len() && a.iter().zip(e).all(|(av, ev)| contains(av, ev)),
-        _ => actual == expected,
-    }
+/// The mail operations: what each sends and what it returns.
+#[rustfmt::skip]
+fn mail_cases() -> Vec<Case> {
+    let case = |name, input, verb, path, query, body, prefer, status, response, returns| Case { name, input, verb, path, query, body, prefer, status, response, returns };
+    let text = json!({ "contentType": "text", "content": "See you Monday." });
+    let draft = json!({ "id": "msg-9", "isDraft": true, "subject": "Re: Q3 plan", "toRecipients": to("grace@contoso.example") });
+    let folder = json!({ "id": "folder-inbox", "displayName": "Inbox", "parentFolderId": "folder-root", "childFolderCount": 2, "unreadItemCount": 5, "totalItemCount": 120, "isHidden": false });
+    let attachment = json!({ "@odata.type": "#microsoft.graph.fileAttachment", "id": "att-1", "name": "plan.pdf", "contentType": "application/pdf", "size": 2048, "isInline": false, "lastModifiedDateTime": "2026-10-09T08:14:00Z", "contentId": null });
+    vec![
+        // mail: reading
+        case("mail.list", json!({ "folder": "inbox", "filter": "receivedDateTime ge 2026-10-01T00:00:00Z", "orderBy": "receivedDateTime desc", "limit": 5 }), "GET", "/me/mailFolders/inbox/messages",
+            json!({ "$filter": "receivedDateTime ge 2026-10-01T00:00:00Z", "$orderby": "receivedDateTime desc", "$top": "5" }), json!(null), Some(AS_TEXT), 200,
+            json!({ "value": [message()] }), json!({ "items": [message_returned()], "next_cursor": null })),
+        case("mail.get", json!({ "message": "msg-1" }), "GET", "/me/messages/msg-1", json!({}), json!(null), Some(AS_TEXT), 200,
+            message(), message_returned()),
+        // Oldest first, in the only form Graph's rules for a filter with a sort allow.
+        case("mail.conversation", json!({ "conversation": "conv-1" }), "GET", "/me/messages",
+            json!({ "$filter": "receivedDateTime ge 1900-01-01T00:00:00Z and conversationId eq 'conv-1'", "$orderby": "receivedDateTime asc" }), json!(null), Some(AS_TEXT), 200,
+            json!({ "value": [message()] }), json!({ "items": [{ "id": "msg-1", "conversationId": "conv-1" }], "next_cursor": null })),
+        // The list asks for what describes an attachment and not for its content.
+        case("mail.attachments_list", json!({ "message": "msg-1" }), "GET", "/me/messages/msg-1/attachments",
+            json!({ "$select": "id,name,contentType,size,isInline,lastModifiedDateTime" }), json!(null), None, 200,
+            json!({ "value": [attachment.clone()] }), json!({ "items": [{ "@odata.type": "#microsoft.graph.fileAttachment", "id": "att-1", "name": "plan.pdf", "contentType": "application/pdf", "size": 2048, "isInline": false, "contentBytes": null }], "next_cursor": null })),
+        case("mail.attachment_get", json!({ "message": "msg-1", "attachment": "att-1" }), "GET", "/me/messages/msg-1/attachments/att-1", json!({}), json!(null), None, 200,
+            json!({ "@odata.type": "#microsoft.graph.fileAttachment", "id": "att-1", "name": "plan.pdf", "contentType": "application/pdf", "size": 5, "isInline": false, "contentBytes": "aGVsbG8=" }),
+            json!({ "id": "att-1", "name": "plan.pdf", "size": 5, "contentBytes": "aGVsbG8=" })),
+
+        // mail folders
+        case("mail_folders.list", json!({ "limit": 50 }), "GET", "/me/mailFolders", json!({ "$top": "50" }), json!(null), None, 200,
+            json!({ "value": [folder.clone()] }), json!({ "items": [{ "id": "folder-inbox", "displayName": "Inbox", "unreadItemCount": 5, "totalItemCount": 120, "childFolderCount": 2 }], "next_cursor": null })),
+        case("mail_folders.get", json!({ "folder": "inbox" }), "GET", "/me/mailFolders/inbox", json!({}), json!(null), None, 200,
+            folder.clone(), json!({ "id": "folder-inbox", "displayName": "Inbox", "parentFolderId": "folder-root" })),
+
+        // mail: drafts
+        case("mail.create_draft", json!({ "subject": "Monday", "body": text.clone(), "toRecipients": to("grace@contoso.example") }), "POST", "/me/messages", json!({}),
+            json!({ "subject": "Monday", "body": text.clone(), "toRecipients": to("grace@contoso.example") }), None, 201, draft.clone(), json!({ "id": "msg-9", "isDraft": true })),
+        case("mail.update_draft", json!({ "message": "msg-9", "subject": "Monday, 10:00" }), "PATCH", "/me/messages/msg-9", json!({}),
+            json!({ "subject": "Monday, 10:00" }), None, 200, draft.clone(), json!({ "id": "msg-9" })),
+        case("mail.create_reply", json!({ "message": "msg-1", "comment": "Thanks, will read." }), "POST", "/me/messages/msg-1/createReply", json!({}),
+            json!({ "comment": "Thanks, will read." }), None, 201, draft.clone(), json!({ "id": "msg-9", "isDraft": true })),
+        case("mail.create_reply_all", json!({ "message": "msg-1", "body": text.clone() }), "POST", "/me/messages/msg-1/createReplyAll", json!({}),
+            json!({ "message": { "body": text.clone() } }), None, 200, draft.clone(), json!({ "id": "msg-9" })),
+        case("mail.create_forward", json!({ "message": "msg-1", "toRecipients": to("alan@contoso.example"), "comment": "FYI" }), "POST", "/me/messages/msg-1/createForward", json!({}),
+            json!({ "comment": "FYI", "message": { "toRecipients": to("alan@contoso.example") } }), None, 201, draft.clone(), json!({ "id": "msg-9" })),
+
+        // mail: sending
+        case("mail.send", json!({ "subject": "Monday", "body": text.clone(), "toRecipients": to("grace@contoso.example"), "saveToSentItems": false }), "POST", "/me/sendMail", json!({}),
+            json!({ "message": { "subject": "Monday", "body": text.clone(), "toRecipients": to("grace@contoso.example") }, "saveToSentItems": false }), None, 202, json!(null), json!(null)),
+        case("mail.send_draft", json!({ "message": "msg-9" }), "POST", "/me/messages/msg-9/send", json!({}), json!({}), None, 202, json!(null), json!(null)),
+        case("mail.reply", json!({ "message": "msg-1", "comment": "Agreed." }), "POST", "/me/messages/msg-1/reply", json!({}),
+            json!({ "comment": "Agreed." }), None, 202, json!(null), json!(null)),
+
+        // mail: changing
+        case("mail.update", json!({ "message": "msg-1", "isRead": true, "categories": ["Customer", "Q3"], "flag": { "flagStatus": "flagged" } }), "PATCH", "/me/messages/msg-1", json!({}),
+            json!({ "isRead": true, "categories": ["Customer", "Q3"], "flag": { "flagStatus": "flagged" } }), None, 200, message(), json!({ "id": "msg-1" })),
+        // A moved message comes back under a new id.
+        case("mail.move_to", json!({ "message": "msg-1", "folder": "archive" }), "POST", "/me/messages/msg-1/move", json!({}),
+            json!({ "destinationId": "archive" }), None, 201, json!({ "id": "msg-2", "parentFolderId": "folder-archive", "subject": "Q3 plan" }), json!({ "id": "msg-2", "parentFolderId": "folder-archive" })),
+        case("mail.delete", json!({ "message": "msg-1" }), "DELETE", "/me/messages/msg-1", json!({}), json!(null), None, 204, json!(null), json!(null)),
+    ]
 }
 
-fn answer(status: u16, body: &Value) -> ResponseTemplate {
-    if body.is_null() {
-        ResponseTemplate::new(status)
-    } else {
-        ResponseTemplate::new(status).set_body_json(body.clone())
-    }
-}
-
-fn graph_error(status: u16, code: &str, message: &str) -> ResponseTemplate {
-    ResponseTemplate::new(status).set_body_json(json!({ "error": { "code": code, "message": message } }))
-}
-
-fn query_of(request: &Request) -> Value {
-    Value::Object(
-        request
-            .url
-            .query_pairs()
-            .map(|(k, v)| (k.into_owned(), Value::String(v.into_owned())))
-            .collect(),
-    )
-}
-
-fn body_of(request: &Request) -> Value {
-    if request.body.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&request.body).unwrap()
-    }
-}
-
-fn prefer(request: &Request) -> Option<&str> {
-    request.headers.get("prefer").map(|value| value.to_str().unwrap())
-}
-
-async fn microsoft() -> (MockServer, Socket, ConnectionKey) {
-    let server = MockServer::start().await;
-    let integration: Arc<dyn Integration> = Arc::new(Microsoft::with_spec(point_at(provider(), &server)));
-    let (socket, key) = connect(integration, "eyJ.good").await;
-    (server, socket, key)
-}
-
-/// A server that answers every request with `status` and `body`.
-async fn answering(status: u16, body: Value) -> (MockServer, Socket, ConnectionKey) {
-    let (server, socket, key) = microsoft().await;
-    Mock::given(any())
-        .respond_with(answer(status, &body))
-        .mount(&server)
-        .await;
-    (server, socket, key)
-}
-
-async fn invoke(socket: &Socket, key: &ConnectionKey, name: &str, input: Value) -> socketkit_core::Result<Value> {
-    socket.invoke(key.clone(), format!("microsoft.{name}"), input).await
-}
-
-/// The one request the server received.
-async fn only_request(server: &MockServer) -> Request {
-    let mut received = server.received_requests().await.unwrap();
-    assert_eq!(received.len(), 1, "one call to Graph");
-    received.remove(0)
+/// Every operation, whichever product it belongs to.
+fn every_case() -> Vec<Case> {
+    let mut all = cases();
+    all.extend(mail_cases());
+    all
 }
 
 #[tokio::test]
 async fn the_table_below_covers_every_operation_microsoft_offers() {
     let listed: Vec<String> = Microsoft::new().operations().into_iter().map(|o| o.name).collect();
-    let mut tested: Vec<String> = cases().iter().map(|c| format!("microsoft.{}", c.name)).collect();
+    let mut tested: Vec<String> = every_case().iter().map(|c| format!("microsoft.{}", c.name)).collect();
     tested.extend([
         "microsoft.identity.get".to_owned(),
         "microsoft.resource.resolve".to_owned(),
@@ -259,12 +241,12 @@ async fn the_table_below_covers_every_operation_microsoft_offers() {
         tested.len(),
         "a test case names an operation that does not exist"
     );
-    assert_eq!(listed.len(), 14);
+    assert_eq!(listed.len(), 32);
 }
 
 #[tokio::test]
 async fn every_operation_sends_the_right_request_and_returns_what_graph_sent() {
-    for case in cases() {
+    for case in every_case() {
         let (server, socket, key) = microsoft().await;
         Mock::given(method(case.verb))
             .and(path(format!("/v1.0{}", case.path)))
@@ -303,8 +285,8 @@ async fn every_operation_sends_the_right_request_and_returns_what_graph_sent() {
         );
         assert_eq!(
             prefer(&request),
-            case.in_utc.then_some(IN_UTC),
-            "{}: times are asked for in UTC wherever Graph returns times",
+            case.prefer,
+            "{}: exactly this preference reaches Graph",
             case.name
         );
     }
@@ -341,8 +323,31 @@ async fn every_operation_describes_its_input_and_marks_what_it_changes() {
         ("events.respond", Effect::Destructive, "Calendars.ReadWrite"),
         ("events.cancel", Effect::Destructive, "Calendars.ReadWrite"),
         ("events.delete", Effect::Destructive, "Calendars.ReadWrite"),
+        ("mail.list", Effect::Read, "Mail.Read"),
+        ("mail.get", Effect::Read, "Mail.Read"),
+        ("mail.conversation", Effect::Read, "Mail.Read"),
+        ("mail.attachments_list", Effect::Read, "Mail.Read"),
+        ("mail.attachment_get", Effect::Read, "Mail.Read"),
+        ("mail_folders.list", Effect::Read, "Mail.Read"),
+        ("mail_folders.get", Effect::Read, "Mail.Read"),
+        // A draft is the person's own until it is sent, and can be thrown away.
+        ("mail.create_draft", Effect::Write, "Mail.ReadWrite"),
+        ("mail.create_reply", Effect::Write, "Mail.ReadWrite"),
+        ("mail.create_reply_all", Effect::Write, "Mail.ReadWrite"),
+        ("mail.create_forward", Effect::Write, "Mail.ReadWrite"),
+        // Overwrites the draft's text and recipients.
+        ("mail.update_draft", Effect::Destructive, "Mail.ReadWrite"),
+        // Sent mail cannot be taken back.
+        ("mail.send", Effect::Destructive, "Mail.Send"),
+        ("mail.send_draft", Effect::Destructive, "Mail.Send"),
+        ("mail.reply", Effect::Destructive, "Mail.Send"),
+        // Marks on the person's own copy, each of which can be set back.
+        ("mail.update", Effect::Write, "Mail.ReadWrite"),
+        // Takes the message from where it was, to Deleted Items if asked, and its id stops working.
+        ("mail.move_to", Effect::Destructive, "Mail.ReadWrite"),
+        ("mail.delete", Effect::Destructive, "Mail.ReadWrite"),
     ];
-    assert_eq!(expected.len(), cases().len());
+    assert_eq!(expected.len(), every_case().len());
     for (name, effect, scope) in expected {
         let operation = find(&format!("microsoft.{name}"));
         assert_eq!(operation.effect, effect, "{name}");
@@ -352,7 +357,7 @@ async fn every_operation_describes_its_input_and_marks_what_it_changes() {
     // Nothing that changes a calendar is sent as a GET, which the transport
     // always repeats after a server error. The two reads Graph offers only as
     // POST are the only reads that are not a GET.
-    for case in cases() {
+    for case in every_case() {
         let effect = find(&format!("microsoft.{}", case.name)).effect;
         let posted_read = matches!(case.name, "events.find_meeting_times" | "events.schedule");
         match effect {

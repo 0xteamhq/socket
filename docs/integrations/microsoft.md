@@ -2,7 +2,7 @@
 
 **Status:** built and tested against a local server that answers as Microsoft's documentation says. Not yet run against the real Microsoft Graph.
 
-Socket's Microsoft integration is one provider for everything behind Microsoft Graph: Outlook, Teams, OneDrive, SharePoint and Entra ID share one sign-in. Today it gives a program the Outlook calendar as 12 typed methods, and the same 12 as operations callable by name with JSON, plus identity and lookup of a sharing link. This page shows how to connect, lists everything that is supported, and says what was and was not confirmed against Microsoft's documentation.
+Socket's Microsoft integration is one provider for everything behind Microsoft Graph: Outlook, Teams, OneDrive, SharePoint and Entra ID share one sign-in. Today it gives a program the Outlook calendar and Outlook mail as 30 typed methods, and the same 30 as operations callable by name with JSON, plus identity and lookup of a sharing link. This page shows how to connect, lists everything that is supported, and says what was and was not confirmed against Microsoft's documentation.
 
 ## Connect
 
@@ -165,6 +165,81 @@ Needs `Calendars.Read`.
 
 **Availability.** `find_meeting_times` and `schedule` read other people's calendars and change nothing. Both are for work and school accounts only. `schedule` reads at most 20 people, lists and rooms at once, over less than 62 days; an address Graph could not read comes back with an `error` in its place, not as a failure of the call.
 
+### `microsoft.mail(&connection)`
+
+```rust
+use socketkit::microsoft::models::{DraftMessage, GetMessage, ItemBody, ListMessages, Recipient, ReplyContent};
+
+let mail = microsoft.mail(&connection);
+let unread = mail.list(ListMessages {
+    folder: Some("inbox".into()),
+    filter: Some("isRead eq false".into()),
+    ..Default::default()
+}).await?;
+let message = mail.get(&unread.items[0].id, GetMessage::default()).await?;
+
+// Write a reply for a person to look at, without sending anything.
+let draft = mail.create_reply(&message.id, ReplyContent {
+    comment: Some("Thanks, Monday works.".into()),
+    ..Default::default()
+}).await?;
+```
+
+| Method | Returns |
+| --- | --- |
+| `list(ListMessages)` | `Page<Message>`: one folder, or the whole mailbox |
+| `get(message, GetMessage)` | `Message` |
+| `conversation(conversation, Paging)` | `Page<Message>`: every message of one thread, oldest first |
+| `attachments_list(message, Paging)` | `Page<Attachment>`, without the files |
+| `attachment_get(message, attachment)` | `Attachment`, with a file's content in base64 |
+| `create_draft(DraftMessage)` | `Message`: the draft |
+| `update_draft(message, DraftMessage)` | `Message` |
+| `create_reply(message, ReplyContent)`, `create_reply_all(…)`, `create_forward(…)` | `Message`: the draft |
+| `send(SendMail)` | nothing |
+| `send_draft(message)` | nothing |
+| `reply(message, ReplyContent)` | nothing |
+| `update(message, UpdateMessage)` | `Message` |
+| `move_to(message, folder)` | `Message`, under a new id |
+| `delete(message)` | nothing |
+
+Reading needs `Mail.Read`; drafts and changes need `Mail.ReadWrite`; `send`, `send_draft` and `reply` need `Mail.Send`.
+
+**What a `Message` carries:** `id`, `conversationId`, `subject`, `from`, `sender`, `toRecipients`, `ccRecipients`, `bccRecipients`, `replyTo`, `receivedDateTime`, `sentDateTime`, `bodyPreview`, `body`, `isRead`, `isDraft`, `hasAttachments`, `webLink`, `importance`, `categories`, `flag`, `parentFolderId` and `internetMessageId`.
+
+**Listing.** `ListMessages` has `folder`, `filter`, `search`, `orderBy`, `bodyType`, `limit` and `cursor`. `folder` is a folder id or a well-known name: `inbox`, `drafts`, `sentitems`, `deleteditems`, `archive`, `junkemail` and the rest of Graph's list. Without it the whole mailbox is listed, Deleted Items included. Graph returns 10 messages a page unless `limit` says otherwise, up to 1000.
+
+- `filter` is Graph's `$filter` (`isRead eq false`) and `orderBy` its `$orderby` (`receivedDateTime desc`). Used together, what is sorted by has to come first in the filter, or Graph answers `InefficientFilter`, which arrives as `InvalidInput` with Graph's words.
+- `search` is Graph's `$search`: plain words, or properties such as `from:grace subject:plan`. Socket sends it as one quoted phrase and escapes any quote inside it. Graph returns at most 1,000 results, sorted by when they were sent. Do not count on combining it with `filter` or `orderBy`: Graph's documentation does not say it can be, and an older one says it cannot.
+
+**Bodies are plain text.** Every request that returns messages sends `Prefer: outlook.body-content-type="text"`, so `body.content` is text a program can read. Set `bodyType` to `html` on `list` or `get` for the HTML. `body.contentType` says which came back.
+
+**A conversation.** `conversation` takes a message's `conversationId` and returns the whole thread oldest first, from every folder: what was received and what was sent.
+
+**Attachments.** `attachments_list` returns each attachment's `id`, `name`, `contentType`, `size` and `isInline`, and whether it is a file, another item or a link (`@odata.type`), without any file's content. `attachment_get` returns one, and for a file its content in `contentBytes`, in base64. Socket reads an answer of up to 10 MB, so a file of more than about 7 MB cannot be fetched this way yet, and fails with `Decode`.
+
+**Drafts.** `create_draft` saves a message in Drafts; `create_reply`, `create_reply_all` and `create_forward` save an answer to an existing message. None of them sends anything, so a person can read the draft first. `update_draft` replaces the fields you set. A draft can be filled in over several steps, so nothing in `DraftMessage` is required: `subject`, `body`, `toRecipients`, `ccRecipients`, `bccRecipients`, `replyTo`, `importance`.
+
+**Replying.** `ReplyContent` is a `comment`, a few words above the quoted message, or the fields of the reply itself, such as a whole `body` or more recipients. Give `comment` or `body`, not both: Graph refuses the two together, and so does Socket. A forward takes the people it goes to from `toRecipients` and is refused without any.
+
+**Sending cannot be taken back.** `send` sends a message at once and needs at least one recipient. `send_draft` sends a draft as it stands. `reply` answers the sender at once. Graph answers "accepted", which means it took the message, not that it was delivered. A copy is kept in Sent Items unless `saveToSentItems` is `false`.
+
+**Marking.** `update` sets `isRead`, `categories` (the whole list) and `flag`.
+
+**Moving changes the id.** `move_to` puts a message in another folder, `deleteditems` included, and returns it under a new id. The id you passed no longer finds it, so use the one that comes back.
+
+**Recipients.** A recipient is `{ "emailAddress": { "address": "grace@contoso.example", "name": "Grace Hopper" } }`; the name is optional. One without an address is refused.
+
+**Other people's mailboxes.** Everything here is the signed-in person's own mailbox. Shared and delegated mailboxes are not built; the method arguments leave room for them.
+
+### `microsoft.mail_folders(&connection)`
+
+| Method | Returns |
+| --- | --- |
+| `list(ListFolders)` | `Page<MailFolder>`: the top of the mailbox, or the folders inside `parent` |
+| `get(folder)` | `MailFolder` |
+
+A `MailFolder` has `id`, `displayName`, `parentFolderId`, `childFolderCount`, `unreadItemCount`, `totalItemCount` and `isHidden`. Hidden folders are left out unless `includeHidden` is set. Needs `Mail.Read`.
+
 ## Page through a list
 
 A list returns a `Page` with `items` and `next_cursor`. Pass the cursor back for the next page; `None` means the last page.
@@ -206,8 +281,8 @@ let output = socket
 `socket.operations()` returns each operation's name, description, input schema, output schema, effect and scope. The effect lets a host ask a person before a change:
 
 - **read** changes nothing.
-- **write** adds something: creating an event.
-- **destructive** deletes, removes or overwrites what was there, or cannot be taken back: changing an event (which replaces its fields, and removes any attendee left out of a new list), answering an invitation (the organiser is told at once), cancelling a meeting, deleting an event.
+- **write** adds something, or changes a mark that can be set back: creating an event, saving a draft, marking a message read.
+- **destructive** deletes, removes or overwrites what was there, or cannot be taken back: changing an event (which replaces its fields, and removes any attendee left out of a new list), answering an invitation (the organiser is told at once), cancelling a meeting, deleting an event; sending mail, changing a draft, moving a message (which can be to Deleted Items), deleting a message.
 
 | Operation | Effect | Scope | What it does |
 | --- | --- | --- | --- |
@@ -225,10 +300,30 @@ let output = socket
 | `microsoft.events.respond` | destructive | Calendars.ReadWrite | Answer an invitation: accept it, accept it tentatively, or decline it. The organiser is told, and the answer cannot be taken back. |
 | `microsoft.events.cancel` | destructive | Calendars.ReadWrite | Cancel a meeting the account organised, and tell its attendees. |
 | `microsoft.events.delete` | destructive | Calendars.ReadWrite | Delete an event from the account's calendar. Deleting a meeting the account organised cancels it for its attendees. |
+| `microsoft.mail.list` | read | Mail.Read | List the messages of one folder or of the whole mailbox, with a filter, a search or a sort. Bodies are plain text unless HTML is asked for. |
+| `microsoft.mail.get` | read | Mail.Read | Get one message, with its body as plain text unless HTML is asked for. |
+| `microsoft.mail.conversation` | read | Mail.Read | List every message of one conversation, oldest first. |
+| `microsoft.mail.attachments_list` | read | Mail.Read | List what is attached to a message: names, types and sizes, without the files. |
+| `microsoft.mail.attachment_get` | read | Mail.Read | Get one attachment. A file comes with its content, in base64. |
+| `microsoft.mail.create_draft` | write | Mail.ReadWrite | Save a new message in Drafts. Nothing is sent. |
+| `microsoft.mail.update_draft` | destructive | Mail.ReadWrite | Change a draft, replacing the fields given and leaving the rest. |
+| `microsoft.mail.create_reply` | write | Mail.ReadWrite | Save a reply to the sender of a message as a draft. Nothing is sent. |
+| `microsoft.mail.create_reply_all` | write | Mail.ReadWrite | Save a reply to everyone on a message as a draft. Nothing is sent. |
+| `microsoft.mail.create_forward` | write | Mail.ReadWrite | Save a forward of a message as a draft, addressed to toRecipients. Nothing is sent. |
+| `microsoft.mail.send` | destructive | Mail.Send | Send a message at once, from the account's own address. It cannot be taken back. |
+| `microsoft.mail.send_draft` | destructive | Mail.Send | Send a draft as it stands. It cannot be taken back. |
+| `microsoft.mail.reply` | destructive | Mail.Send | Reply to the sender of a message and send the reply at once. It cannot be taken back. |
+| `microsoft.mail.update` | write | Mail.ReadWrite | Mark a message: read or unread, its categories, its follow-up flag. |
+| `microsoft.mail.move_to` | destructive | Mail.ReadWrite | Move a message to another folder, Deleted Items included. It comes back with a new id; the old one stops working. |
+| `microsoft.mail.delete` | destructive | Mail.ReadWrite | Delete a message. |
+| `microsoft.mail_folders.list` | read | Mail.Read | List the folders at the top of the mailbox, or those inside one folder. |
+| `microsoft.mail_folders.get` | read | Mail.Read | Get one folder, by its id or by a well-known name such as inbox. |
 
 `find_meeting_times` and `schedule` are reads that Graph offers only as POST. They are marked `read` because they change nothing, which is what the effect is for.
 
 `update` and `respond` are marked `destructive`, not `write`, by the same rule the Slack and GitHub operations follow: an update overwrites, and an answer cannot be taken back. A host that asks a person only before a destructive operation therefore asks before both.
+
+The same rule marks four mail operations `destructive` that could be read as writes. `send`, `send_draft` and `reply` put mail in other people's inboxes, which cannot be undone. `update_draft` overwrites a draft's text. `move_to` takes a message from where it was, to Deleted Items if asked, and its id stops working. Saving a draft, and marking a message, stay `write`: a draft is the person's own until it is sent, and a mark can be set back.
 
 ## Handle errors
 
@@ -246,7 +341,9 @@ An input error never repeats the value you sent. It names the field when a requi
 
 A request sent as GET is retried on a throttle or a server error. Creating, changing, answering and cancelling are sent again in only two cases, both of which mean Graph did not carry them out: Graph throttled the request, or Graph rejected the access token and Socket renewed it to a different one. **If one of them fails with a server error, check before sending it again**; when creating, a `transactionId` of your own makes a second try safe, because Graph does not create a second event for one it has seen. The two reads sent as POST are not retried after a server error either.
 
-**Deleting is the exception today.** The transport still repeats a DELETE after a server error. If the first try did delete the event, the second is answered "not found", and the call reports `NotFound` for a delete that worked. Treat `NotFound` from `delete` as "it is gone".
+**Deleting is the exception today.** The transport still repeats a DELETE after a server error. If the first try did delete the event or the message, the second is answered "not found", and the call reports `NotFound` for a delete that worked. Treat `NotFound` from `delete` as "it is gone".
+
+Mail that fails with a server error may have been sent. Socket never sends it a second time; look in Sent Items before trying again.
 
 ## Confirmed against Microsoft's documentation, and not
 
@@ -270,6 +367,15 @@ Confirmed:
 - `Prefer: outlook.timezone`, that Graph answers in UTC without it, and `originalStartTimeZone` and `originalEndTimeZone`.
 - That an offset in `startDateTime` is honoured and a time without one is UTC; `$top` from 1 to 1000 on a calendar view.
 - The limits of `getSchedule` (20 schedules, under 62 days, an interval of 5 to 1440 minutes), and that it and `findMeetingTimes` do not support personal accounts.
+- Every mail endpoint above, with its verb, body and status: `GET /me/messages`, `/me/mailFolders/{id}/messages` and `/me/messages/{id}`; `GET /me/messages/{id}/attachments` and `/attachments/{id}`; `GET /me/mailFolders`, `/me/mailFolders/{id}` and `/me/mailFolders/{id}/childFolders` with `includeHiddenFolders`; `POST /me/messages`; `PATCH /me/messages/{id}`; `POST /me/messages/{id}/createReply`, `/createReplyAll` and `/createForward`; `POST /me/sendMail`, `/me/messages/{id}/send` and `/me/messages/{id}/reply` (202, no body); `POST /me/messages/{id}/move` with `destinationId`; `DELETE /me/messages/{id}` (204).
+- The fields of a message, an attachment and a folder, with their spelling, and the seventeen well-known folder names.
+- `Prefer: outlook.body-content-type` with `text` and `html`, and that HTML is the default.
+- `$search` in double quotes, its searchable properties, the cap of 1,000 results and the sort by sent time; `$top` from 1 to 1000 and a page of 10 by default.
+- The three rules for a filter with a sort, and the error `InefficientFilter`.
+- That `comment` with a `body` is refused on a reply, and that a forward needs its recipients in exactly one place.
+- Which fields of a message can be changed only on a draft, and that `isRead`, `categories` and `flag` can be changed on any message.
+- That a moved message is a new copy under a new id.
+- The permissions: `Mail.Read` for attachments, `Mail.ReadWrite` for drafts, changes, moving and deleting, `Mail.Send` to send.
 
 Not confirmed:
 
@@ -288,13 +394,25 @@ Not confirmed:
 - **The default page size** of a calendar view. Pass `limit` to choose one.
 - **That the query of a next page's address is all that is needed.** Microsoft's guidance is to request the whole address as it stands. Socket requests its own address for the list with that address's query, which is the same request as long as the two addresses name the same list, however Graph writes the path (`me/events('…')`, `users('…')/…`). If Graph ever keeps part of its place in the path, paging would return the wrong page; nothing in the documentation suggests it does.
 - **What Graph does with an attendee's `status` in a request.** Socket leaves it out.
+- **The query behind `conversation`.** No page of Microsoft's shows how to read one conversation in order. A filter on `conversationId` sorted by `receivedDateTime` breaks the documented rules, so Socket filters on `receivedDateTime ge 1900-01-01T00:00:00Z and conversationId eq '…'`, which follows them. That it works was not confirmed.
+- **Combining `search` with `filter` or `orderBy`**, how a search pages, and whether a search works inside one folder. Socket passes on what it is given.
+- **That `$select` leaves the content out of a list of attachments.** Microsoft's example of the list shows the content, and no page says `$select` applies. If it does not, a message with large attachments makes the list too large to read.
+- **Whether a list of messages honours the text preference.** One page says a list returns HTML only, and lists the header all the same. `body.contentType` says what came back.
+- **Where a deleted message goes.** The page for deleting does not say. To be sure it lands in Deleted Items, use `move_to` with `deleteditems`.
+- **The body of `send_draft`.** Microsoft asks for an empty request with `Content-Length: 0`. Socket's transport sends no length for a request with no body, which a server may refuse, so Socket sends an empty JSON object instead. That Graph accepts it was not confirmed.
+- **The status of a new draft.** The text says 201 and some examples show 200. Socket accepts either.
+- **The casing of `importance` and `contentType`.** Pages differ (`low` and `Low`, `text` and `Text`). Socket passes on what it is given and returns what Graph sends.
 
 ## Not supported yet
 
 - **Application-only access** (client credentials), where no person signs in.
 - **The national clouds** (US Government, China), which use other hosts.
 - **Certificates** in place of a client secret.
-- **The other products**: mail, Teams, meeting transcripts, files. Each is its own piece of work on top of this provider.
+- **The other products**: Teams, meeting transcripts, files. Each is its own piece of work on top of this provider.
+- **Shared and delegated mailboxes** (`/users/{id}/…`, `Mail.Read.Shared`).
+- **Adding an attachment** to a draft, and **attachments too large to read in one answer**.
+- **`replyAll` and `forward` sent at once.** Make the draft with `create_reply_all` or `create_forward`, then `send_draft`.
+- **Ids that survive a move** (`Prefer: IdType="ImmutableId"`), **MIME content**, **message rules**, **focused inbox overrides**, and **creating or deleting folders**.
 - **Other people's calendars** (`/users/{id}/…`) and **calendar groups**. Everything here is the signed-in account's.
 - **Creating, renaming and deleting calendars.**
 - **Change tracking** (`/delta`), and **receiving change notifications**.

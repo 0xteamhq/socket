@@ -3,7 +3,7 @@
 //! One provider covers Outlook, Teams, OneDrive, SharePoint and Entra ID,
 //! because they share one sign-in. Offers the provider definition, identity,
 //! lookup of a OneDrive or SharePoint sharing link, and typed methods for
-//! Graph grouped by area (`calendars`, `events`). Every typed method is also
+//! Graph grouped by area (`calendars`, `events`, `mail`, `mail_folders`). Every typed method is also
 //! a named operation. See `docs/integrations/microsoft.md`.
 
 mod client;
@@ -25,7 +25,7 @@ use socketkit_core::{
 };
 use url::Url;
 
-pub use client::{Calendars, Events};
+pub use client::{Calendars, Events, Mail, MailFolders};
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "microsoft";
@@ -329,6 +329,16 @@ impl Microsoft {
     /// Events in a calendar, the answers to them, and when people are free.
     pub fn events<'a>(&self, connection: &'a Connection) -> Events<'a> {
         Events(client::Api { connection })
+    }
+
+    /// The account's mail: reading, drafting, sending and filing it.
+    pub fn mail<'a>(&self, connection: &'a Connection) -> Mail<'a> {
+        Mail(client::Api { connection })
+    }
+
+    /// The folders of the account's mailbox.
+    pub fn mail_folders<'a>(&self, connection: &'a Connection) -> MailFolders<'a> {
+        MailFolders(client::Api { connection })
     }
 
     fn error(&self, kind: ErrorKind, message: impl Into<String>) -> Error {

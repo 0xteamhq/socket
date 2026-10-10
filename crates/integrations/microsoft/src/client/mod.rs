@@ -12,6 +12,9 @@
 
 mod calendars;
 mod events;
+mod mail;
+mod mail_compose;
+mod mail_folders;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -21,8 +24,10 @@ use url::Url;
 
 pub use calendars::Calendars;
 pub use events::Events;
+pub use mail::Mail;
+pub use mail_folders::MailFolders;
 
-use crate::models::Paging;
+use crate::models::{ItemBody, Paging, Recipient};
 
 /// One connection's access to Microsoft Graph.
 #[derive(Debug, Clone, Copy)]
@@ -136,6 +141,24 @@ impl Api<'_> {
                 "`cursor` is not the address of a next page; pass back `next_cursor` unchanged",
             )),
         }
+    }
+
+    /// A body that is sent replaces the text that was there, so it has to
+    /// carry some, even if empty.
+    pub(super) fn body(&self, body: Option<&ItemBody>) -> Result<()> {
+        if body.is_some_and(|body| body.content.is_none()) {
+            return Err(self.error(ErrorKind::InvalidInput, "a body needs `content`"));
+        }
+        Ok(())
+    }
+
+    /// Every recipient that is named has to have an address.
+    pub(super) fn recipients(&self, recipients: Option<&[Recipient]>) -> Result<()> {
+        let blank = |recipient: &Recipient| recipient.email_address.address.trim().is_empty();
+        if recipients.unwrap_or_default().iter().any(blank) {
+            return Err(self.error(ErrorKind::InvalidInput, "every recipient needs `emailAddress.address`"));
+        }
+        Ok(())
     }
 
     pub(super) fn required(&self, what: &str, value: &str) -> Result<()> {

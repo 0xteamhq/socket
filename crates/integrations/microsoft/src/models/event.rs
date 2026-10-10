@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::nullable::nullable;
-use super::{DateTimeTimeZone, EmailAddress, Recipient, TimeSlot};
+use super::{DateTimeTimeZone, EmailAddress, ItemBody, Recipient, TimeSlot};
 
 /// An event in a calendar.
 ///
@@ -61,33 +61,6 @@ pub struct Event {
     pub ical_uid: Option<String>,
     /// How the event repeats, as Graph sent it.
     pub recurrence: Option<Value>,
-}
-
-/// The text of an event.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ItemBody {
-    /// `text` or `html`.
-    pub content_type: Option<String>,
-    /// The text itself. Always given when a body is sent: a body without it
-    /// would blank the event's text.
-    pub content: Option<String>,
-}
-
-impl ItemBody {
-    pub fn text(content: impl Into<String>) -> Self {
-        Self {
-            content_type: Some("text".into()),
-            content: Some(content.into()),
-        }
-    }
-
-    pub fn html(content: impl Into<String>) -> Self {
-        Self {
-            content_type: Some("html".into()),
-            content: Some(content.into()),
-        }
-    }
 }
 
 /// Someone invited to an event, and what they answered.
