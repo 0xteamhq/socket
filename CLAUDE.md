@@ -68,10 +68,20 @@ split the way the provider splits its own API.
   `models`. A channel id, user id or message timestamp is a `&str` argument.
   Message content and optional filters are a struct, so unset fields are not
   sent.
-- **Reads go out as GET, writes as POST**, so the transport never repeats a
-  write that may have happened.
+- **Reads go out as GET, writes as anything else.** The transport repeats a
+  GET after a server error and never a write, which may have happened. Where
+  the provider lets the verb be chosen, as Slack does, a write is a POST;
+  where it dictates the verb, as GitHub does with PATCH, PUT and DELETE, use
+  the one it dictates. A method marked `Read` in `operations.rs` is a GET, and
+  nothing else is.
 - **Every public method is also a named operation** in `operations.rs`, and
   has a row in that integration's operations test.
+- **The one exception to a read being a GET is a read the provider only
+  takes as a POST**, as Google does for its free/busy query. It is still
+  marked `Read`: the effect says what a call does to the provider's data, and
+  a host goes by it to decide what a person must approve. The transport goes
+  by the verb, so it does not repeat such a read; say so in the method's
+  comment and name the method in the operations test.
 - **When a file passes about 250 lines, split the group** along the
   provider's own sub-groups.
 - **Start this way.** A new integration creates `client/` with its first

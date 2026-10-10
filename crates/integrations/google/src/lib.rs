@@ -1,19 +1,38 @@
 //! Socket integration for Google.
 //!
 //! One provider covers Google's products, because they share one OAuth
-//! provider. Offers the provider definition, `google.identity.get` and
-//! `google.resource.resolve` (a Drive file or folder, which includes Docs and Sheets).
+//! provider. Offers the provider definition, `google.identity.get`,
+//! `google.resource.resolve` (a Drive file or folder, which includes Docs and
+//! Sheets), and Google Calendar as typed methods grouped the way Google groups
+//! them: [`Google::calendar_list`], [`Google::calendar_events`] and
+//! [`Google::calendar_freebusy`]. Every typed method is also a named operation.
+
+mod client;
+pub mod models;
+mod operations;
+
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
 use socketkit_core::{
-    Access, Account, AuthScheme, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec, OAuthClient,
-    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, SecretString, TokenSet, identity_operation,
-    resolve_input, resolve_operation, to_output,
+    Access, Account, AuthScheme, Classifier, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec,
+    OAuthClient, OperationInfo, ProviderId, ProviderSpec, RawRequest, RawResponse, Resource, Result, Retry,
+    SecretString, StandardClassifier, TokenSet, identity_operation, resolve_input, resolve_operation, to_output,
 };
+
+pub use client::{CalendarEvents, CalendarFreebusy, CalendarList};
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "google";
+
+/// The scope that covers every Calendar read. It is not among the default
+/// scopes: an application that reads calendars asks for it in [`GoogleOAuth::scopes`].
+pub const CALENDAR_READONLY_SCOPE: &str = "https://www.googleapis.com/auth/calendar.readonly";
+
+/// The scope that covers creating, changing, answering and deleting events.
+/// It is not among the default scopes either.
+pub const CALENDAR_EVENTS_SCOPE: &str = "https://www.googleapis.com/auth/calendar.events";
 
 /// Google's definition: where its APIs live and how they authenticate.
 ///
@@ -50,6 +69,60 @@ pub fn provider() -> ProviderSpec {
                 ("prompt".into(), "consent".into()),
             ],
         }),
+    }
+}
+
+/// Google answers a few failures with statuses that mean something else elsewhere.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GoogleClassifier;
+
+impl Classifier for GoogleClassifier {
+    fn classify(&self, provider: &ProviderId, response: &RawResponse) -> Result<()> {
+        let error = |kind, message: String| Error::new(kind, message).with_provider(provider.clone());
+        // Google states why in `error.errors[].reason`.
+        let because = |reasons: &[&str]| {
+            let stated = response.body["error"]["errors"].as_array();
+            stated
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry["reason"].as_str())
+                .any(|reason| reasons.contains(&reason))
+        };
+        match response.status {
+            // Google throttles with a 403 as well as a 429, and says to treat
+            // them alike. It is not a refusal: trying again later succeeds.
+            // With a Retry-After the standard rules already read it as a throttle, and keep the wait.
+            403 if response.header("retry-after").is_none()
+                && because(&["rateLimitExceeded", "userRateLimitExceeded"]) =>
+            {
+                Err(
+                    error(ErrorKind::RateLimited, format!("{provider} is rate limiting requests"))
+                        .with_retry(Retry::Later),
+                )
+            }
+            // Not something that is gone: a list was asked for changes since
+            // a time, or a point, that Google no longer keeps.
+            410 if because(&["updatedMinTooLongAgo", "fullSyncRequired"]) => Err(error(
+                ErrorKind::InvalidInput,
+                format!(
+                    "{provider} rejected the request: {}",
+                    socketkit_core::provider_message(&response.body)
+                ),
+            )),
+            // The thing was deleted: an event that is already gone, for one.
+            410 => Err(error(
+                ErrorKind::NotFound,
+                format!("{provider} no longer has that resource"),
+            )),
+            // A change that named the version it was changing, which is no
+            // longer the current one. Reading again and repeating it works.
+            412 => Err(error(
+                ErrorKind::InvalidInput,
+                format!("{provider} did not make the change: what it would have changed was changed first"),
+            )
+            .with_retry(Retry::Later)),
+            _ => StandardClassifier.classify(provider, response),
+        }
     }
 }
 
@@ -278,6 +351,21 @@ impl Google {
         self
     }
 
+    /// The calendars on the signed-in person's calendar list.
+    pub fn calendar_list<'a>(&self, connection: &'a Connection) -> CalendarList<'a> {
+        CalendarList(client::Api { connection })
+    }
+
+    /// Events on a calendar: listing, reading, creating, changing, answering and deleting them.
+    pub fn calendar_events<'a>(&self, connection: &'a Connection) -> CalendarEvents<'a> {
+        CalendarEvents(client::Api { connection })
+    }
+
+    /// When calendars are busy.
+    pub fn calendar_freebusy<'a>(&self, connection: &'a Connection) -> CalendarFreebusy<'a> {
+        CalendarFreebusy(client::Api { connection })
+    }
+
     /// The account the connection is authorised as.
     ///
     /// Read from Drive's `about` resource, which the Drive scopes cover. When a
@@ -360,10 +448,16 @@ impl Integration for Google {
     }
 
     fn operations(&self) -> Vec<OperationInfo> {
-        vec![
+        let mut operations = vec![
             identity_operation(&self.spec.id),
             resolve_operation(&self.spec.id, "a Google Drive, Docs or Sheets URL, or a file id"),
-        ]
+        ];
+        operations.extend(operations::all().iter().map(|operation| operation.info.clone()));
+        operations
+    }
+
+    fn classifier(&self) -> Arc<dyn Classifier> {
+        Arc::new(GoogleClassifier)
     }
 
     async fn invoke(&self, connection: Connection, operation: String, input: Value) -> Result<Value> {
@@ -371,10 +465,13 @@ impl Integration for Google {
         match operation.strip_prefix(&format!("{id}.")) {
             Some("identity.get") => to_output(id, &self.identity(&connection).await?),
             Some("resource.resolve") => to_output(id, &self.resolve(&connection, &resolve_input(id, &input)?).await?),
-            _ => Err(
-                Error::new(ErrorKind::Unsupported, format!("google has no operation {operation:?}"))
-                    .with_provider(id.clone()),
-            ),
+            _ => match operations::all().iter().find(|known| known.info.name == operation) {
+                Some(known) => known.run(self.clone(), connection, input).await,
+                None => Err(
+                    Error::new(ErrorKind::Unsupported, format!("google has no operation {operation:?}"))
+                        .with_provider(id.clone()),
+                ),
+            },
         }
     }
 }

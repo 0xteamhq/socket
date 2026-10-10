@@ -38,7 +38,7 @@ socket/
 │   │   ├── slack/              # socketkit-slack (54 typed methods)
 │   │   ├── linear/             # socketkit-linear
 │   │   ├── notion/             # socketkit-notion
-│   │   ├── google/             # socketkit-google
+│   │   ├── google/             # socketkit-google (10 typed Calendar methods)
 │   │   └── zoom/               # socketkit-zoom
 │   └── testkit/                # socketkit-testkit: wire-test server, conformance suite
 └── docs/
@@ -156,7 +156,7 @@ Keep the pending record tied to the session of the person who started the flow, 
 | Slack | OAuth 2.0 | 54 typed methods across 11 API groups | Wire-tested |
 | Linear | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Notion | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
-| Google | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
+| Google | OAuth 2.0 | `identity.get`, `resource.resolve`, 10 typed Calendar methods across 3 API groups | Wire-tested |
 | Zoom | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 
 All six support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
@@ -238,6 +238,7 @@ See [CLAUDE.md](CLAUDE.md) for the full conventions (models, clients, naming).
 - [Catalogue](docs/catalogue.md) — the first 100 services and the order they are added
 - [Roadmap](docs/roadmap.md) — phases and implementation plans
 - [Slack guide](docs/integrations/slack.md) — how to connect, and every method and operation
+- [Google guide](docs/integrations/google.md) — how to connect, every Calendar method and operation, and what was confirmed against Google's documentation
 
 ## License
 
