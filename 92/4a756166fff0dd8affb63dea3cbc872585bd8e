@@ -1,0 +1,76 @@
+crates/integrations/google/src/client/calendar_freebusy.rs
+  s_97a9e46632fdc9::t_76d3689a3c64cf 1-39,42,46-49
+  s_97a9e46632fdc9::t_3af976833fa997 40-41,43-45
+crates/integrations/google/src/models/calendar_conference.rs
+  s_97a9e46632fdc9::t_94d0e2a8e844c6 1-76
+crates/integrations/google/src/models/calendar_attendee.rs
+  s_97a9e46632fdc9::t_56cbdfaf88fc1e 1-19,22-37,41-51,53-89
+  s_97a9e46632fdc9::t_aaff78cf5289ff 20-21,38-40,52
+crates/integrations/google/src/client/mod.rs
+  s_97a9e46632fdc9::t_aaff78cf5289ff 5-7
+  s_97a9e46632fdc9::t_93682c6c5b9d80 1-4,8-92,96-173
+  s_97a9e46632fdc9::t_2c7f65b347c777 93-95
+Cargo.toml
+  s_97a9e46632fdc9::t_b2cd8e59165299 26
+crates/integrations/google/Cargo.toml
+  s_97a9e46632fdc9::t_b2cd8e59165299 17-20
+crates/integrations/google/src/models/calendar.rs
+  s_97a9e46632fdc9::t_ce5d60795cc15a 1-49
+crates/integrations/google/src/client/calendar_events.rs
+  s_97a9e46632fdc9::t_3af976833fa997 160-161
+  s_97a9e46632fdc9::t_7366f5a4ec3042 1-73,77-79,83-91,95-107,109-116,124-128,130-159,162-180,183-211
+  s_97a9e46632fdc9::t_06217e44f024c0 129
+  s_97a9e46632fdc9::t_aaff78cf5289ff 74-76,80-82,108,117-123,181-182
+  s_97a9e46632fdc9::t_2c7f65b347c777 92-94
+crates/integrations/google/src/models/calendar_freebusy.rs
+  s_97a9e46632fdc9::t_1a3ea8f129239b 1-67
+crates/integrations/google/src/operations.rs
+  s_97a9e46632fdc9::t_df4cd8dca1c928 108-109
+  s_97a9e46632fdc9::t_aaff78cf5289ff 84-85,144
+  s_97a9e46632fdc9::t_3c0d4fa6975af2 1-83,86-107,110-143,145-153
+CLAUDE.md
+  s_97a9e46632fdc9::t_328b0eb9c5b97f 71-76
+  s_97a9e46632fdc9::t_aaff78cf5289ff 79-84
+crates/integrations/google/tests/operations.rs
+  s_97a9e46632fdc9::t_72397d4f7ac370 1-393,398-411,413-525,527-546,548,550-579,584-586,592-606,608-629,635,639-689,704-715,717-841,846-892,901-962,976-1050,1113-1117,1120-1121,1123-1324
+  s_97a9e46632fdc9::t_307424a671fc89 549,607,630-634,963-975,1051-1112
+  s_97a9e46632fdc9::t_3af976833fa997 394-397,412,526,547,580-583,587-591,636-638,842-845,893-900,1118-1119,1122
+  s_97a9e46632fdc9::t_2c7f65b347c777 700-701
+  s_97a9e46632fdc9::t_46bdcd05563b39 695-699,716
+  s_97a9e46632fdc9::t_aaff78cf5289ff 690-694,702-703
+README.md
+  s_97a9e46632fdc9::t_328b0eb9c5b97f 41,159,241
+docs/integrations/google.md
+  s_97a9e46632fdc9::t_2269f71e051972 131-133,200,217,219,231
+  s_97a9e46632fdc9::t_328b0eb9c5b97f 130,236
+  s_97a9e46632fdc9::t_ede389f49ea08e 1-129,134-199,201-216,218,220-230,232-235,237-255
+crates/integrations/google/src/client/calendar_list.rs
+  s_97a9e46632fdc9::t_3118218c00d9dd 1-43
+crates/integrations/google/src/lib.rs
+  s_97a9e46632fdc9::t_df4cd8dca1c928 4-14,19-21,24-25,29-36,75-93,112-128,354-368,451,454-460,468-474
+  s_97a9e46632fdc9::t_307424a671fc89 98-100
+  s_97a9e46632fdc9::t_aaff78cf5289ff 94-97,101-111
+crates/integrations/google/src/models/calendar_event.rs
+  s_97a9e46632fdc9::t_aaff78cf5289ff 98-99,223-224
+  s_97a9e46632fdc9::t_4098becd08572c 1-97,100-222,225-240
+crates/integrations/google/src/models/mod.rs
+  s_97a9e46632fdc9::t_6188b1907370a0 1-25
+Cargo.lock
+  s_97a9e46632fdc9::t_ade2565ba9b266 1177-1180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "924a756166fff0dd8affb63dea3cbc872585bd8e",
+  "prompts": {},
+  "sessions": {
+    "s_97a9e46632fdc9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "266a9cf9-828d-4e07-aabb-bfe7a876f4df",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
