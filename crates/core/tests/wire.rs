@@ -2689,3 +2689,91 @@ async fn a_3xx_that_is_not_a_redirect_is_not_described_as_one() {
     assert!(!err.message().contains("redirected"), "{}", err.message());
     assert!(err.message().contains("304"), "{}", err.message());
 }
+
+// ── A body that is text, not JSON ─────────────────────────────────────────────
+
+const VTT: &str = "WEBVTT\n\n00:00:01.000 --> 00:00:02.500\n<v Ada Lovelace>{\"not\": \"parsed\"}</v>\n";
+
+#[tokio::test]
+async fn a_request_that_asks_for_text_gets_the_body_as_a_string_and_one_that_does_not_is_refused() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/transcript"))
+        .and(header("authorization", "Bearer t"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(VTT, "text/vtt"))
+        .mount(&server)
+        .await;
+    // A body that happens to be JSON is still handed over as it was written.
+    Mock::given(path("/api/looks-like-json"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw("{\"a\": 1}", "text/plain"))
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("t")).await;
+
+    let asked = RawRequest::get("transcript")
+        .with_header("Accept", "text/vtt")
+        .as_text();
+    let response = socket.request(key(), asked).await.unwrap();
+    assert_eq!(response.body, Value::String(VTT.to_owned()));
+    assert_eq!(response.header("content-type"), Some("text/vtt"));
+    let sent = &server.received_requests().await.unwrap()[0];
+    assert_eq!(sent.headers.get("accept").unwrap(), "text/vtt");
+
+    let unparsed = socket
+        .request(key(), RawRequest::get("looks-like-json").as_text())
+        .await
+        .unwrap();
+    assert_eq!(unparsed.body, json!("{\"a\": 1}"));
+
+    // Without the request saying so, text is still not a success.
+    let err = socket.request(key(), RawRequest::get("transcript")).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Decode);
+}
+
+#[tokio::test]
+async fn asking_for_text_changes_nothing_about_errors_empty_bodies_or_bytes_that_are_not_text() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/refused"))
+        .respond_with(
+            ResponseTemplate::new(403).set_body_json(json!({ "error": { "message": "transcripts are off" } })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/empty"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&server)
+        .await;
+    Mock::given(path("/api/binary"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(vec![0x00u8, 0xff, 0xfe, 0x80], "video/mp4"))
+        .mount(&server)
+        .await;
+    let (socket, _) = connected(oauth_spec(&server, ClientAuth::Body, false), TokenSet::bearer("tok-1")).await;
+    let get = |what: &'static str| socket.request(key(), RawRequest::get(what).as_text());
+
+    let refused = get("refused").await.unwrap_err();
+    assert_eq!(refused.kind(), ErrorKind::AccessDenied);
+    assert!(
+        refused.message().contains("transcripts are off"),
+        "{}",
+        refused.message()
+    );
+
+    assert_eq!(get("empty").await.unwrap().body, Value::Null);
+
+    // Bytes that are not text are refused, never repaired into something that looks like text.
+    let binary = get("binary").await.unwrap_err();
+    assert_eq!(binary.kind(), ErrorKind::Decode);
+    assert!(binary.message().contains("not text"), "{}", binary.message());
+}
+
+#[test]
+fn asking_for_text_is_part_of_a_request_as_data_and_absent_unless_asked() {
+    let plain = RawRequest::get("users/me");
+    assert!(!plain.text);
+    assert!(serde_json::to_value(&plain).unwrap().get("text").is_none());
+
+    let text = RawRequest::get("transcript").as_text();
+    assert_eq!(serde_json::to_value(&text).unwrap()["text"], true);
+    let read: RawRequest =
+        serde_json::from_value(json!({ "method": "GET", "path": "transcript", "text": true })).unwrap();
+    assert_eq!(read, text);
+}
