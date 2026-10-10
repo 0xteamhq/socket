@@ -1,0 +1,73 @@
+docs/integrations/microsoft.md
+  s_dbbe1dc13eabf1::t_6431a9f868d9c0 228
+  s_dbbe1dc13eabf1::t_5d0fbae71d3103 266
+  s_dbbe1dc13eabf1::t_b82aac0ac152c7 184,207-208,222-223,229,287
+  s_dbbe1dc13eabf1::t_d987b88391a949 5,101-183,185-187,190-206,209,214-221,224-227,241-247,264-265,267-270,278-286,294-299
+crates/integrations/microsoft/src/operations.rs
+  s_dbbe1dc13eabf1::t_b82aac0ac152c7 172,207
+  s_dbbe1dc13eabf1::t_3c58e44ed790ea 1-169,173-204,206,208-214
+  s_dbbe1dc13eabf1::t_f665fa157ba403 170-171,205
+crates/integrations/microsoft/src/models/calendar.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-34
+crates/integrations/microsoft/src/models/paging.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-15
+crates/integrations/microsoft/src/models/email_address.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-32
+crates/integrations/microsoft/src/client/calendars.rs
+  s_dbbe1dc13eabf1::t_2825d626d12bd4 15
+  s_dbbe1dc13eabf1::t_0667b3b899f385 1-14,16-28
+docs/roadmap.md
+  s_dbbe1dc13eabf1::t_d987b88391a949 44-48
+crates/integrations/microsoft/Cargo.toml
+  s_dbbe1dc13eabf1::t_f77ea3d8442a15 18-19,21
+crates/integrations/microsoft/tests/operations.rs
+  s_dbbe1dc13eabf1::t_791c8e75ccbcd5 601-602,604-606
+  s_dbbe1dc13eabf1::t_c8bda7cc26fa63 614-617,619-622
+  s_dbbe1dc13eabf1::t_f77ea3d8442a15 649,708-719
+  s_dbbe1dc13eabf1::t_a93b36ee31bd52 1-337,342-431,436-534,540-600,603,607,609-613,618,623-630,640-648,650-655,720-730,735-1015,1017-1029,1031-1058
+  s_dbbe1dc13eabf1::t_9819e73b38fcce 338-339,341,631-639,656-707
+  s_dbbe1dc13eabf1::t_b82aac0ac152c7 340
+  s_dbbe1dc13eabf1::t_2825d626d12bd4 432-435,535-539,608,731-734,1016,1030
+README.md
+  s_dbbe1dc13eabf1::t_d987b88391a949 55,161
+Cargo.lock
+  s_dbbe1dc13eabf1::t_8096be34b523cf 1200-1201,1203
+crates/integrations/microsoft/src/client/events.rs
+  s_dbbe1dc13eabf1::t_0667b3b899f385 1-87,91-207
+  s_dbbe1dc13eabf1::t_2825d626d12bd4 88-90
+crates/facade/tests/features.rs
+  s_dbbe1dc13eabf1::t_2825d626d12bd4 45,48
+crates/integrations/microsoft/src/models/availability.rs
+  s_dbbe1dc13eabf1::t_0667b3b899f385 98
+  s_dbbe1dc13eabf1::t_b13efd43d3bcee 1-97,99-129
+crates/integrations/microsoft/src/models/mod.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-31
+crates/integrations/microsoft/src/client/mod.rs
+  s_dbbe1dc13eabf1::t_0667b3b899f385 1-66,68-78,86-99,101-102,110,119-122,124-155,200-227
+  s_dbbe1dc13eabf1::t_f665fa157ba403 79-84,100,103-109,111-118,123,156-199
+  s_dbbe1dc13eabf1::t_045652bf22c909 67,85
+crates/integrations/microsoft/src/models/nullable.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-13
+crates/integrations/microsoft/src/models/event.rs
+  s_dbbe1dc13eabf1::t_b13efd43d3bcee 1-252
+crates/integrations/microsoft/src/models/date_time.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-60
+crates/integrations/microsoft/src/lib.rs
+  s_dbbe1dc13eabf1::t_3c58e44ed790ea 4-11,28-29,324-333,491,494-496,504-510
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6cbcb1c93835a95534096730bc36986e7ce4fbd6",
+  "prompts": {},
+  "sessions": {
+    "s_dbbe1dc13eabf1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a613a42-f563-420a-9c41-cee8bd04b5b1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
