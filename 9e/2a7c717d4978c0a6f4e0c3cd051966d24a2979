@@ -1,0 +1,66 @@
+docs/integrations/microsoft.md
+  s_dbbe1dc13eabf1::t_5d0fbae71d3103 264
+  s_dbbe1dc13eabf1::t_d987b88391a949 5,101-187,190-209,214-227,239-245,262-263,265-268,276-284,291-296
+crates/integrations/microsoft/src/models/date_time.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-60
+crates/integrations/microsoft/src/models/email_address.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-32
+crates/integrations/microsoft/src/models/mod.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-31
+crates/integrations/microsoft/src/models/availability.rs
+  s_dbbe1dc13eabf1::t_b13efd43d3bcee 1-97,99-129
+  s_dbbe1dc13eabf1::t_0667b3b899f385 98
+crates/integrations/microsoft/src/client/calendars.rs
+  s_dbbe1dc13eabf1::t_0667b3b899f385 1-14,16-28
+  s_dbbe1dc13eabf1::t_2825d626d12bd4 15
+crates/facade/tests/features.rs
+  s_dbbe1dc13eabf1::t_2825d626d12bd4 45,48
+crates/integrations/microsoft/tests/operations.rs
+  s_dbbe1dc13eabf1::t_2825d626d12bd4 430-433,533-537,606,668-671,953,967
+  s_dbbe1dc13eabf1::t_a93b36ee31bd52 1-429,434-532,538-598,601,605,607-611,616,621-637,639-644,657-667,672-952,954-966,968-995
+  s_dbbe1dc13eabf1::t_791c8e75ccbcd5 599-600,602-604
+  s_dbbe1dc13eabf1::t_c8bda7cc26fa63 612-615,617-620
+  s_dbbe1dc13eabf1::t_f77ea3d8442a15 638,645-656
+docs/roadmap.md
+  s_dbbe1dc13eabf1::t_d987b88391a949 44-48
+README.md
+  s_dbbe1dc13eabf1::t_d987b88391a949 55,161
+crates/integrations/microsoft/src/operations.rs
+  s_dbbe1dc13eabf1::t_3c58e44ed790ea 1-213
+crates/integrations/microsoft/src/models/paging.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-15
+crates/integrations/microsoft/src/models/event.rs
+  s_dbbe1dc13eabf1::t_b13efd43d3bcee 1-252
+crates/integrations/microsoft/Cargo.toml
+  s_dbbe1dc13eabf1::t_f77ea3d8442a15 18-19,21
+crates/integrations/microsoft/src/models/calendar.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-34
+crates/integrations/microsoft/src/client/events.rs
+  s_dbbe1dc13eabf1::t_0667b3b899f385 1-87,91-207
+  s_dbbe1dc13eabf1::t_2825d626d12bd4 88-90
+crates/integrations/microsoft/src/client/mod.rs
+  s_dbbe1dc13eabf1::t_2825d626d12bd4 104-105
+  s_dbbe1dc13eabf1::t_0667b3b899f385 1-103,106-171
+crates/integrations/microsoft/src/lib.rs
+  s_dbbe1dc13eabf1::t_3c58e44ed790ea 4-11,28-29,324-333,491,494-496,504-510
+crates/integrations/microsoft/src/models/nullable.rs
+  s_dbbe1dc13eabf1::t_5a8494104b77fa 1-13
+Cargo.lock
+  s_dbbe1dc13eabf1::t_8096be34b523cf 1200-1201,1203
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9e2a7c717d4978c0a6f4e0c3cd051966d24a2979",
+  "prompts": {},
+  "sessions": {
+    "s_dbbe1dc13eabf1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a613a42-f563-420a-9c41-cee8bd04b5b1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
