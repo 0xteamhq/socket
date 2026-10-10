@@ -13,6 +13,7 @@ default = []
 github = ["dep:socketkit-github"]
 slack = ["dep:socketkit-slack"]
 linear = ["dep:socketkit-linear"]
+microsoft = ["dep:socketkit-microsoft"]
 notion = ["dep:socketkit-notion"]
 google = ["dep:socketkit-google"]
 zoom = ["dep:socketkit-zoom"]
@@ -23,13 +24,14 @@ required-features = ["slack"]
 
 [[example]]
 name = "catalogue"
-required-features = ["github", "google", "linear", "notion", "slack", "zoom"]
+required-features = ["github", "google", "linear", "microsoft", "notion", "slack", "zoom"]
 
 [dependencies]
 socketkit-core.workspace = true
 socketkit-github = { workspace = true, optional = true }
 socketkit-slack = { workspace = true, optional = true }
 socketkit-linear = { workspace = true, optional = true }
+socketkit-microsoft = { workspace = true, optional = true }
 socketkit-notion = { workspace = true, optional = true }
 socketkit-google = { workspace = true, optional = true }
 socketkit-zoom = { workspace = true, optional = true }

@@ -39,6 +39,16 @@ Phase 6 is new in this roadmap: the spec lists bindings under "later", and they 
 
 Slack now has 54 typed methods, each also a named operation with generated schemas: chat, conversations, users, reactions, pins, files, search, reminders, bookmarks, user groups, and the workspace (team, emoji, Do Not Disturb). Not covered: uploading a file (it sends raw bytes to a different host, which the transport does not do yet), modals and views, admin and SCIM methods, incoming events, and Socket Mode. None of it has been run against the real Slack; the request and response shapes follow Slack's documentation.
 
+## Microsoft, the first provider of wave 2
+
+`socketkit-microsoft` is one provider for everything behind Microsoft Graph: sign-in through the identity platform with a tenant setting, refresh with rotation, identity, and lookup of a OneDrive or SharePoint sharing link. It is the first provider with PKCE switched on, because Microsoft documents it for web applications. Not covered: application-only access (client credentials) and the national clouds.
+
+The Outlook calendar is the first product on it: 12 typed methods in two groups, `calendars` and `events`, each also a named operation. Events are read between two times with repeating events expanded, with every time in UTC and the event's own zone kept beside it; free and busy times and suggested meeting times are read; events are created (with a Teams link when asked), changed, answered, cancelled and deleted. A list is paged with the query of the address Graph gives for the next page, once that address is seen to be on the API's own host; the request itself always goes to the address the method built. Two things wait on the shared typed-operation work on the `github-full-client` branch: the crate carries its own copy of the operation machinery, as Slack does, and the transport still repeats a DELETE after a server error.
+
+Outlook mail is the second: 18 methods in `mail` and `mail_folders`. Messages are listed by folder, filter, search and sort, read with their body as plain text, and gathered by conversation; attachments are listed without their content and fetched one at a time; drafts, replies and forwards are written without sending; mail is sent, marked, moved and deleted. Sending, changing a draft, moving and deleting are marked destructive. Not covered: shared and delegated mailboxes, adding attachments, and files too large for one answer.
+
+Nothing has been run against the real service; [the guide](./integrations/microsoft.md) lists what was confirmed against Microsoft's documentation and what was not.
+
 ## Carried forward from reviews
 
 - Decide before the first release whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.
