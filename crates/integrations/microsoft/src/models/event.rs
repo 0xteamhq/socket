@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::nullable::nullable;
+use super::nullable::{given, nullable};
 use super::{DateTimeTimeZone, EmailAddress, ItemBody, Recipient, TimeSlot};
 
 /// An event in a calendar.
@@ -195,6 +195,9 @@ pub struct UpdateEvent {
     pub online_meeting_provider: Option<String>,
     pub show_as: Option<String>,
     pub sensitivity: Option<String>,
+    /// How the event repeats, in Graph's own shape. `null` makes it stop
+    /// repeating; leaving this out leaves it as it is.
+    #[serde(default, deserialize_with = "given")]
     pub recurrence: Option<Value>,
 }
 

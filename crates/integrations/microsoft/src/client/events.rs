@@ -103,6 +103,11 @@ impl Events<'_> {
                 "`schedules` needs at least one address, and none of them blank",
             ));
         }
+        if schedule.schedules.len() > 20 {
+            return Err(invalid(
+                "`schedules` takes at most 20 addresses: Graph reads no more at once",
+            ));
+        }
         self.time("a start time", &schedule.start_time)?;
         self.time("an end time", &schedule.end_time)?;
         if schedule
@@ -148,7 +153,13 @@ impl Events<'_> {
         }
         self.attendees(changes.attendees.as_deref())?;
         self.0.body(changes.body.as_ref())?;
-        let content = invitable(with(json!({}), &changes));
+        let mut content = invitable(with(json!({}), &changes));
+        // Unset fields are left out, and `null` is how an unset field is
+        // written. For how an event repeats, `null` was said on purpose: it
+        // is the one way to make the event stop repeating.
+        if changes.recurrence == Some(Value::Null) {
+            content["recurrence"] = Value::Null;
+        }
         if content.as_object().is_none_or(serde_json::Map::is_empty) {
             return Err(self
                 .0

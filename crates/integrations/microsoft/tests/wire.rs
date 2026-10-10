@@ -203,6 +203,14 @@ async fn a_tenant_that_could_change_the_sign_in_address_is_refused_when_the_sock
         ".contoso.example",
         "contoso..example",
         "-contoso",
+        // One word that is not one of the three: neither an id nor a domain.
+        "contoso",
+        "commons",
+        "8eaef023-2b34-4da1-9baa",
+        "8eaef0232b344da19baa8bc8c9d6a490",
+        "8eaef023-2b34-4da1-9baa-8bc8c9d6a49g",
+        // A label longer than a domain name allows.
+        "a123456789012345678901234567890123456789012345678901234567890123.example",
     ] {
         let microsoft = Microsoft::new().tenant(bad);
         let AuthScheme::OAuth2(oauth) = microsoft.provider().auth else {
@@ -775,6 +783,10 @@ async fn what_is_not_a_sharing_link_is_refused_without_calling_microsoft() {
     ] {
         let err = resolve(&socket, &key, bad).await.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidInput, "{bad:?}");
+        // What was refused may be a link with a password in it, so it is not repeated.
+        let shown = format!("{err} {err:?} {:?}", err.to_wire());
+        assert!(!shown.contains("pw@") && !shown.contains("sharepoint"), "{shown}");
+        assert!(bad.trim().is_empty() || !shown.contains(bad.trim()), "{shown}");
     }
     assert!(server.received_requests().await.unwrap().is_empty());
 }
@@ -850,6 +862,45 @@ async fn graphs_answers_map_to_the_error_a_caller_can_act_on() {
         let err = identity(&socket, &key).await.unwrap_err();
         assert_eq!((err.kind(), err.retry()), (kind, retry), "{err}");
     }
+}
+
+#[tokio::test]
+async fn a_wait_stated_as_a_date_is_read_as_well_as_one_in_seconds() {
+    let unavailable = |when: SystemTime| {
+        graph_error(503, "serviceNotAvailable", "The service is temporarily unavailable.")
+            .insert_header("retry-after", httpdate::fmt_http_date(when).as_str())
+    };
+    let (server, socket, key) = microsoft().await;
+    Mock::given(path("/v1.0/me"))
+        .respond_with(unavailable(SystemTime::now() + Duration::from_secs(300)))
+        .mount(&server)
+        .await;
+    let err = identity(&socket, &key).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Unexpected);
+    let Retry::After(wait) = err.retry() else {
+        panic!("the wait Graph asked for is passed on: {:?}", err.retry())
+    };
+    assert!(
+        (Duration::from_secs(290)..=Duration::from_secs(300)).contains(&wait),
+        "{wait:?}"
+    );
+
+    // A date already past means "now".
+    let (server, socket, key) = microsoft().await;
+    Mock::given(path("/v1.0/me"))
+        .respond_with(unavailable(SystemTime::now() - Duration::from_secs(60)))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/v1.0/me"))
+        .respond_with(ok(json!({ "id": "u-1", "displayName": "Ada" })))
+        .mount(&server)
+        .await;
+    assert_eq!(
+        identity(&socket, &key).await.unwrap()["id"],
+        "u-1",
+        "a read is tried again at once"
+    );
 }
 
 #[tokio::test]

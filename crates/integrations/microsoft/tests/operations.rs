@@ -367,6 +367,11 @@ async fn every_operation_describes_its_input_and_marks_what_it_changes() {
         }
     }
 
+    // The two every integration offers say what they need too, so that the
+    // permissions to ask for can be read from the catalogue.
+    assert_eq!(find("microsoft.identity.get").required_scopes, ["User.Read"]);
+    assert_eq!(find("microsoft.resource.resolve").required_scopes, ["Files.ReadWrite"]);
+
     let create = find("microsoft.events.create");
     let required: Vec<&str> = create.input_schema["required"]
         .as_array()
@@ -503,7 +508,17 @@ async fn an_online_meeting_is_a_teams_meeting_unless_another_provider_is_named()
         (json!({ "isOnlineMeeting": false }), json!({ "isOnlineMeeting": false })),
         (json!({}), json!({})),
     ] {
-        let (server, socket, key) = answering(201, event()).await;
+        // Graph answers with the kind of event that was asked for.
+        let online = extra["isOnlineMeeting"] == true;
+        let mut answered = event();
+        if !online {
+            answered["isOnlineMeeting"] = json!(false);
+            answered["onlineMeetingProvider"] = json!("unknown");
+            answered["onlineMeeting"] = json!(null);
+        } else if let Some(provider) = sent.get("onlineMeetingProvider") {
+            answered["onlineMeetingProvider"] = provider.clone();
+        }
+        let (server, socket, key) = answering(201, answered).await;
         let mut input = times.clone();
         input
             .as_object_mut()
@@ -516,9 +531,61 @@ async fn an_online_meeting_is_a_teams_meeting_unless_another_provider_is_named()
             .unwrap()
             .extend(sent.as_object().unwrap().clone());
         assert_eq!(body_of(&only_request(&server).await), expected, "{extra}");
-        // The join link is how the meeting's transcript is found later.
-        assert_eq!(created["onlineMeeting"]["joinUrl"], JOIN_URL);
+        assert_eq!(created["isOnlineMeeting"], online, "{extra}");
+        if online {
+            // The join link is how the meeting's transcript is found later.
+            assert_eq!(created["onlineMeeting"]["joinUrl"], JOIN_URL, "{extra}");
+            assert_eq!(created["onlineMeetingProvider"], sent["onlineMeetingProvider"]);
+        } else {
+            assert_eq!(created["onlineMeeting"], json!(null), "no link is invented: {extra}");
+        }
     }
+}
+
+#[tokio::test]
+async fn an_event_stops_repeating_when_its_recurrence_is_set_to_nothing() {
+    // Leaving a field out leaves it as it is. Saying `null` for how an event
+    // repeats is the one way to say it no longer does, so that `null` is sent.
+    for (input, sent) in [
+        (
+            json!({ "event": "evt-1", "recurrence": null }),
+            json!({ "recurrence": null }),
+        ),
+        (
+            json!({ "event": "evt-1", "subject": "One last time", "recurrence": null }),
+            json!({ "subject": "One last time", "recurrence": null }),
+        ),
+        (
+            json!({ "event": "evt-1", "recurrence": { "pattern": { "type": "daily", "interval": 1 }, "range": { "type": "noEnd", "startDate": "2026-10-12" } } }),
+            json!({ "recurrence": { "pattern": { "type": "daily", "interval": 1 }, "range": { "type": "noEnd", "startDate": "2026-10-12" } } }),
+        ),
+        // Any other field that is null is still a field that was not given.
+        (
+            json!({ "event": "evt-1", "subject": "Renamed", "location": null, "body": null }),
+            json!({ "subject": "Renamed" }),
+        ),
+    ] {
+        let (server, socket, key) = answering(200, event()).await;
+        invoke(&socket, &key, "events.update", input.clone()).await.unwrap();
+        let request = only_request(&server).await;
+        assert_eq!(request.method.as_str(), "PATCH");
+        assert_eq!(body_of(&request), sent, "{input}");
+    }
+
+    let server = MockServer::start().await;
+    let microsoft = Microsoft::with_spec(point_at(provider(), &server));
+    let (socket, key) = connect(Arc::new(microsoft.clone()), "eyJ.good").await;
+    let connection = socket.connection(key).await.unwrap();
+    Mock::given(any())
+        .respond_with(answer(200, &event()))
+        .mount(&server)
+        .await;
+    let once = UpdateEvent {
+        recurrence: Some(Value::Null),
+        ..UpdateEvent::default()
+    };
+    microsoft.events(&connection).update("evt-1", once).await.unwrap();
+    assert_eq!(body_of(&only_request(&server).await), json!({ "recurrence": null }));
 }
 
 #[tokio::test]
@@ -1072,6 +1139,18 @@ async fn values_that_cannot_work_are_refused_before_graph_is_called() {
         ("events.cancel", json!({ "event": " " })),
         ("calendars.get", json!({ "calendar": "" })),
         ("calendars.list", json!({ "limit": 0 })),
+        // Graph returns at most a thousand in a page.
+        ("calendars.list", json!({ "limit": 1001 })),
+        (
+            "events.list_between",
+            json!({ "start": "2026-10-12", "end": "2026-10-19", "limit": 5000 }),
+        ),
+        ("mail.list", json!({ "limit": 1001 })),
+        // Graph reads at most twenty schedules at once.
+        (
+            "events.schedule",
+            json!({ "schedules": (1..=21).map(|n| format!("p{n}@contoso.example")).collect::<Vec<_>>(), "startTime": times.0.clone(), "endTime": times.1.clone() }),
+        ),
         ("events.list_between", json!({ "start": "", "end": "2026-10-19" })),
         ("events.list_between", json!({ "start": "2026-10-12", "end": " " })),
         (

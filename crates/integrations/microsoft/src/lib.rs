@@ -84,11 +84,15 @@ impl Classifier for MicrosoftClassifier {
                 format!("{provider} rejected the stored authorization"),
             ));
         }
-        // Graph states the wait in seconds, on a 503 as on a 429.
-        let wait = response
-            .header("retry-after")
-            .and_then(|value| value.trim().parse().ok())
-            .map(Duration::from_secs);
+        // Graph states the wait in seconds, on a 503 as on a 429. HTTP also
+        // allows a date, and a date already past means "now".
+        let wait = response.header("retry-after").map(str::trim).and_then(|value| {
+            let seconds = value.parse().ok().map(Duration::from_secs);
+            seconds.or_else(|| {
+                let when = httpdate::parse_http_date(value).ok()?;
+                Some(when.duration_since(SystemTime::now()).unwrap_or(Duration::ZERO))
+            })
+        });
         if let (503, Some(wait)) = (response.status, wait) {
             return Err(
                 error(ErrorKind::Unexpected, format!("{provider} returned HTTP 503")).with_retry(Retry::After(wait))
@@ -108,9 +112,11 @@ pub fn parse_sharing_link(input: &str) -> Result<String> {
     if is_link {
         Ok(format!("u!{}", URL_SAFE_NO_PAD.encode(trimmed)))
     } else {
+        // The input is not repeated: a link that is refused for carrying a
+        // username and password would put them in the error.
         Err(Error::new(
             ErrorKind::InvalidInput,
-            format!("\"{trimmed}\" is not a OneDrive or SharePoint sharing link; paste the whole link"),
+            "that is not a OneDrive or SharePoint sharing link; paste the whole link, which starts with https",
         ))
     }
 }
@@ -126,15 +132,20 @@ fn describe(drive_type: &str, is_folder: bool) -> String {
 
 /// A tenant is `common`, `organizations`, `consumers`, a tenant id or a
 /// domain. It becomes a path segment of the sign-in address, so anything else
-/// is refused.
+/// is refused: one word that is none of the three is neither an id nor a
+/// domain, and would only fail later, at sign-in.
 fn is_tenant(tenant: &str) -> bool {
     let is_label = |label: &str| {
-        !label.is_empty()
+        (1..=63).contains(&label.len())
             && !label.starts_with('-')
             && !label.ends_with('-')
             && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
     };
-    tenant.len() <= 253 && tenant.split('.').all(is_label)
+    // A tenant id is written 8-4-4-4-12, in hexadecimal.
+    let is_id = tenant.split('-').map(str::len).eq([8, 4, 4, 4, 12])
+        && tenant.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+    let is_domain = tenant.len() <= 253 && tenant.contains('.') && tenant.split('.').all(is_label);
+    matches!(tenant, "common" | "organizations" | "consumers") || is_id || is_domain
 }
 
 /// What the sign-in page asks of the person (Microsoft's `prompt` parameter).
@@ -495,9 +506,18 @@ impl Integration for Microsoft {
     }
 
     fn operations(&self) -> Vec<OperationInfo> {
+        // The two every integration offers say which permission they need,
+        // so that what to ask for at sign-in can be read from the catalogue.
+        let needing = |scope: &str, operation: OperationInfo| OperationInfo {
+            required_scopes: vec![scope.to_owned()],
+            ..operation
+        };
         let mut operations = vec![
-            identity_operation(&self.spec.id),
-            resolve_operation(&self.spec.id, "a OneDrive or SharePoint sharing link"),
+            needing("User.Read", identity_operation(&self.spec.id)),
+            needing(
+                "Files.ReadWrite",
+                resolve_operation(&self.spec.id, "a OneDrive or SharePoint sharing link"),
+            ),
         ];
         operations.extend(operations::all().iter().map(|operation| operation.info.clone()));
         operations
@@ -607,11 +627,32 @@ mod tests {
             assert!(is_tenant(tenant), "{tenant}");
         }
         for bad in [
-            "", "a/b", "..", "a b", "a?b", "a#", "a@b", ".a", "a.", "-a", "a-", "a%2Fb",
+            "",
+            "a/b",
+            "..",
+            "a b",
+            "a?b",
+            "a#",
+            "a@b",
+            ".a",
+            "a.",
+            "-a",
+            "a-",
+            "a%2Fb",
+            "contoso",
+            "commons",
+            "8eaef023-2b34-4da1-9baa",
+            "8eaef0232b344da19baa8bc8c9d6a490",
+            "8eaef023-2b34-4da1-9baa-8bc8c9d6a49g",
         ] {
             assert!(!is_tenant(bad), "{bad:?}");
         }
-        assert!(!is_tenant(&"a".repeat(254)));
+        assert!(is_tenant(&format!("{}.example", "a".repeat(63))));
+        assert!(!is_tenant(&format!("{}.example", "a".repeat(64))), "a label of 64");
+        assert!(
+            !is_tenant(&[&"a".repeat(63); 4].map(String::as_str).join(".")),
+            "a name of 255"
+        );
     }
 
     #[test]

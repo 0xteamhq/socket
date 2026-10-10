@@ -41,6 +41,14 @@ impl Mail<'_> {
                 .filter(|v| !v.is_empty())
                 .map(str::to_owned)
         };
+        // Graph does not filter or sort a search further. Asked for both, it
+        // may answer with results that are not what was asked for.
+        if set(&options.search).is_some() && (set(&options.filter).is_some() || set(&options.order_by).is_some()) {
+            return Err(self.0.error(
+                ErrorKind::InvalidInput,
+                "`search` cannot be combined with `filter` or `orderBy`",
+            ));
+        }
         let mut request = with_body_as(
             RawRequest::get(self.messages(options.folder.as_deref())?),
             options.body_type,

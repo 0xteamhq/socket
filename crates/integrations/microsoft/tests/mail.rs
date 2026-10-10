@@ -360,6 +360,23 @@ async fn mail_that_could_not_arrive_or_would_arrive_empty_is_refused_before_grap
             "mail.send",
             json!({ "toRecipients": to("grace@contoso.example"), "subject": " ", "importance": "high" }),
         ),
+        // A body with nothing in it says nothing either.
+        (
+            "mail.send",
+            json!({ "toRecipients": to("grace@contoso.example"), "body": text(" ") }),
+        ),
+        ("mail.reply", json!({ "message": "msg-1", "body": text("") })),
+        (
+            "mail.reply",
+            json!({ "message": "msg-1", "comment": " ", "body": { "contentType": "html", "content": "\n" } }),
+        ),
+        // A search is not filtered or sorted further; asking for both would
+        // give results that are not what was asked for.
+        ("mail.list", json!({ "search": "pizza", "filter": "isRead eq false" })),
+        (
+            "mail.list",
+            json!({ "search": "pizza", "orderBy": "receivedDateTime desc" }),
+        ),
         // A flag that says nothing.
         ("mail.update", json!({ "message": "msg-1", "flag": {} })),
         // A recipient with no address, wherever it is.

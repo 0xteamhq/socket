@@ -87,8 +87,9 @@ impl Api<'_> {
         paging: &Paging,
         what: &str,
     ) -> Result<Page<T>> {
-        if paging.limit == Some(0) {
-            return Err(self.error(ErrorKind::InvalidInput, "`limit` must be at least 1"));
+        // Graph takes a page of 1 to 1000.
+        if paging.limit.is_some_and(|limit| !(1..=1000).contains(&limit)) {
+            return Err(self.error(ErrorKind::InvalidInput, "`limit` is from 1 to 1000"));
         }
         let cursor = paging.cursor.as_deref().map(str::trim).filter(|c| !c.is_empty());
         let request = match (cursor, paging.limit) {
@@ -121,6 +122,11 @@ impl Api<'_> {
     /// used as a host or a path: the page is requested at the address this
     /// crate built for the list, and the cursor supplies only the query,
     /// where Graph keeps its place.
+    ///
+    /// The query is used whole. Graph does not say which parameters a next
+    /// page carries, so none is taken out; a cursor that was written by hand
+    /// can therefore filter, sort or skip within the list, as the caller
+    /// could by other means, and cannot leave it.
     ///
     /// The cursor's path is not compared with the list's. Graph writes the
     /// same list in more than one way (`me/events('id')`, `users('id')/…`),

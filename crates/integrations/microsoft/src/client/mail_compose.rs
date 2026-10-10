@@ -8,11 +8,16 @@ use socketkit_core::{ErrorKind, RawRequest, Result};
 
 use super::mail::Mail;
 use super::with;
-use crate::models::{DraftMessage, Message, ReplyContent, SendMail};
+use crate::models::{DraftMessage, ItemBody, Message, ReplyContent, SendMail};
 
 /// Whether there is any text in what was given.
 fn said(text: Option<&str>) -> bool {
     text.is_some_and(|text| !text.trim().is_empty())
+}
+
+/// Whether a body was given with any text in it.
+fn written(body: Option<&ItemBody>) -> bool {
+    said(body.and_then(|body| body.content.as_deref()))
 }
 
 impl Mail<'_> {
@@ -66,7 +71,7 @@ impl Mail<'_> {
         }
         // A draft may be empty. What is sent at once, and cannot be taken
         // back, has to say something.
-        if !said(message.subject.as_deref()) && message.body.is_none() {
+        if !said(message.subject.as_deref()) && !written(message.body.as_ref()) {
             return Err(self
                 .0
                 .error(ErrorKind::InvalidInput, "a message needs a `subject` or a `body`"));
@@ -89,7 +94,7 @@ impl Mail<'_> {
     /// Replies to the sender of a message, and sends the reply at once. It
     /// cannot be taken back.
     pub async fn reply(&self, message: &str, reply: ReplyContent) -> Result<()> {
-        if !said(reply.comment.as_deref()) && reply.message.body.is_none() {
+        if !said(reply.comment.as_deref()) && !written(reply.message.body.as_ref()) {
             return Err(self
                 .0
                 .error(ErrorKind::InvalidInput, "a reply needs a `comment` or a `body`"));

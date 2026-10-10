@@ -74,7 +74,7 @@ Three things Socket does for every Microsoft connection:
 - **Each refresh saves the new refresh token.** Microsoft sends a new one every time and expects the old one to be discarded.
 - **PKCE is on.** The code challenge is sent with the sign-in and the verifier with the code, beside the client secret.
 
-A tenant that is not one of the keywords, an id or a domain is reported when the `Socket` is built, because the tenant is part of the address of the sign-in page.
+A tenant that is not one of the three keywords, an id (`8eaef023-2b34-4da1-9baa-8bc8c9d6a490`) or a domain (`contoso.onmicrosoft.com`) is reported when the `Socket` is built, because the tenant is part of the address of the sign-in page. One word that is none of the three keywords, such as `contoso`, is neither an id nor a domain and is refused too.
 
 ### When a permission needs an administrator
 
@@ -157,13 +157,13 @@ Needs `Calendars.Read`.
 
 **An online meeting.** Set `isOnlineMeeting` when creating an event and the event that comes back carries `onlineMeeting.joinUrl`. Socket asks for a Teams meeting (`onlineMeetingProvider: "teamsForBusiness"`) unless you name another provider. For a Teams meeting the join link is also how its transcript is found, so keep it.
 
-**Changing an event.** `update` sends only the fields you set. `attendees` is the whole list: anyone left out is removed. To add one person, read the event, add them to its `attendees`, and send that list back; each attendee's `status` is Graph's to fill in and is left out of what is sent. Changing the `body` of an online meeting must keep the part that holds the join details, and a `body` must carry its `content`. An update with nothing set is refused.
+**Changing an event.** `update` sends only the fields you set. `attendees` is the whole list: anyone left out is removed. To add one person, read the event, add them to its `attendees`, and send that list back; each attendee's `status` is Graph's to fill in and is left out of what is sent. Changing the `body` of an online meeting must keep the part that holds the join details, and a `body` must carry its `content`. To make an event stop repeating, send `recurrence: null`: it is the one field where `null` is sent as it is, and not read as "leave this alone". An update with nothing set is refused.
 
 **Answering an invitation.** `EventResponse` is `Accept`, `TentativelyAccept` or `Decline` (`accept`, `tentatively_accept`, `decline` in JSON). `RespondToEvent` has `comment`, `sendResponse` and `proposedNewTime`; another time can be proposed only with a decline or a tentative acceptance.
 
 **Cancel or delete.** `cancel` is for a meeting the account organised: it tells the attendees and moves the event to Deleted Items; an attendee who calls it is refused by Graph. `delete` removes the event from the account's own calendar, and for a meeting the account organised it also sends a cancellation.
 
-**Availability.** `find_meeting_times` and `schedule` read other people's calendars and change nothing. Both are for work and school accounts only. `schedule` reads at most 20 people, lists and rooms at once, over less than 62 days; an address Graph could not read comes back with an `error` in its place, not as a failure of the call.
+**Availability.** `find_meeting_times` and `schedule` read other people's calendars and change nothing. Both are for work and school accounts only. `schedule` reads at most 20 people, lists and rooms at once, over less than 62 days, and more than 20 addresses are refused; an address Graph could not read comes back with an `error` in its place, not as a failure of the call.
 
 ### `microsoft.mail(&connection)`
 
@@ -209,9 +209,9 @@ Reading needs `Mail.Read`; drafts and changes need `Mail.ReadWrite`; `send`, `se
 **Listing.** `ListMessages` has `folder`, `filter`, `search`, `orderBy`, `bodyType`, `limit` and `cursor`. `folder` is a folder id or a well-known name: `inbox`, `drafts`, `sentitems`, `deleteditems`, `archive`, `junkemail` and the rest of Graph's list. Without it the whole mailbox is listed, Deleted Items included. Graph returns 10 messages a page unless `limit` says otherwise, up to 1000.
 
 - `filter` is Graph's `$filter` (`isRead eq false`) and `orderBy` its `$orderby` (`receivedDateTime desc`). Used together, what is sorted by has to come first in the filter, or Graph answers `InefficientFilter`, which arrives as `InvalidInput` with Graph's words.
-- `search` is Graph's `$search`: plain words, or properties such as `from:grace subject:plan`. Socket sends it as one quoted phrase and escapes any quote inside it. Graph returns at most 1,000 results, sorted by when they were sent. Do not count on combining it with `filter` or `orderBy`: Graph's documentation does not say it can be, and an older one says it cannot.
+- `search` is Graph's `$search`: plain words, or properties such as `from:grace subject:plan`. Socket sends it as one quoted phrase and escapes any quote inside it. Graph returns at most 1,000 results, sorted by when they were sent. A search cannot be given with `filter` or `orderBy`, and is refused if it is: Graph does not filter or sort a search further, and may answer with results that ignore what was asked.
 
-**Bodies are plain text.** Every request that returns messages sends `Prefer: outlook.body-content-type="text"`, so `body.content` is text a program can read. Set `bodyType` to `html` on `list` or `get` for the HTML. `body.contentType` says which came back.
+**Bodies are plain text on reads.** `list`, `get` and `conversation` send `Prefer: outlook.body-content-type="text"`, so `body.content` is text a program can read. Set `bodyType` to `html` on `list` or `get` for the HTML. The methods that write, mark or move a message return it without that preference, so its body is in Graph's own default format, which is HTML. `body.contentType` says which came back.
 
 **A conversation.** `conversation` takes a message's `conversationId` and returns the whole thread oldest first, from every folder: what was received and what was sent.
 
@@ -260,7 +260,9 @@ The cursor is the address Graph gave for the next page (`@odata.nextLink`), and 
 
 A cursor comes back from the caller, so Socket does not trust it to be what Graph sent. **Nothing in a cursor is used as a host or a path.** The next page is requested at the address Socket builds from the method's own arguments, and the cursor supplies only the query. So a cursor cannot send the token to another host, the sign-in host included, and cannot make a listing read anything but its own list, whatever address it names. A cursor from another host, or with no query, is refused before any request is made. The cursor's path is not looked at: Graph writes the same list in more than one way, and a cursor from a different list simply continues this one at that cursor's position.
 
-`limit` is Graph's `$top` and applies to the first page; later pages keep it. A calendar view takes from 1 to 1000.
+The query is used whole. Microsoft does not say which parameters a next page carries, so Socket takes none out. A cursor written by hand can therefore filter, sort or skip within the list it is given to, which a caller could also do by other means, and nothing more.
+
+`limit` is Graph's `$top` and applies to the first page; later pages keep it. It is from 1 to 1000, and anything else is refused.
 
 ## Call an operation by name
 
@@ -286,8 +288,8 @@ let output = socket
 
 | Operation | Effect | Scope | What it does |
 | --- | --- | --- | --- |
-| `microsoft.identity.get` | read |  | Return the account this connection is authorised as, confirming the token still works. |
-| `microsoft.resource.resolve` | read |  | Confirm that a resource exists and the account can reach it. Accepts a OneDrive or SharePoint sharing link. |
+| `microsoft.identity.get` | read | User.Read | Return the account this connection is authorised as, confirming the token still works. |
+| `microsoft.resource.resolve` | read | Files.ReadWrite | Confirm that a resource exists and the account can reach it. Accepts a OneDrive or SharePoint sharing link. |
 | `microsoft.calendars.list` | read | Calendars.Read | List the account's calendars, its own and those shared with it. |
 | `microsoft.calendars.get` | read | Calendars.Read | Get one calendar. |
 | `microsoft.events.list_between` | read | Calendars.Read | List the events between two times, with each occurrence of a repeating event as its own event. Times are in UTC. |
@@ -359,7 +361,7 @@ Confirmed:
 - `login_hint`, and the four `prompt` values.
 - The client secret is sent in the form body.
 - The numbered codes `AADSTS65001`, `90008`, `90094` and `90095`, with the meanings above.
-- Graph's error shape `{ "error": { "code", "message" } }`, and `Retry-After` in seconds on 429 and on 503.
+- Graph's error shape `{ "error": { "code", "message" } }`, and `Retry-After` in seconds on 429 and on 503. A wait written as a date is read as well.
 - `GET /me` and its fields, with `User.Read`.
 - `GET /shares/{encoded link}/driveItem`, the encoding (`u!`, then the link in base64url without padding), and `Files.ReadWrite` as its least permission.
 - Paging: the whole of `@odata.nextLink` is requested as it is, and nothing is taken out of it.
@@ -397,7 +399,7 @@ Not confirmed:
 - **That the query of a next page's address is all that is needed.** Microsoft's guidance is to request the whole address as it stands. Socket requests its own address for the list with that address's query, which is the same request as long as the two addresses name the same list, however Graph writes the path (`me/events('…')`, `users('…')/…`). If Graph ever keeps part of its place in the path, paging would return the wrong page; nothing in the documentation suggests it does.
 - **What Graph does with an attendee's `status` in a request.** Socket leaves it out.
 - **The query behind `conversation`.** No page of Microsoft's shows how to read one conversation in order. A filter on `conversationId` sorted by `receivedDateTime` breaks the documented rules, so Socket filters on `receivedDateTime ge 1900-01-01T00:00:00Z and conversationId eq '…'`, which follows them. That it works was not confirmed.
-- **Combining `search` with `filter` or `orderBy`**, how a search pages, and whether a search works inside one folder. Socket passes on what it is given.
+- **Combining `search` with `filter` or `orderBy`.** Graph's documentation does not say it can be done, and an older one says it cannot, so Socket refuses it. How a search pages, and whether a search works inside one folder, were not confirmed either.
 - **That `$select` leaves the content out of a list of attachments.** Microsoft's example of the list shows the content, and no page says `$select` applies. If it does not, a message with large attachments makes the list too large to read.
 - **Whether a list of messages honours the text preference.** One page says a list returns HTML only, and lists the header all the same. `body.contentType` says what came back.
 - **Where a deleted message goes.** The page for deleting does not say. To be sure it lands in Deleted Items, use `move_to` with `deleteditems`.

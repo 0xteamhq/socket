@@ -82,8 +82,8 @@ pub struct ListMessages {
     /// Graph's `$filter`, such as `isRead eq false`.
     pub filter: Option<String>,
     /// Words to search for, in Graph's search syntax: `pizza`, `from:grace
-    /// subject:plan`. Graph returns at most 1,000 results, newest first by
-    /// when they were sent, and does not sort or filter a search further.
+    /// subject:plan`. Graph returns at most 1,000 results, sorted by when
+    /// they were sent. Not to be given with `filter` or `orderBy`.
     pub search: Option<String>,
     /// Graph's `$orderby`, such as `receivedDateTime desc`. With a filter,
     /// what is sorted by has to come first in the filter.

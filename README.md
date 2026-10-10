@@ -4,7 +4,7 @@
 
 Socket gives a product the layers it needs to connect to SaaS APIs: a registry of providers, an OAuth and token-refresh engine, and typed operations for each service. The application owns its OAuth apps and its token storage. Nothing is hosted.
 
-> **Status:** Early. The core, the OAuth flow, token refresh and six providers are built and tested against local servers (~13k lines of Rust, 225 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
+> **Status:** Early. The core, the OAuth flow, token refresh and seven providers are built and tested against local servers (~20k lines of Rust, 310 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
 
 ## Why
 
@@ -16,7 +16,7 @@ Read [the vision](docs/vision.md) for the full picture.
 
 ## Features
 
-- **OAuth 2.0** — begin and complete the flow; signed, expiring state; the application owns the callback route. PKCE is supported by the core and currently switched off for all six providers until each is confirmed against the real service
+- **OAuth 2.0** — begin and complete the flow; signed, expiring state; the application owns the callback route. PKCE is supported by the core. It is on for Microsoft, and switched off for the other six providers until each is confirmed against the real service
 - **Token refresh** — single-flight per connection so concurrent calls never race a refresh token
 - **Host allowlist** — credentials are attached only to HTTPS requests on the provider's declared hosts
 - **Retry with backoff** — honours `Retry-After`; non-idempotent requests are retried only when safe
@@ -62,7 +62,7 @@ socket/
 Neither needs a network or credentials:
 
 ```sh
-# Print the six providers and their operations
+# Print the seven providers and their operations
 cargo run -p socketkit --all-features --example catalogue
 
 # Register an integration, invoke an operation by name with JSON
