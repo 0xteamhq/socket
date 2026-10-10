@@ -1,0 +1,46 @@
+Cargo.toml
+  s_dbbe1dc13eabf1::t_30f76e092161a0 21
+README.md
+  s_dbbe1dc13eabf1::t_83ed6f0c5a4e92 53,161,163
+crates/facade/examples/catalogue.rs
+  s_dbbe1dc13eabf1::t_2e28e351295046 15
+docs/integrations/microsoft.md
+  s_dbbe1dc13eabf1::t_6431a9f868d9c0 1-153
+crates/facade/Cargo.toml
+  s_dbbe1dc13eabf1::t_2e28e351295046 16,27,34
+crates/facade/tests/features.rs
+  s_dbbe1dc13eabf1::t_2e28e351295046 20,26,33,40-43,46,90,114,145,230-244
+  s_dbbe1dc13eabf1::t_e4bd92b7086001 245-246
+crates/integrations/microsoft/tests/wire.rs
+  s_dbbe1dc13eabf1::t_492cc13d69b8eb 700
+  s_dbbe1dc13eabf1::t_0d661bebe960d4 1-7,10-230,236-440,446-699,701-746,752-843
+  s_dbbe1dc13eabf1::t_ab6defa099eb05 8-9,231-235,441-445,747-751
+crates/integrations/microsoft/Cargo.toml
+  s_dbbe1dc13eabf1::t_30f76e092161a0 1-27
+crates/facade/src/lib.rs
+  s_dbbe1dc13eabf1::t_2e28e351295046 14-15
+crates/integrations/microsoft/src/lib.rs
+  s_dbbe1dc13eabf1::t_492cc13d69b8eb 1
+  s_dbbe1dc13eabf1::t_39e57afa76413a 2-580,582-594
+  s_dbbe1dc13eabf1::t_ab6defa099eb05 581
+docs/roadmap.md
+  s_dbbe1dc13eabf1::t_83ed6f0c5a4e92 42-45
+Cargo.lock
+  s_dbbe1dc13eabf1::t_a948b602d53a4d 1133,1194-1206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "976202ec3f7cc7a083ab080d9819a752751aae13",
+  "prompts": {},
+  "sessions": {
+    "s_dbbe1dc13eabf1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a613a42-f563-420a-9c41-cee8bd04b5b1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
