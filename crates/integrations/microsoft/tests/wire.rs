@@ -414,6 +414,15 @@ async fn a_token_graph_calls_invalid_is_renewed_once_and_the_call_sent_again() {
     );
 }
 
+/// What the token endpoint answers when a permission still needs approval,
+/// in the shape it takes when Microsoft gives the error no number.
+fn consent_required_unnumbered() -> ResponseTemplate {
+    ResponseTemplate::new(400).set_body_json(json!({
+        "error": "consent_required",
+        "error_description": "The request requires user consent. Trace ID: 0000"
+    }))
+}
+
 /// What the token endpoint answers when a permission still needs approval.
 fn consent_needed(error: &str, code: u32, description: &str) -> ResponseTemplate {
     ResponseTemplate::new(400).set_body_json(json!({
@@ -451,6 +460,13 @@ async fn a_permission_nobody_has_approved_is_a_refusal_that_says_an_administrato
         assert_eq!(err.kind(), ErrorKind::AccessDenied, "{error} {code}: {err}");
         assert!(err.message().contains("administrator"), "{}", err.message());
         assert!(err.message().contains(&format!("AADSTS{code}")), "{}", err.message());
+        // Only 90094 and 90095 say that the person cannot approve it themselves.
+        assert_eq!(
+            err.message().contains("the person"),
+            code == 65001,
+            "{code}: {}",
+            err.message()
+        );
         assert!(
             !err.message().contains("Trace ID"),
             "Microsoft's own text is not repeated: {}",
@@ -478,6 +494,47 @@ async fn a_permission_nobody_has_approved_is_a_refusal_that_says_an_administrato
         assert!(err.message().contains("administrator"), "{}", err.message());
         assert_eq!(store.load(key()).await.unwrap(), None);
     }
+}
+
+#[tokio::test]
+async fn consent_is_recognised_by_its_name_when_microsoft_gives_no_number() {
+    let server = MockServer::start().await;
+    Mock::given(path("/contoso.example/oauth2/v2.0/token"))
+        .respond_with(consent_required_unnumbered())
+        .mount(&server)
+        .await;
+    let (socket, store) = with_oauth_app(&server, Some(tokens("eyJ.first", "0.refresh-1", -10))).await;
+    let err = identity(&socket, &key()).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::AccessDenied, "{err}");
+    assert!(err.message().contains("administrator"), "{}", err.message());
+    assert!(!err.message().contains("AADSTS"), "{}", err.message());
+    assert!(!err.message().contains("Trace ID"), "{}", err.message());
+    assert!(store.load(key()).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn a_refresh_that_sends_no_new_refresh_token_keeps_the_stored_one_and_its_scopes() {
+    // Microsoft sends a new refresh token each time. If it ever does not, the
+    // stored one is still the connection's only way to renew, and must not be lost.
+    let server = MockServer::start().await;
+    Mock::given(path("/contoso.example/oauth2/v2.0/token"))
+        .respond_with(ok(json!({ "access_token": "eyJ.second", "expires_in": 3599 })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/v1.0/me"))
+        .respond_with(ok(json!({ "id": "u-1", "displayName": "Ada" })))
+        .mount(&server)
+        .await;
+    let (socket, store) = with_oauth_app(&server, Some(tokens("eyJ.first", "0.refresh-1", -10))).await;
+    identity(&socket, &key()).await.unwrap();
+    let saved = store.load(key()).await.unwrap().unwrap();
+    assert_eq!(saved.access_token.expose(), "eyJ.second");
+    assert_eq!(
+        saved.refresh_token.as_ref().map(SecretString::expose),
+        Some("0.refresh-1")
+    );
+    assert_eq!(saved.scopes, ["User.Read"]);
 }
 
 #[tokio::test]

@@ -42,9 +42,10 @@ fn all_seven_integrations_register_together_and_each_offers_identity_and_lookup(
         ["github", "google", "linear", "microsoft", "notion", "slack", "zoom"]
     );
     let names: Vec<String> = socket.operations().into_iter().map(|o| o.name).collect();
-    // Every integration has these two; Slack has its full set besides.
+    // Every integration has these two; Slack and Microsoft have typed operations besides.
     assert!(names.len() >= 14);
     assert!(names.contains(&"slack.chat.post_message".to_owned()));
+    assert!(names.contains(&"microsoft.events.create".to_owned()));
     for id in &ids {
         assert!(names.contains(&format!("{id}.identity.get")), "{id}");
         assert!(names.contains(&format!("{id}.resource.resolve")), "{id}");

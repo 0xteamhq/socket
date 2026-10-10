@@ -1,9 +1,14 @@
 //! Socket integration for Microsoft Graph.
 //!
 //! One provider covers Outlook, Teams, OneDrive, SharePoint and Entra ID,
-//! because they share one sign-in. Offers the provider definition,
-//! `microsoft.identity.get` and `microsoft.resource.resolve` (a OneDrive or
-//! SharePoint sharing link). See `docs/integrations/microsoft.md`.
+//! because they share one sign-in. Offers the provider definition, identity,
+//! lookup of a OneDrive or SharePoint sharing link, and typed methods for
+//! Graph grouped by area (`calendars`, `events`). Every typed method is also
+//! a named operation. See `docs/integrations/microsoft.md`.
+
+mod client;
+pub mod models;
+mod operations;
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -19,6 +24,8 @@ use socketkit_core::{
     identity_operation, resolve_input, resolve_operation, to_output,
 };
 use url::Url;
+
+pub use client::{Calendars, Events};
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "microsoft";
@@ -314,6 +321,16 @@ impl Microsoft {
         self
     }
 
+    /// The account's calendars.
+    pub fn calendars<'a>(&self, connection: &'a Connection) -> Calendars<'a> {
+        Calendars(client::Api { connection })
+    }
+
+    /// Events in a calendar, the answers to them, and when people are free.
+    pub fn events<'a>(&self, connection: &'a Connection) -> Events<'a> {
+        Events(client::Api { connection })
+    }
+
     fn error(&self, kind: ErrorKind, message: impl Into<String>) -> Error {
         Error::new(kind, message).with_provider(self.spec.id.clone())
     }
@@ -409,9 +426,6 @@ const ADMIN_CONSENT_REQUIRED: [u64; 2] = [90094, 90095];
 /// expired. Reconnecting does not fix it, and for many Graph permissions only
 /// an administrator can.
 fn awaiting_consent(provider: &ProviderId, response: &RawResponse) -> Option<Error> {
-    if (200..300).contains(&response.status) {
-        return None;
-    }
     let code = response.body["error_codes"]
         .as_array()
         .into_iter()
@@ -471,10 +485,12 @@ impl Integration for Microsoft {
     }
 
     fn operations(&self) -> Vec<OperationInfo> {
-        vec![
+        let mut operations = vec![
             identity_operation(&self.spec.id),
             resolve_operation(&self.spec.id, "a OneDrive or SharePoint sharing link"),
-        ]
+        ];
+        operations.extend(operations::all().iter().map(|operation| operation.info.clone()));
+        operations
     }
 
     async fn invoke(&self, connection: Connection, operation: String, input: Value) -> Result<Value> {
@@ -482,10 +498,13 @@ impl Integration for Microsoft {
         match operation.strip_prefix(&format!("{id}.")) {
             Some("identity.get") => to_output(id, &self.identity(&connection).await?),
             Some("resource.resolve") => to_output(id, &self.resolve(&connection, &resolve_input(id, &input)?).await?),
-            _ => Err(self.error(
-                ErrorKind::Unsupported,
-                format!("microsoft has no operation {operation:?}"),
-            )),
+            _ => match operations::all().iter().find(|known| known.info.name == operation) {
+                Some(known) => known.run(self.clone(), connection, input).await,
+                None => Err(self.error(
+                    ErrorKind::Unsupported,
+                    format!("microsoft has no operation {operation:?}"),
+                )),
+            },
         }
     }
 

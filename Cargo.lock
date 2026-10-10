@@ -1197,7 +1197,10 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "schemars",
+ "serde",
  "serde_json",
+ "serde_path_to_error",
  "socketkit-core",
  "socketkit-testkit",
  "tokio",
