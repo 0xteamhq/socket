@@ -114,6 +114,9 @@ impl Mail<'_> {
 
     /// Marks a message: read or unread, its categories, its follow-up flag.
     pub async fn update(&self, message: &str, changes: UpdateMessage) -> Result<Message> {
+        if changes.flag.as_ref().is_some_and(|flag| flag.flag_status.is_none()) {
+            return Err(self.0.error(ErrorKind::InvalidInput, "a flag needs `flagStatus`"));
+        }
         let path = self.item(message)?;
         let body = self.0.send(self.patch(path, with(json!({}), &changes))?).await?;
         self.message(body)

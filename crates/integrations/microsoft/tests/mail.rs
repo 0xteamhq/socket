@@ -35,6 +35,12 @@ async fn a_list_reads_the_whole_mailbox_or_one_folder() {
     assert_eq!(request.url.path(), "/v1.0/me/messages");
     assert_eq!(query_of(&request), json!({}), "Graph's own defaults apply");
 
+    // A filter, a sort or a search with nothing in it is none at all.
+    let (server, socket, key) = answering(200, json!({ "value": [] })).await;
+    let blank = json!({ "filter": "  ", "orderBy": " ", "search": "" });
+    invoke(&socket, &key, "mail.list", blank).await.unwrap();
+    assert_eq!(query_of(&only_request(&server).await), json!({}));
+
     for (folder, sent) in [
         ("sentitems", "/v1.0/me/mailFolders/sentitems/messages"),
         ("AAMkAGI2=", "/v1.0/me/mailFolders/AAMkAGI2%3D/messages"),
@@ -342,14 +348,28 @@ async fn mail_that_could_not_arrive_or_would_arrive_empty_is_refused_before_grap
             json!({ "subject": "Monday", "body": text("x"), "toRecipients": [] }),
         ),
         ("mail.create_forward", json!({ "message": "msg-1", "comment": "FYI" })),
+        // Nothing to say. A draft may be empty; what is sent at once may not.
+        ("mail.reply", json!({ "message": "msg-1" })),
+        (
+            "mail.reply",
+            json!({ "message": "msg-1", "ccRecipients": to("alan@contoso.example") }),
+        ),
+        ("mail.reply", json!({ "message": "msg-1", "comment": "  " })),
+        ("mail.send", json!({ "toRecipients": to("grace@contoso.example") })),
+        (
+            "mail.send",
+            json!({ "toRecipients": to("grace@contoso.example"), "subject": " ", "importance": "high" }),
+        ),
+        // A flag that says nothing.
+        ("mail.update", json!({ "message": "msg-1", "flag": {} })),
         // A recipient with no address, wherever it is.
         (
             "mail.send",
-            json!({ "toRecipients": [{ "emailAddress": { "name": "Grace" } }] }),
+            json!({ "subject": "x", "toRecipients": [{ "emailAddress": { "name": "Grace" } }] }),
         ),
         (
             "mail.send",
-            json!({ "toRecipients": to("grace@contoso.example"), "ccRecipients": [{}] }),
+            json!({ "subject": "x", "toRecipients": to("grace@contoso.example"), "ccRecipients": [{}] }),
         ),
         (
             "mail.create_draft",
@@ -361,7 +381,7 @@ async fn mail_that_could_not_arrive_or_would_arrive_empty_is_refused_before_grap
         ),
         (
             "mail.reply",
-            json!({ "message": "msg-1", "toRecipients": [{ "emailAddres": { "address": "grace@contoso.example" } }] }),
+            json!({ "message": "msg-1", "comment": "x", "toRecipients": [{ "emailAddress": { "address": "" } }] }),
         ),
         // A body with no content would blank the text.
         ("mail.update_draft", json!({ "message": "msg-9", "body": {} })),
@@ -402,6 +422,55 @@ async fn mail_that_could_not_arrive_or_would_arrive_empty_is_refused_before_grap
         assert!(err.message().contains(field), "{name}: {}", err.message());
     }
     assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn mail_can_go_to_people_in_copy_alone_and_with_only_a_subject_or_only_a_body() {
+    for input in [
+        json!({ "subject": "FYI", "ccRecipients": to("alan@contoso.example") }),
+        json!({ "subject": "FYI", "bccRecipients": to("alan@contoso.example") }),
+        json!({ "body": text("See you Monday."), "toRecipients": to("grace@contoso.example") }),
+    ] {
+        let (server, socket, key) = answering(202, json!(null)).await;
+        invoke(&socket, &key, "mail.send", input.clone()).await.unwrap();
+        assert_eq!(body_of(&only_request(&server).await), json!({ "message": input }));
+    }
+}
+
+#[tokio::test]
+async fn attachments_and_folders_are_paged_like_every_other_list() {
+    let page = json!({ "value": [{ "id": "x-1", "name": "plan.pdf", "displayName": "Projects" }] });
+    for (name, input, path, first_query) in [
+        (
+            "mail.attachments_list",
+            json!({ "message": "msg-1" }),
+            "/v1.0/me/messages/msg-1/attachments",
+            json!({ "$select": "id,name,contentType,size,isInline,lastModifiedDateTime", "$top": "5" }),
+        ),
+        (
+            "mail_folders.list",
+            json!({ "parent": "inbox" }),
+            "/v1.0/me/mailFolders/inbox/childFolders",
+            json!({ "$top": "5" }),
+        ),
+    ] {
+        let (server, socket, key) = answering(200, page.clone()).await;
+        let mut first = input.clone();
+        first["limit"] = json!(5);
+        invoke(&socket, &key, name, first).await.unwrap();
+        let request = only_request(&server).await;
+        assert_eq!(request.url.path(), path, "{name}");
+        assert_eq!(query_of(&request), first_query, "{name}");
+
+        server.reset().await;
+        Mock::given(any()).respond_with(answer(200, &page)).mount(&server).await;
+        let mut next = input.clone();
+        next["cursor"] = json!(format!("{}{path}?%24skip=5&%24top=5", server.uri()));
+        invoke(&socket, &key, name, next).await.unwrap();
+        let request = only_request(&server).await;
+        assert_eq!(request.url.path(), path, "{name}");
+        assert_eq!(request.url.query(), Some("%24skip=5&%24top=5"), "{name}");
+    }
 }
 
 #[tokio::test]
@@ -459,7 +528,7 @@ async fn graphs_refusals_of_mail_reach_the_caller() {
                 "The specified object was not found in the store.",
             ),
             ErrorKind::NotFound,
-            "",
+            "has no such resource",
         ),
         (
             graph_error(

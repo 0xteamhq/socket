@@ -40,6 +40,87 @@ fn invalid(message: String) -> Error {
     Error::new(ErrorKind::InvalidInput, message)
 }
 
+/// `schema` with every object in it closed: a field it does not list is not
+/// allowed. The schema then says what [`unknown_field`] enforces.
+fn closed(mut schema: Value) -> Value {
+    fn close(node: &mut Value) {
+        match node {
+            Value::Object(fields) => {
+                if fields.contains_key("properties") {
+                    fields.insert("additionalProperties".to_owned(), Value::Bool(false));
+                }
+                fields.values_mut().for_each(close);
+            }
+            Value::Array(items) => items.iter_mut().for_each(close),
+            _ => {}
+        }
+    }
+    close(&mut schema);
+    schema
+}
+
+/// Where in `input` the first field is that the schema at `node` does not
+/// list, and that field's name.
+///
+/// A field that is not known would be dropped in silence, with what it said:
+/// a subject, a zone, the people in copy. The input types cannot refuse one
+/// themselves, because their options are flattened into one object.
+fn unknown_field(root: &Value, node: &Value, input: &Value) -> Option<(String, String)> {
+    // The schema of an object or a list, behind a reference or beside `null`.
+    let mut node = node;
+    for _ in 0..8 {
+        let defined = node["$ref"].as_str().and_then(|name| name.strip_prefix("#/$defs/"));
+        let optional = node["anyOf"]
+            .as_array()
+            .and_then(|arms| arms.iter().find(|arm| arm["type"] != "null"));
+        match (defined, optional) {
+            (Some(name), _) => node = &root["$defs"][name],
+            (None, Some(arm)) => node = arm,
+            (None, None) => break,
+        }
+    }
+    let within = |place: String, (inner, name): (String, String)| {
+        let joint = if inner.is_empty() || inner.starts_with('[') {
+            ""
+        } else {
+            "."
+        };
+        (format!("{place}{joint}{inner}"), name)
+    };
+    match input {
+        Value::Object(fields) => {
+            let known = node["properties"].as_object()?;
+            fields.iter().find_map(|(name, value)| match known.get(name) {
+                None => Some((String::new(), name.clone())),
+                Some(schema) => unknown_field(root, schema, value).map(|found| within(name.clone(), found)),
+            })
+        }
+        Value::Array(items) => {
+            let schema = node.get("items")?;
+            items
+                .iter()
+                .enumerate()
+                .find_map(|(at, item)| unknown_field(root, schema, item).map(|found| within(format!("[{at}]"), found)))
+        }
+        _ => None,
+    }
+}
+
+/// The refusal for a field that is not known. Its name is the caller's own
+/// text, so it is repeated only when it looks like a name.
+fn not_a_field((place, name): (String, String)) -> Error {
+    let named = (1..=40).contains(&name.len())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '@' | '.' | '-'));
+    let joint = if place.is_empty() { "" } else { "." };
+    invalid(match (named, place.is_empty()) {
+        (true, _) => format!("`{place}{joint}{name}` is not a field of this operation; check its spelling"),
+        (false, true) => "the input has a field this operation does not know".to_owned(),
+        (false, false) => format!("`{place}` has a field this operation does not know"),
+    })
+}
+
 /// Builds an operation from a typed handler. The input type gives the input
 /// schema and the parsing; the output type gives the output schema.
 fn operation<I, O, F, Fut>(name: &str, description: &str, effect: Effect, scopes: &[&str], handler: F) -> Operation
@@ -52,13 +133,17 @@ where
     let info = OperationInfo {
         name: format!("microsoft.{name}"),
         description: description.to_owned(),
-        input_schema: schema_of::<I>(),
+        input_schema: closed(schema_of::<I>()),
         output_schema: schema_of::<O>(),
         effect,
         required_scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
     };
+    let schema = info.input_schema.clone();
     let run = move |microsoft: Microsoft, connection: Connection, input: Value| -> Running {
         let provider = connection.provider().id.clone();
+        if let Some(found) = unknown_field(&schema, &schema, &input) {
+            return Box::pin(std::future::ready(Err(not_a_field(found).with_provider(provider))));
+        }
         match serde_path_to_error::deserialize::<_, I>(input) {
             Err(e) => {
                 // serde's own message quotes the offending value, which may be

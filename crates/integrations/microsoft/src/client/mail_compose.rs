@@ -10,6 +10,11 @@ use super::mail::Mail;
 use super::with;
 use crate::models::{DraftMessage, Message, ReplyContent, SendMail};
 
+/// Whether there is any text in what was given.
+fn said(text: Option<&str>) -> bool {
+    text.is_some_and(|text| !text.trim().is_empty())
+}
+
 impl Mail<'_> {
     /// Saves a new message in Drafts. Nothing is sent.
     pub async fn create_draft(&self, draft: DraftMessage) -> Result<Message> {
@@ -59,6 +64,13 @@ impl Mail<'_> {
                 .0
                 .error(ErrorKind::InvalidInput, "a message needs at least one recipient"));
         }
+        // A draft may be empty. What is sent at once, and cannot be taken
+        // back, has to say something.
+        if !said(message.subject.as_deref()) && message.body.is_none() {
+            return Err(self
+                .0
+                .error(ErrorKind::InvalidInput, "a message needs a `subject` or a `body`"));
+        }
         let mut body = json!({ "message": self.draft(message)? });
         if let Some(keep) = mail.save_to_sent_items {
             body["saveToSentItems"] = json!(keep);
@@ -77,6 +89,11 @@ impl Mail<'_> {
     /// Replies to the sender of a message, and sends the reply at once. It
     /// cannot be taken back.
     pub async fn reply(&self, message: &str, reply: ReplyContent) -> Result<()> {
+        if !said(reply.comment.as_deref()) && reply.message.body.is_none() {
+            return Err(self
+                .0
+                .error(ErrorKind::InvalidInput, "a reply needs a `comment` or a `body`"));
+        }
         let request = RawRequest::post(format!("{}/reply", self.item(message)?), self.answer(&reply)?);
         self.0.send(request).await.map(drop)
     }

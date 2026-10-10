@@ -950,6 +950,118 @@ async fn input_of_the_wrong_shape_is_refused_by_name_without_calling_graph() {
 }
 
 #[tokio::test]
+async fn a_field_the_operation_does_not_know_is_refused_and_named() {
+    // A key that is not known would be dropped without a word, and what it
+    // said with it: a subject, a zone, the people in copy, "keep no copy".
+    // For mail and invitations that is the difference between what was meant
+    // and what was sent.
+    let (server, socket, key) = answering(202, json!(null)).await;
+    let times = (at("2026-10-12T16:00:00"), at("2026-10-12T17:00:00"));
+    let grace = to("grace@contoso.example");
+    for (name, input, field) in [
+        // Another way of writing a known field.
+        (
+            "mail.reply",
+            json!({ "message": "msg-1", "Comment": "hello" }),
+            "Comment",
+        ),
+        (
+            "mail.reply",
+            json!({ "message": "msg-1", "comment": "hi", "cc": grace.clone() }),
+            "cc",
+        ),
+        (
+            "mail.send",
+            json!({ "subject": "x", "toRecipients": grace.clone(), "save_to_sent_items": false }),
+            "save_to_sent_items",
+        ),
+        (
+            "mail.send",
+            json!({ "Subject": "x", "body": { "content": "y" }, "toRecipients": grace.clone() }),
+            "Subject",
+        ),
+        // Graph's own shape for sending, which is not this operation's.
+        (
+            "mail.send",
+            json!({ "message": { "subject": "x", "toRecipients": grace.clone() }, "saveToSentItems": false }),
+            "message",
+        ),
+        (
+            "events.list_between",
+            json!({ "start": "2026-10-12", "end": "2026-10-19", "calendarId": "cal-1" }),
+            "calendarId",
+        ),
+        ("mail.list", json!({ "top": 5 }), "top"),
+        ("calendars.list", json!({ "$top": 5 }), "$top"),
+        ("events.get", json!({ "event": "evt-1", "select": "subject" }), "select"),
+        // The same below the top, where it is said in which field.
+        (
+            "mail.send",
+            json!({ "subject": "x", "toRecipients": grace.clone(), "body": { "content": "<b>x</b>", "content_type": "html" } }),
+            "body.content_type",
+        ),
+        (
+            "mail.create_draft",
+            json!({ "toRecipients": [{ "emailAddress": { "address": "grace@contoso.example" } }, { "emailAddres": {} }] }),
+            "toRecipients[1].emailAddres",
+        ),
+        (
+            "events.create",
+            json!({ "start": times.0.clone(), "end": times.1.clone(), "attendees": [{ "emailAddress": { "address": "a@contoso.example", "displayName": "A" } }] }),
+            "attendees[0].emailAddress.displayName",
+        ),
+        (
+            "events.update",
+            json!({ "event": "evt-1", "start": { "dateTime": "2026-10-12T16:00:00", "timeZone": "UTC", "offset": "-08:00" } }),
+            "start.offset",
+        ),
+        (
+            "events.find_meeting_times",
+            json!({ "timeConstraint": { "timeslots": [{ "start": times.0.clone(), "end": times.1.clone() }] } }),
+            "timeConstraint.timeslots",
+        ),
+        (
+            "mail.update",
+            json!({ "message": "msg-1", "flag": { "flag_status": "flagged" } }),
+            "flag.flag_status",
+        ),
+    ] {
+        let err = invoke(&socket, &key, name, input.clone()).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{name} {input}: {err}");
+        assert!(
+            err.message().contains(&format!("`{field}`")),
+            "{name}: the field is named: {}",
+            err.message()
+        );
+    }
+
+    // The name of a field is the caller's own text. One that does not look
+    // like a name is not repeated, and neither is any value.
+    for input in [
+        json!({ "event": "evt-1", "my password is hunter2": true }),
+        json!({ "event": "evt-1", "x": "hunter2", "a-very-long-key-that-goes-on-and-on-and-on-well-past-forty-characters": 1 }),
+    ] {
+        let err = invoke(&socket, &key, "events.get", input).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert!(!err.message().contains("hunter2"), "{}", err.message());
+        assert!(!err.message().contains("past-forty"), "{}", err.message());
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+
+    // What the schema says is what is enforced.
+    for operation in Microsoft::new().operations() {
+        if operation.name.ends_with("identity.get") || operation.name.ends_with("resource.resolve") {
+            continue;
+        }
+        assert_eq!(
+            operation.input_schema["additionalProperties"], false,
+            "{}",
+            operation.name
+        );
+    }
+}
+
+#[tokio::test]
 async fn values_that_cannot_work_are_refused_before_graph_is_called() {
     let (server, socket, key) = answering(200, event()).await;
     let times = (at("2026-10-12T16:00:00"), at("2026-10-12T17:00:00"));
@@ -1051,7 +1163,7 @@ async fn graphs_refusals_reach_the_caller_as_errors_they_can_act_on() {
                 "The specified object was not found in the store.",
             ),
             ErrorKind::NotFound,
-            "",
+            "has no such resource",
         ),
         (
             graph_error(
@@ -1075,7 +1187,7 @@ async fn graphs_refusals_reach_the_caller_as_errors_they_can_act_on() {
         (
             graph_error(401, "InvalidAuthenticationToken", "Access token has expired."),
             ErrorKind::ReconnectRequired,
-            "",
+            "rejected the stored authorization",
         ),
     ] {
         let (server, socket, key) = microsoft().await;

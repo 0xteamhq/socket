@@ -221,9 +221,9 @@ Reading needs `Mail.Read`; drafts and changes need `Mail.ReadWrite`; `send`, `se
 
 **Replying.** `ReplyContent` is a `comment`, a few words above the quoted message, or the fields of the reply itself, such as a whole `body` or more recipients. Give `comment` or `body`, not both: Graph refuses the two together, and so does Socket. A forward takes the people it goes to from `toRecipients` and is refused without any.
 
-**Sending cannot be taken back.** `send` sends a message at once and needs at least one recipient. `send_draft` sends a draft as it stands. `reply` answers the sender at once. Graph answers "accepted", which means it took the message, not that it was delivered. A copy is kept in Sent Items unless `saveToSentItems` is `false`.
+**Sending cannot be taken back.** `send` sends a message at once; it needs at least one recipient, and a `subject` or a `body`. `send_draft` sends a draft as it stands. `reply` answers the sender at once, and needs a `comment` or a `body`. A draft may be empty; what is sent at once may not. Graph answers "accepted", which means it took the message, not that it was delivered. A copy is kept in Sent Items unless `saveToSentItems` is `false`.
 
-**Marking.** `update` sets `isRead`, `categories` (the whole list) and `flag`.
+**Marking.** `update` sets `isRead`, `categories` (the whole list) and `flag`, whose `flagStatus` is `notFlagged`, `flagged` or `complete`.
 
 **Moving changes the id.** `move_to` puts a message in another folder, `deleteditems` included, and returns it under a new id. The id you passed no longer finds it, so use the one that comes back.
 
@@ -337,7 +337,9 @@ The same rule marks four mail operations `destructive` that could be read as wri
 | `Unexpected` | Graph failed. On a 503 that states a wait, `retry()` carries it | Try again later |
 | `Decode` | Graph answered success without what was asked for, or with something that could not be read | Report it; this should not happen |
 
-An input error never repeats the value you sent. It names the field when a required one is missing or a plain argument has the wrong type; for a wrong type inside the options it says only that a field has the wrong type. Keys that are not known are ignored, as they are for every provider, so check the spelling of an optional field that seems to have no effect. An answer that cannot be read is reported the same way: the error says where the unreadable value was, and neither its message nor its cause carries anything from the calendar.
+An input error never repeats the value you sent. It names the field when a required one is missing or a plain argument has the wrong type; for a wrong type inside the options it says only that a field has the wrong type.
+
+**A field the operation does not know is refused**, at any depth, and named: `body.content_type`, `toRecipients[1].emailAddres`. Other providers ignore such a field; here it is refused, because a dropped field takes what it said with it: a subject, a time zone, the people in copy, "keep no copy". Each operation's input schema says the same, with `additionalProperties: false`. This applies to an operation called by name; the typed methods take structs, where a misspelt field does not compile. An answer that cannot be read is reported the same way: the error says where the unreadable value was, and neither its message nor its cause carries anything from the calendar.
 
 A request sent as GET is retried on a throttle or a server error. Creating, changing, answering and cancelling are sent again in only two cases, both of which mean Graph did not carry them out: Graph throttled the request, or Graph rejected the access token and Socket renewed it to a different one. **If one of them fails with a server error, check before sending it again**; when creating, a `transactionId` of your own makes a second try safe, because Graph does not create a second event for one it has seen. The two reads sent as POST are not retried after a server error either.
 

@@ -33,8 +33,6 @@ pub struct FindMeetingTimes {
 pub struct TimeConstraint {
     /// `work` (working hours, the default), `personal`, or `unrestricted`.
     pub activity_domain: Option<String>,
-    // Graph's own pages spell this both ways.
-    #[serde(alias = "timeslots")]
     pub time_slots: Vec<TimeSlot>,
 }
 
