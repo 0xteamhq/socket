@@ -1,0 +1,72 @@
+crates/integrations/microsoft/src/models/attachment.rs
+  s_dbbe1dc13eabf1::t_a100e1a73a82f2 1-33
+crates/facade/tests/features.rs
+  s_dbbe1dc13eabf1::t_66eb47335bb77c 49
+crates/integrations/microsoft/src/models/mod.rs
+  s_dbbe1dc13eabf1::t_a100e1a73a82f2 18-20,33-39
+  s_dbbe1dc13eabf1::t_da4c27962e2571 12,24
+crates/integrations/microsoft/src/client/mail.rs
+  s_dbbe1dc13eabf1::t_14d112bea02def 1-36,48-103,107,111-126,131-136,141-158,162-173
+  s_dbbe1dc13eabf1::t_da4c27962e2571 37-47,104-106,108-110,127-130,137-140,159-161
+crates/integrations/microsoft/src/client/mail_folders.rs
+  s_dbbe1dc13eabf1::t_14d112bea02def 1-40
+crates/integrations/microsoft/tests/operations.rs
+  s_dbbe1dc13eabf1::t_886089513c99f3 207
+  s_dbbe1dc13eabf1::t_67482f4688b23d 6,17-18,159-184,186-190,192-202,204-206,208-209,211-218,221-225,231,244,249,326-348,350,360
+  s_dbbe1dc13eabf1::t_ac5eb88db5135e 12,15-16,19,89,288-289
+crates/integrations/microsoft/src/client/events.rs
+  s_dbbe1dc13eabf1::t_14d112bea02def 9,132,150
+crates/integrations/microsoft/src/lib.rs
+  s_dbbe1dc13eabf1::t_da4c27962e2571 6,28,334-342
+  s_dbbe1dc13eabf1::t_41737c316b0431 343
+docs/roadmap.md
+  s_dbbe1dc13eabf1::t_66eb47335bb77c 48-49
+crates/integrations/microsoft/src/operations.rs
+  s_dbbe1dc13eabf1::t_da4c27962e2571 20-22,171-213,215-231,234-235,276-299,301-316
+  s_dbbe1dc13eabf1::t_c37c2cd5ce6fab 214,300
+crates/integrations/microsoft/src/models/event.rs
+  s_dbbe1dc13eabf1::t_a100e1a73a82f2 8
+crates/integrations/microsoft/src/models/item_body.rs
+  s_dbbe1dc13eabf1::t_a100e1a73a82f2 1-31
+crates/integrations/microsoft/src/models/folder.rs
+  s_dbbe1dc13eabf1::t_a100e1a73a82f2 1-37
+crates/integrations/microsoft/tests/support/mod.rs
+  s_dbbe1dc13eabf1::t_67482f4688b23d 111-161
+  s_dbbe1dc13eabf1::t_ac5eb88db5135e 1-110
+docs/integrations/microsoft.md
+  s_dbbe1dc13eabf1::t_66eb47335bb77c 5,168-242,284-285,303-320,326-327,344-346,370-378,397-404,411-415
+crates/integrations/microsoft/src/models/email_address.rs
+  s_dbbe1dc13eabf1::t_a100e1a73a82f2 34-42
+crates/integrations/microsoft/tests/mail.rs
+  s_dbbe1dc13eabf1::t_ba1f9e52403502 1-130,132-153,155-195,197-203,205-240,244-283,289-407,412-416,420-606
+  s_dbbe1dc13eabf1::t_da4c27962e2571 131,154,196,204,241-243,284-288
+  s_dbbe1dc13eabf1::t_886089513c99f3 408-411,417-419
+crates/integrations/microsoft/src/models/message.rs
+  s_dbbe1dc13eabf1::t_a100e1a73a82f2 1-156
+crates/integrations/microsoft/src/client/mod.rs
+  s_dbbe1dc13eabf1::t_14d112bea02def 15-17,27-28,30,146-158,160-162
+  s_dbbe1dc13eabf1::t_da4c27962e2571 159
+  s_dbbe1dc13eabf1::t_fd281917bc2634 163
+README.md
+  s_dbbe1dc13eabf1::t_66eb47335bb77c 55,161
+crates/integrations/microsoft/src/client/mail_compose.rs
+  s_dbbe1dc13eabf1::t_886089513c99f3 71-73
+  s_dbbe1dc13eabf1::t_14d112bea02def 1-15,20-45,48-57,61-70,74-124
+  s_dbbe1dc13eabf1::t_da4c27962e2571 16-19,46-47,58-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "17ba3b912e3e5efbcd2bb774dd24013f2d67ae31",
+  "prompts": {},
+  "sessions": {
+    "s_dbbe1dc13eabf1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a613a42-f563-420a-9c41-cee8bd04b5b1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
