@@ -12,6 +12,7 @@ fn main() -> Result<()> {
         .integration(Arc::new(socketkit::github::GitHub::new()))
         .integration(Arc::new(socketkit::google::Google::new()))
         .integration(Arc::new(socketkit::linear::Linear::new()))
+        .integration(Arc::new(socketkit::microsoft::Microsoft::new()))
         .integration(Arc::new(socketkit::notion::Notion::new()))
         .integration(Arc::new(socketkit::slack::Slack::new()))
         .integration(Arc::new(socketkit::zoom::Zoom::new()))

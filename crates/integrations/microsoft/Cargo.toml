@@ -1,0 +1,27 @@
+[package]
+name = "socketkit-microsoft"
+description = "Socket integration for Microsoft Graph."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[package.metadata.socketkit]
+tier = "unreleased"
+owner = "Vasanth"
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+serde_json.workspace = true
+socketkit-core.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+socketkit-testkit.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

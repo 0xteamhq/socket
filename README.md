@@ -50,7 +50,7 @@ socket/
 
 | Crate | Purpose |
 | --- | --- |
-| `socketkit` | What an application depends on. One feature per provider: `github`, `google`, `linear`, `notion`, `slack`, `zoom`. |
+| `socketkit` | What an application depends on. One feature per provider: `github`, `google`, `linear`, `microsoft`, `notion`, `slack`, `zoom`. |
 | `socketkit-core` | Providers, the token store interface, the HTTP transport, OAuth, refresh, and call-by-name. |
 | `socketkit-<provider>` | The provider's definition, plus operations (`identity.get`, `resource.resolve`, and for Slack its full typed API). |
 | `socketkit-testkit` | A local test server and the conformance checks every provider must pass. |
@@ -158,8 +158,9 @@ Keep the pending record tied to the session of the person who started the flow, 
 | Notion | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Google | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Zoom | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
+| Microsoft | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 
-All six support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
+All seven support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
 
 ## How breadth grows
 

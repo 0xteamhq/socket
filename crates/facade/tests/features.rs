@@ -17,28 +17,33 @@ fn the_slack_feature_exposes_the_slack_crate() {
     feature = "github",
     feature = "google",
     feature = "linear",
+    feature = "microsoft",
     feature = "notion",
     feature = "slack",
     feature = "zoom"
 ))]
 #[test]
-fn all_six_integrations_register_together_and_each_offers_identity_and_lookup() {
+fn all_seven_integrations_register_together_and_each_offers_identity_and_lookup() {
     use std::sync::Arc;
 
     let socket = socketkit::Socket::builder(Arc::new(socketkit::MemoryTokenStore::new()))
         .integration(Arc::new(socketkit::github::GitHub::new()))
         .integration(Arc::new(socketkit::google::Google::new()))
         .integration(Arc::new(socketkit::linear::Linear::new()))
+        .integration(Arc::new(socketkit::microsoft::Microsoft::new()))
         .integration(Arc::new(socketkit::notion::Notion::new()))
         .integration(Arc::new(socketkit::slack::Slack::new()))
         .integration(Arc::new(socketkit::zoom::Zoom::new()))
         .build()
         .unwrap();
     let ids: Vec<String> = socket.providers().into_iter().map(|p| p.id.to_string()).collect();
-    assert_eq!(ids, ["github", "google", "linear", "notion", "slack", "zoom"]);
+    assert_eq!(
+        ids,
+        ["github", "google", "linear", "microsoft", "notion", "slack", "zoom"]
+    );
     let names: Vec<String> = socket.operations().into_iter().map(|o| o.name).collect();
     // Every integration has these two; Slack has its full set besides.
-    assert!(names.len() >= 12);
+    assert!(names.len() >= 14);
     assert!(names.contains(&"slack.chat.post_message".to_owned()));
     for id in &ids {
         assert!(names.contains(&format!("{id}.identity.get")), "{id}");
@@ -82,6 +87,7 @@ fn connection_details_are_given_to_each_integration() {
     feature = "github",
     feature = "google",
     feature = "linear",
+    feature = "microsoft",
     feature = "notion",
     feature = "slack",
     feature = "zoom"
@@ -105,6 +111,7 @@ mod every_integration {
             Arc::new(socketkit::github::GitHub::with_oauth(client("github"))),
             Arc::new(socketkit::google::Google::with_oauth(client("google"))),
             Arc::new(socketkit::linear::Linear::with_oauth(client("linear"))),
+            Arc::new(socketkit::microsoft::Microsoft::with_oauth(client("microsoft"))),
             Arc::new(socketkit::notion::Notion::with_oauth(client("notion"))),
             Arc::new(socketkit::slack::Slack::with_oauth(client("slack"))),
             Arc::new(socketkit::zoom::Zoom::with_oauth(client("zoom"))),
@@ -135,6 +142,7 @@ mod every_integration {
             Arc::new(socketkit::github::GitHub::with_token("t-github")),
             Arc::new(socketkit::google::Google::with_token("t-google")),
             Arc::new(socketkit::linear::Linear::with_token("t-linear")),
+            Arc::new(socketkit::microsoft::Microsoft::with_token("t-microsoft")),
             Arc::new(socketkit::notion::Notion::with_token("t-notion")),
             Arc::new(socketkit::slack::Slack::with_token("t-slack")),
             Arc::new(socketkit::zoom::Zoom::with_token("t-zoom")),
@@ -217,6 +225,23 @@ mod every_integration {
         assert_eq!(param(&url, "hd").as_deref(), Some("acme.example"));
         assert_eq!(param(&url, "login_hint").as_deref(), Some("ada@acme.example"));
         assert_eq!(param(&url, "access_type").as_deref(), Some("offline"));
+    }
+
+    #[test]
+    fn microsoft_takes_a_tenant_a_login_hint_and_a_prompt_and_always_asks_for_a_refresh_token() {
+        let settings = socketkit::microsoft::MicrosoftOAuth {
+            client: client("microsoft"),
+            scopes: Some(vec!["Calendars.Read".into()]),
+            tenant: Some("contoso.onmicrosoft.com".into()),
+            login_hint: Some("ada@contoso.example".into()),
+            prompt: Some(socketkit::microsoft::Prompt::SelectAccount),
+        };
+        let url = authorize_url(Arc::new(socketkit::microsoft::Microsoft::with_oauth(settings)));
+        assert_eq!(url.host_str(), Some("login.microsoftonline.com"));
+        assert_eq!(url.path(), "/contoso.onmicrosoft.com/oauth2/v2.0/authorize");
+        assert_eq!(param(&url, "login_hint").as_deref(), Some("ada@contoso.example"));
+        assert_eq!(param(&url, "prompt").as_deref(), Some("select_account"));
+        assert_eq!(param(&url, "scope").as_deref(), Some("Calendars.Read offline_access"));
     }
 
     #[test]

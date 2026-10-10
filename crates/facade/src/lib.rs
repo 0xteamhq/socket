@@ -11,6 +11,8 @@ pub use socketkit_github as github;
 pub use socketkit_google as google;
 #[cfg(feature = "linear")]
 pub use socketkit_linear as linear;
+#[cfg(feature = "microsoft")]
+pub use socketkit_microsoft as microsoft;
 #[cfg(feature = "notion")]
 pub use socketkit_notion as notion;
 #[cfg(feature = "slack")]

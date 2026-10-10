@@ -18,6 +18,7 @@ socketkit-linear = { path = "crates/integrations/linear", version = "0.0.0" }
 socketkit-notion = { path = "crates/integrations/notion", version = "0.0.0" }
 socketkit-google = { path = "crates/integrations/google", version = "0.0.0" }
 socketkit-zoom = { path = "crates/integrations/zoom", version = "0.0.0" }
+socketkit-microsoft = { path = "crates/integrations/microsoft", version = "0.0.0" }
 async-trait = "0.1"
 base64 = "0.22"
 getrandom = "0.3"
