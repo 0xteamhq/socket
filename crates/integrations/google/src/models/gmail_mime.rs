@@ -158,13 +158,23 @@ impl Part {
         // would be blind to what a person may be shown, so the text is read
         // with the rest; and the part is listed among the attachments, so
         // that it can be seen that some of the text came marked as a file.
-        if kind.starts_with("multipart/") && self.attached() {
+        if self.marked_as_a_file() {
             let mut found = Found::default();
             self.leaf(&kind, &mut found);
             found.add(self.contents());
             return found;
         }
         self.contents()
+    }
+
+    /// Whether this is a part made of other parts that its sender marked as
+    /// a file.
+    fn marked_as_a_file(&self) -> bool {
+        let made_of_parts = self
+            .mime_type
+            .as_deref()
+            .is_some_and(|kind| kind.trim().to_ascii_lowercase().starts_with("multipart/"));
+        made_of_parts && self.attached()
     }
 
     /// Reads what this part holds, whatever it says of itself. The message
@@ -181,11 +191,20 @@ impl Part {
         if kind == "multipart/alternative" {
             // The same content in several forms, the plainest first. The
             // last form that has text is the text, and likewise for HTML.
-            for form in self.parts.iter().map(Part::found) {
+            // A part marked as a file is not one of the forms: what it holds
+            // is read after them, and never in place of what the message says.
+            let mut beside = Found::default();
+            for part in &self.parts {
+                if part.marked_as_a_file() {
+                    beside.add(part.found());
+                    continue;
+                }
+                let form = part.found();
                 found.text = form.text.or(found.text.take());
                 found.html = form.html.or(found.html.take());
                 found.attachments.extend(form.attachments);
             }
+            found.add(beside);
         } else if kind.starts_with("multipart/") {
             self.parts.iter().for_each(|part| found.add(part.found()));
         } else {
@@ -369,6 +388,40 @@ mod tests {
                 ("invoice.pdf", Some("application/pdf"))
             ]
         );
+    }
+
+    #[test]
+    fn a_part_marked_as_a_file_never_takes_the_place_of_what_the_message_says() {
+        // Among the forms of one message, the last that has text is the
+        // text. A part marked as a file is not a form of the message, so
+        // what it holds cannot stand in for the body a person is shown.
+        let mut marked = multipart(
+            "mixed",
+            json!([
+                part("text/plain", "Wire the money today."),
+                part("text/html", "<p>Wire the money today.</p>")
+            ]),
+        );
+        marked["headers"] = json!([{ "name": "content-disposition", "value": "attachment" }]);
+        let message = read(multipart(
+            "alternative",
+            json!([
+                part("text/plain", "Lunch on Friday?"),
+                part("text/html", "<p>Lunch on Friday?</p>"),
+                marked
+            ]),
+        ));
+        assert_eq!(message.text.as_deref(), Some("Lunch on Friday?\nWire the money today."));
+        assert_eq!(
+            message.html.as_deref(),
+            Some("<p>Lunch on Friday?</p>\n<p>Wire the money today.</p>")
+        );
+        assert_eq!(
+            message.attachments.len(),
+            1,
+            "and it is listed as the file it was marked as"
+        );
+        assert_eq!(message.attachments[0].mime_type.as_deref(), Some("multipart/mixed"));
     }
 
     #[test]
