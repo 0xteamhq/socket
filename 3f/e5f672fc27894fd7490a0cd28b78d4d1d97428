@@ -1,0 +1,90 @@
+crates/integrations/google/tests/support/drive.rs
+  s_8c98d26ded7b36::t_65b44baaf44226 99
+  s_8c98d26ded7b36::t_60380da671e5ba 109-112
+crates/integrations/google/src/models/calendar_freebusy.rs
+  s_8c98d26ded7b36::t_83c6e174d51cc7 50-51
+crates/integrations/google/src/models/calendar_conference.rs
+  s_8c98d26ded7b36::t_88c3d171c02e03 57-58
+crates/integrations/google/src/models/download.rs
+  s_8c98d26ded7b36::t_83c6e174d51cc7 13-15
+crates/integrations/google/tests/support/docs.rs
+  s_8c98d26ded7b36::t_65b44baaf44226 62,64
+crates/integrations/google/src/client/meet_conference_records.rs
+  s_8c98d26ded7b36::t_785b7fc709b5de 11,112,116
+crates/integrations/google/src/client/mod.rs
+  s_8c98d26ded7b36::t_88c3d171c02e03 173-174,197-208
+  s_8c98d26ded7b36::t_785b7fc709b5de 246-248,251,264,268,277-281,395,398
+crates/integrations/google/src/models/mod.rs
+  s_8c98d26ded7b36::t_785b7fc709b5de 107
+docs/integrations/google.md
+  s_8c98d26ded7b36::t_61327b2ca2e9e7 208
+  s_8c98d26ded7b36::t_60380da671e5ba 1004,1052
+crates/integrations/google/src/models/drive_export.rs
+  s_8c98d26ded7b36::t_65b44baaf44226 42
+crates/integrations/google/tests/operations.rs
+  s_8c98d26ded7b36::t_176c46e82572e3 618-625,723-776
+  s_8c98d26ded7b36::t_e567af9c7944c5 320
+  s_8c98d26ded7b36::t_045a33da276ee0 777
+crates/integrations/google/src/models/gmail_attachment.rs
+  s_8c98d26ded7b36::t_65b44baaf44226 61
+crates/integrations/google/src/client/calendar_events_write.rs
+  s_8c98d26ded7b36::t_f94288f3299a29 262-265
+  s_8c98d26ded7b36::t_83c6e174d51cc7 23-34
+  s_8c98d26ded7b36::t_88c3d171c02e03 266-271
+crates/integrations/google/src/models/gmail_address.rs
+  s_8c98d26ded7b36::t_65b44baaf44226 87-88
+  s_8c98d26ded7b36::t_176c46e82572e3 462-477
+  s_8c98d26ded7b36::t_07a8f387f95c5f 461
+crates/integrations/google/tests/gmail_attachments.rs
+  s_8c98d26ded7b36::t_176c46e82572e3 224-226
+crates/integrations/google/src/models/document_text.rs
+  s_8c98d26ded7b36::t_83c6e174d51cc7 292,296
+  s_8c98d26ded7b36::t_176c46e82572e3 729
+  s_8c98d26ded7b36::t_f94288f3299a29 293-295
+crates/integrations/google/tests/drive.rs
+  s_8c98d26ded7b36::t_176c46e82572e3 1737-1762
+crates/integrations/google/tests/docs.rs
+  s_8c98d26ded7b36::t_e567af9c7944c5 47-51,242-254
+  s_8c98d26ded7b36::t_5d2aa5b25878e7 668
+  s_8c98d26ded7b36::t_1b262ec27adad1 255-256
+crates/integrations/google/src/client/drive_files_change.rs
+  s_8c98d26ded7b36::t_88c3d171c02e03 83-89
+crates/integrations/google/src/models/gmail_words.rs
+  s_8c98d26ded7b36::t_65b44baaf44226 186-187
+  s_8c98d26ded7b36::t_05e39946dd074c 170-175,363-367
+  s_8c98d26ded7b36::t_110da14f1ec53c 368-370
+crates/integrations/google/src/models/meet_time.rs
+  s_8c98d26ded7b36::t_b3becb83752e5b 14-21,50,60-62,82,122-124
+  s_8c98d26ded7b36::t_785b7fc709b5de 109
+crates/integrations/google/src/models/gmail_mime.rs
+  s_8c98d26ded7b36::t_176c46e82572e3 196,322-344
+  s_8c98d26ded7b36::t_785b7fc709b5de 156-161,178-195
+  s_8c98d26ded7b36::t_72d9b5599a7937 197,321
+crates/integrations/google/src/models/gmail_label.rs
+  s_8c98d26ded7b36::t_65b44baaf44226 7-10
+crates/integrations/google/src/lib.rs
+  s_8c98d26ded7b36::t_83c6e174d51cc7 13-15
+crates/integrations/google/src/client/docs_documents.rs
+  s_8c98d26ded7b36::t_83c6e174d51cc7 38-42,81-82,84-85
+crates/integrations/google/tests/calendar.rs
+  s_8c98d26ded7b36::t_176c46e82572e3 1328,1760-1805
+  s_8c98d26ded7b36::t_1a2bee51723a11 1329-1345,1351,1401
+crates/integrations/google/tests/meet.rs
+  s_8c98d26ded7b36::t_176c46e82572e3 1118-1133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3fe5f672fc27894fd7490a0cd28b78d4d1d97428",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
