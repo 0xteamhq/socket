@@ -134,7 +134,10 @@ pub struct CreateTask {
 pub struct UpdateTask {
     /// When it is due, in ISO 8601. `null` removes the deadline; leaving
     /// this out leaves it as it is.
-    #[serde(default, deserialize_with = "given")]
+    ///
+    /// Left out when written, too, where it is unset: written as `null` it
+    /// would read back as "remove the deadline".
+    #[serde(default, deserialize_with = "given", skip_serializing_if = "Option::is_none")]
     pub deadline_at: Option<Value>,
     pub is_completed: Option<bool>,
     /// The records the task concerns, as the whole list.
@@ -147,4 +150,32 @@ pub struct UpdateTask {
 /// "set this to nothing" can be told from "leave this as it is".
 fn given<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<Value>, D::Error> {
     Value::deserialize(deserializer).map(Some)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_change_that_names_no_deadline_does_not_remove_one_when_it_is_written_and_read_back() {
+        let done = UpdateTask {
+            is_completed: Some(true),
+            ..UpdateTask::default()
+        };
+        let written = serde_json::to_value(&done).unwrap();
+        assert!(written.get("deadline_at").is_none(), "{written}");
+        let back: UpdateTask = serde_json::from_value(written).unwrap();
+        assert_eq!(back, done);
+        assert_eq!(back.deadline_at, None, "the deadline is left as it is");
+
+        // Removing the deadline is said with a null, and stays said.
+        let cleared: UpdateTask = serde_json::from_value(json!({ "deadline_at": null })).unwrap();
+        assert_eq!(cleared.deadline_at, Some(Value::Null));
+        let written = serde_json::to_value(&cleared).unwrap();
+        assert_eq!(written["deadline_at"], Value::Null);
+        assert!(written.as_object().unwrap().contains_key("deadline_at"));
+        assert_eq!(serde_json::from_value::<UpdateTask>(written).unwrap(), cleared);
+    }
 }

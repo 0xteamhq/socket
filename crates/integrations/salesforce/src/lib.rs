@@ -284,6 +284,37 @@ pub fn parse_record_reference(input: &str) -> Result<(String, String)> {
         })
 }
 
+/// The organisation a host is one of: what stands before
+/// `.my.salesforce.com`, where its API is, or before `.lightning.force.com`,
+/// where its records are opened. A sandbox has its own: `acme--uat.sandbox`.
+fn organisation_of(host: &str) -> Option<String> {
+    let host = host.trim().to_ascii_lowercase();
+    [".my.salesforce.com", ".lightning.force.com"]
+        .into_iter()
+        .find_map(|domain| host.strip_suffix(domain))
+        .filter(|own| !own.is_empty())
+        .map(str::to_owned)
+}
+
+/// Whether the link `input` is to a record of the organisation whose API is
+/// at `api_host`. `None` when there is nothing to compare: `input` is not a
+/// link, or `api_host` is not an organisation's host, as a test server's is not.
+///
+/// A record id is only an id within its organisation, and a sandbox copies
+/// the ids of production. Without this, a link to a production record would
+/// be answered with the sandbox's copy as though it were the record linked.
+fn links_to_organisation(api_host: &str, input: &str) -> Option<bool> {
+    let trimmed = input.trim();
+    if !trimmed.contains("://") {
+        return None;
+    }
+    let ours = organisation_of(api_host)?;
+    let linked = Url::parse(trimmed)
+        .ok()
+        .and_then(|link| link.host_str().and_then(organisation_of));
+    Some(linked.as_deref() == Some(ours.as_str()))
+}
+
 /// Where people sign in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoginHost {
@@ -621,6 +652,14 @@ impl Salesforce {
     /// Salesforce writes, so it can be used in a later request.
     pub async fn resolve(&self, connection: &Connection, input: &str) -> Result<Resource> {
         let (object, id) = parse_record_reference(input).map_err(|e| e.with_provider(self.spec.id.clone()))?;
+        let api_host = connection.api_base().host_str().unwrap_or_default().to_owned();
+        if links_to_organisation(&api_host, input) == Some(false) {
+            // The link is not repeated: it may carry more than the record.
+            return Err(self.error(
+                ErrorKind::InvalidInput,
+                "that link is to a record of another Salesforce organisation than the one connected; give the record as `Account/001…` to look that id up in the connected one",
+            ));
+        }
         let record = match self
             .records(connection)
             .get(&object, &id, models::GetRecord::default())
@@ -1027,6 +1066,50 @@ mod tests {
             assert_eq!(err.kind(), ErrorKind::InvalidInput, "{bad:?}");
             assert!(!err.message().contains("hunter2"), "{}", err.message());
         }
+    }
+
+    #[test]
+    fn a_link_is_to_the_connected_organisation_or_it_is_not_resolved_there() {
+        let link = |host: &str| format!("https://{host}/lightning/r/Account/001xx000003DGb2AAG/view");
+        let same = |api: &str, linked: &str| links_to_organisation(api, &link(linked));
+
+        assert_eq!(same("acme.my.salesforce.com", "acme.lightning.force.com"), Some(true));
+        assert_eq!(same("Acme.my.salesforce.com", "ACME.lightning.force.com"), Some(true));
+        assert_eq!(
+            same(
+                "acme--uat.sandbox.my.salesforce.com",
+                "acme--uat.sandbox.lightning.force.com"
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            same(
+                "acme-dev-ed.develop.my.salesforce.com",
+                "acme-dev-ed.develop.my.salesforce.com"
+            ),
+            Some(true),
+            "a link on the API's own host"
+        );
+        // A sandbox copies production's ids, so the two are told apart by host.
+        for (api, linked) in [
+            ("acme--uat.sandbox.my.salesforce.com", "acme.lightning.force.com"),
+            ("acme.my.salesforce.com", "acme--uat.sandbox.lightning.force.com"),
+            ("acme.my.salesforce.com", "globex.lightning.force.com"),
+            ("acme.my.salesforce.com", "acme.lightning.force.com.evil.example"),
+            ("acme.my.salesforce.com", "lightning.force.com"),
+            ("acme.my.salesforce.com", "evil.example"),
+        ] {
+            assert_eq!(same(api, linked), Some(false), "{api} {linked}");
+        }
+        // The short form names no organisation: it is the way to ask for an
+        // id in the connected one. A server that is not an organisation's,
+        // as in a test, has none to compare.
+        assert_eq!(
+            links_to_organisation("acme.my.salesforce.com", "Account/001xx000003DGb2AAG"),
+            None
+        );
+        assert_eq!(same("127.0.0.1", "acme.lightning.force.com"), None);
+        assert_eq!(same("login.salesforce.com", "acme.lightning.force.com"), None);
     }
 
     #[test]
