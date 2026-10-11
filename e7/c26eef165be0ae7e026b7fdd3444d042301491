@@ -1,0 +1,28 @@
+docs/integrations/google.md
+  s_8c98d26ded7b36::t_5015e562fe065e 5,706,1061
+docs/roadmap.md
+  s_8c98d26ded7b36::t_5015e562fe065e 64,66
+crates/integrations/google/src/lib.rs
+  s_8c98d26ded7b36::t_5015e562fe065e 435-436
+  s_8c98d26ded7b36::t_900342de7bcd73 116-121
+crates/integrations/google/tests/drive.rs
+  s_8c98d26ded7b36::t_900342de7bcd73 865-872
+README.md
+  s_8c98d26ded7b36::t_5015e562fe065e 160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e7c26eef165be0ae7e026b7fdd3444d042301491",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
