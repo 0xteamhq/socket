@@ -489,6 +489,12 @@ async fn an_export_google_refuses_says_why_in_words_a_caller_can_act_on() {
             ErrorKind::InvalidInput,
             too_large,
         ),
+        // The reason says it, however Google words the message.
+        (
+            google_error(403, "exportSizeLimitExceeded", "The export exceeds the maximum size."),
+            ErrorKind::InvalidInput,
+            too_large,
+        ),
         (
             google_error(403, "fileNotExportable", "Export only supports Docs Editors files."),
             ErrorKind::InvalidInput,

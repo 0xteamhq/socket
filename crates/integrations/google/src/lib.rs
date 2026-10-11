@@ -109,6 +109,12 @@ impl Classifier for GoogleClassifier {
                         .with_retry(Retry::Later),
                 )
             }
+            // Drive refuses an export over its limit with a 403, which would
+            // read as a missing permission. Its reason is what says otherwise.
+            403 if because(&["exportSizeLimitExceeded"]) => Err(error(
+                ErrorKind::InvalidInput,
+                "this file is too large to export: the limit is 10 MB of exported content".to_owned(),
+            )),
             // Not something that is gone: a list was asked for changes since
             // a time, or a point, that Google no longer keeps.
             410 if because(&["updatedMinTooLongAgo", "fullSyncRequired"]) => Err(error(
