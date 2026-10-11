@@ -16,7 +16,8 @@ mod support;
 use support::{
     ALL_KINDS, AS_TEXT, CHANNEL, CHAT, Case, IN_UTC, MEETING, MEETING_LINK, TRANSCRIPT, VTT, answer, answering,
     body_of, channel, chat, chat_message, chat_message_returned, contains, graph_error, invoke, meeting, member,
-    message, message_returned, microsoft, only_request, organizer, prefer, query_of, team, to, transcript,
+    message, message_in_chat, message_in_chat_returned, message_returned, microsoft, only_request, organizer, prefer,
+    query_of, team, to, transcript,
 };
 
 const JOIN_URL: &str = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0";
@@ -310,11 +311,11 @@ fn teams_cases() -> Vec<Case> {
         case("chats.members", json!({ "chat": CHAT }), "GET", "/chats/19%3Au-1_u-2%40unq.gbl.spaces/members", json!({}), json!(null), None, 200,
             json!({ "value": [member()] }), people.clone()),
         case("chats.messages", json!({ "chat": CHAT, "limit": 50 }), "GET", "/chats/19%3Au-1_u-2%40unq.gbl.spaces/messages", json!({ "$top": "50" }), json!(null), Some(ALL_KINDS), 200,
-            json!({ "value": [chat_message()] }), messages.clone()),
-        case("chats.message_get", json!({ "chat": CHAT, "message": "1616990032035" }), "GET", "/chats/19%3Au-1_u-2%40unq.gbl.spaces/messages/1616990032035", json!({}), json!(null), Some(ALL_KINDS), 200,
-            chat_message(), chat_message_returned()),
+            json!({ "value": [message_in_chat()] }), json!({ "items": [message_in_chat_returned()], "next_cursor": null })),
+        case("chats.message_get", json!({ "chat": CHAT, "message": "1616991463150" }), "GET", "/chats/19%3Au-1_u-2%40unq.gbl.spaces/messages/1616991463150", json!({}), json!(null), Some(ALL_KINDS), 200,
+            message_in_chat(), message_in_chat_returned()),
         case("chats.send", json!({ "chat": CHAT, "body": { "contentType": "text", "content": "On my way." } }), "POST", "/chats/19%3Au-1_u-2%40unq.gbl.spaces/messages", json!({}),
-            json!({ "body": { "contentType": "text", "content": "On my way." } }), Some(ALL_KINDS), 201, chat_message(), json!({ "id": "1616990032035" })),
+            json!({ "body": { "contentType": "text", "content": "On my way." } }), Some(ALL_KINDS), 201, message_in_chat(), json!({ "id": "1616991463150", "chatId": CHAT })),
         // Each member is named by the address of the user in this API.
         case("chats.create", json!({ "chatType": "oneOnOne", "members": ["u-1", "grace@contoso.example"] }), "POST", "/chats", json!({}),
             json!({ "chatType": "oneOnOne", "members": [bound("u-1"), bound("grace%40contoso.example")] }), None, 201, chat(), json!({ "id": CHAT, "chatType": "oneOnOne" })),

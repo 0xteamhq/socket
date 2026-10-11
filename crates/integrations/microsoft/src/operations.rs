@@ -585,17 +585,17 @@ fn build() -> Vec<Operation> {
             |m: Microsoft, c: Connection, i: JoinUrl| async move { m.online_meetings(&c).find_by_join_url(&i.join_url).await as Result<OnlineMeeting> }),
 
         // ── transcripts ──
-        operation("transcripts.list", "List a meeting's transcripts. Empty when transcription was never switched on.", Read, &["OnlineMeetingTranscript.Read.All"],
+        operation("transcripts.list", "List a meeting's transcripts. Empty when transcription was never switched on. Needs an administrator's consent.", Read, &["OnlineMeetingTranscript.Read.All"],
             |m: Microsoft, c: Connection, i: InMeeting| async move { m.transcripts(&c).list(&i.meeting, i.options).await as Result<Page<Transcript>> }),
-        operation("transcripts.get", "Get one transcript's details: when it was made, and by whose meeting.", Read, &["OnlineMeetingTranscript.Read.All"],
+        operation("transcripts.get", "Get one transcript's details: when it was made, and by whose meeting. Needs an administrator's consent.", Read, &["OnlineMeetingTranscript.Read.All"],
             |m: Microsoft, c: Connection, i: OneTranscript| async move { m.transcripts(&c).get(&i.meeting, &i.transcript).await as Result<Transcript> }),
-        operation("transcripts.content", "Read what was said in a meeting: the transcript's text, and one entry for each thing said with the speaker, the start and the end.", Read, &["OnlineMeetingTranscript.Read.All"],
+        operation("transcripts.content", "Read what was said in a meeting: the transcript's text, and one entry for each thing said with the speaker, the start and the end. Needs an administrator's consent.", Read, &["OnlineMeetingTranscript.Read.All"],
             |m: Microsoft, c: Connection, i: OneTranscript| async move { m.transcripts(&c).content(&i.meeting, &i.transcript).await as Result<TranscriptContent> }),
 
         // ── recordings ──
-        operation("recordings.list", "List a meeting's recordings. Empty when the meeting was not recorded.", Read, &["OnlineMeetingRecording.Read.All"],
+        operation("recordings.list", "List a meeting's recordings. Empty when the meeting was not recorded. Needs an administrator's consent.", Read, &["OnlineMeetingRecording.Read.All"],
             |m: Microsoft, c: Connection, i: InMeeting| async move { m.recordings(&c).list(&i.meeting, i.options).await as Result<Page<Recording>> }),
-        operation("recordings.get", "Get one recording's details, with the address its video is at.", Read, &["OnlineMeetingRecording.Read.All"],
+        operation("recordings.get", "Get one recording's details, with the address its video is at. Needs an administrator's consent.", Read, &["OnlineMeetingRecording.Read.All"],
             |m: Microsoft, c: Connection, i: OneRecording| async move { m.recordings(&c).get(&i.meeting, &i.recording).await as Result<Recording> }),
 
         // ── attendance ──

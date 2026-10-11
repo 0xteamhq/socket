@@ -5,6 +5,8 @@
 //! from end to end, whatever it holds, because a message may be ten megabytes
 //! and is written by someone else.
 
+use super::html_symbols;
+
 /// Tags that end a line where they open or close.
 const BLOCKS: [&str; 16] = [
     "p",
@@ -164,10 +166,16 @@ fn tag_end(after: &str) -> TagEnd {
 
 /// What follows the tag that closes `name`, or nothing when it is never closed.
 fn after_closing<'a>(rest: &'a str, name: &str) -> &'a str {
+    // The name, and then the end of the name: `</scripture>` closes no script.
     let closes = |at: usize| {
-        rest[at + 2..]
+        let named = rest[at + 2..]
             .get(..name.len())
-            .is_some_and(|found| found.eq_ignore_ascii_case(name))
+            .is_some_and(|found| found.eq_ignore_ascii_case(name));
+        let ended = rest
+            .as_bytes()
+            .get(at + 2 + name.len())
+            .is_some_and(|byte| byte.is_ascii_whitespace() || matches!(byte, b'/' | b'>'));
+        named && ended
     };
     rest.match_indices("</")
         .find(|&(at, _)| closes(at))
@@ -231,26 +239,21 @@ fn unescaped(text: &str) -> String {
         let end = after.as_bytes().iter().take(11).position(|&byte| byte == b';');
         let read = end.and_then(|end| {
             let name = &after[..end];
-            let character = match name {
-                "amp" => Some('&'),
-                "lt" => Some('<'),
-                "gt" => Some('>'),
-                "quot" => Some('"'),
-                "apos" => Some('\''),
-                "nbsp" => Some(' '),
-                _ => {
+            let symbol = match html_symbols::named(name) {
+                Some(symbol) => Some(symbol.to_owned()),
+                None => {
                     let code = match name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
                         Some(hex) => u32::from_str_radix(hex, 16).ok(),
                         None => name.strip_prefix('#').and_then(|decimal| decimal.parse().ok()),
                     };
-                    code.and_then(char::from_u32)
+                    code.and_then(char::from_u32).map(String::from)
                 }
             };
-            character.map(|character| (character, end))
+            symbol.map(|symbol| (symbol, end))
         });
         match read {
-            Some((character, end)) => {
-                out.push(character);
+            Some((symbol, end)) => {
+                out.push_str(&symbol);
                 rest = &after[end + 1..];
             }
             None => {

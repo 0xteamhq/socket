@@ -2,6 +2,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::nullable::nullable;
 use super::{ItemBody, html};
@@ -47,6 +48,9 @@ pub struct ChatMessage {
     pub mentions: Vec<Mention>,
     #[serde(deserialize_with = "nullable")]
     pub reactions: Vec<Reaction>,
+    /// For what Teams itself noted: what happened and to whom, as Graph sent
+    /// it. Its `@odata.type` says which kind of event it is.
+    pub event_detail: Option<Value>,
 }
 
 /// The team and channel a channel message is in.

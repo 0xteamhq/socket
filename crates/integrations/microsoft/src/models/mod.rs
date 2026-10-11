@@ -21,6 +21,7 @@ mod email_address;
 mod event;
 mod folder;
 mod html;
+mod html_symbols;
 mod identity;
 mod item_body;
 mod member;

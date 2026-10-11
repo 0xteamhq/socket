@@ -276,12 +276,12 @@ microsoft.chats(&connection).send(chat_id, SendChatMessage::text("On my way.")).
 | `chats` | `send(chat, SendChatMessage)` | `ChatMessage` |
 | `chats` | `create(CreateChat)` | `Chat` |
 
-**A message as plain text.** Teams writes a message as HTML, with an `<at>` tag for each mention and an `<attachment>` tag where a file or a card sits. A `ChatMessage` keeps that in `body`, and also carries `text`: the same message as a person would read it. A mention is `@` and the name, an attachment is `[attachment: name]` on a line of its own, an emoji or a picture is what it stands for, a link is its words with its address after them, the cells of a table are kept apart with `|`, and paragraphs are lines. What a tag holds in its attributes, such as a tooltip, is not text, and neither is a comment. Socket writes `text` from `body`; Graph does not send it.
+**A message as plain text.** Teams writes a message as HTML, with an `<at>` tag for each mention and an `<attachment>` tag where a file or a card sits. A `ChatMessage` keeps that in `body`, and also carries `text`: the same message as a person would read it. A mention is `@` and the name, an attachment is `[attachment: name]` on a line of its own, an emoji or a picture is what it stands for, a symbol written by name (`&mdash;`, `&hellip;`, `&eacute;`) is the symbol, a link is its words with its address after them, the cells of a table are kept apart with `|`, and paragraphs are lines. What a tag holds in its attributes, such as a tooltip, is not text, and neither is a comment. Socket writes `text` from `body`; Graph does not send it.
 
-**What a `ChatMessage` carries:** `id`, `replyToId`, `messageType`, `from`, `createdDateTime`, `lastEditedDateTime` (set when it was edited), `deletedDateTime` (set when it was deleted), `body`, `text`, `attachments`, `mentions`, `reactions`, and also `subject`, `importance`, `webUrl`, `chatId` and `channelIdentity`.
+**What a `ChatMessage` carries:** `id`, `replyToId`, `messageType`, `from`, `createdDateTime`, `lastModifiedDateTime`, `lastEditedDateTime` (set when it was edited), `deletedDateTime` (set when it was deleted), `body`, `text`, `attachments`, `mentions`, `reactions`, and also `subject`, `importance`, `webUrl`, `chatId`, `channelIdentity` and `eventDetail`.
 
 - **Who sent it** is `from.user` for a person, or `from.application` for an application; a bot is an application whose `applicationIdentityType` is `bot`.
-- **What Teams itself noted**, such as a member being added, has `messageType: "systemEventMessage"`, no sender and no text. Socket asks Graph to name every kind (`Prefer: include-unknown-enum-members`); without that Graph writes these as `unknownFutureValue`.
+- **What Teams itself noted**, such as a member being added, has `messageType: "systemEventMessage"`, no sender and no text. What happened is in `eventDetail`, kept as Graph sent it; its `@odata.type` says which kind of event it is. Socket asks Graph to name every kind (`Prefer: include-unknown-enum-members`); without that Graph writes these as `unknownFutureValue`.
 - **A message id is unique only inside its channel, its chat or its conversation.**
 
 **Page sizes.** A page of messages or chats is at most 50, and a page of members at most 999; a larger `limit` is refused. Joined teams, a team's channels and a chat's members take no page size, so those take a `Cursor` and not a `Paging`.
@@ -324,6 +324,7 @@ for entry in &content.entries {
 
 **What was said.** `content` asks for WebVTT and returns `text`, the transcript exactly as Microsoft wrote it, and `entries`: for each thing said, the `speaker`, `startMs` and `endMs` in milliseconds from the start of the transcript, and the `text` without markup. A start can be negative: transcription began while people were already talking.
 
+- **An arrow that was said is kept.** Inside a cue, `-->` begins a new cue only on a line that starts with a time; "A --> B" is part of what was said.
 - **The speaker is the voice tag that opens a cue**, which is where Teams writes it. Anything later in a cue that looks like a voice tag is kept as text and not believed, so that words cannot be made to read as another person's. A name is whatever the person joined under.
 - **A transcript that cannot be read whole is an error**, never a shorter transcript: a cue whose timing cannot be read, or text that is not a cue. Only what WebVTT itself sets apart is skipped: the header, a `NOTE`, a `STYLE` and a `REGION`. The error does not repeat what was said.
 
@@ -437,11 +438,11 @@ let output = socket
 | `microsoft.chats.create` | write | Chat.Create | Create a chat between two people or among several. Returns the chat that already exists between two people, when there is one. |
 | `microsoft.online_meetings.get` | read | OnlineMeetings.Read | Get one Teams online meeting by its id. |
 | `microsoft.online_meetings.find_by_join_url` | read | OnlineMeetings.Read | Find the Teams online meeting behind a join link from a calendar event. Returns its id, which transcripts, recordings and attendance are asked for by. |
-| `microsoft.transcripts.list` | read | OnlineMeetingTranscript.Read.All | List a meeting's transcripts. Empty when transcription was never switched on. |
-| `microsoft.transcripts.get` | read | OnlineMeetingTranscript.Read.All | Get one transcript's details: when it was made, and by whose meeting. |
-| `microsoft.transcripts.content` | read | OnlineMeetingTranscript.Read.All | Read what was said in a meeting: the transcript's text, and one entry for each thing said with the speaker, the start and the end. |
-| `microsoft.recordings.list` | read | OnlineMeetingRecording.Read.All | List a meeting's recordings. Empty when the meeting was not recorded. |
-| `microsoft.recordings.get` | read | OnlineMeetingRecording.Read.All | Get one recording's details, with the address its video is at. |
+| `microsoft.transcripts.list` | read | OnlineMeetingTranscript.Read.All | List a meeting's transcripts. Empty when transcription was never switched on. Needs an administrator's consent. |
+| `microsoft.transcripts.get` | read | OnlineMeetingTranscript.Read.All | Get one transcript's details: when it was made, and by whose meeting. Needs an administrator's consent. |
+| `microsoft.transcripts.content` | read | OnlineMeetingTranscript.Read.All | Read what was said in a meeting: the transcript's text, and one entry for each thing said with the speaker, the start and the end. Needs an administrator's consent. |
+| `microsoft.recordings.list` | read | OnlineMeetingRecording.Read.All | List a meeting's recordings. Empty when the meeting was not recorded. Needs an administrator's consent. |
+| `microsoft.recordings.get` | read | OnlineMeetingRecording.Read.All | Get one recording's details, with the address its video is at. Needs an administrator's consent. |
 | `microsoft.attendance.reports` | read | OnlineMeetingArtifact.Read.All | List a meeting's attendance reports, one for each time it was held. |
 | `microsoft.attendance.records` | read | OnlineMeetingArtifact.Read.All | List who joined a meeting, in what role, when, and for how long. |
 

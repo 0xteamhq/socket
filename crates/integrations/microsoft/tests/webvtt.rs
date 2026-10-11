@@ -309,3 +309,34 @@ fn words_that_only_begin_like_a_note_are_not_skipped_as_one() {
         assert_eq!(entries(&vtt), [entry(Some("Ada"), 1_000, 2_000, "Fine.")], "{skipped}");
     }
 }
+
+#[test]
+fn an_arrow_that_was_said_is_part_of_what_was_said() {
+    // Inside a cue, only a line that sets out to be a timing is one. "A --> B"
+    // is something a person said or a transcriber wrote.
+    let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:04.000\n<v Ada>Then it goes\nA --> B and\nback --> again</v>\n\n00:00:05.000 --> 00:00:06.000\n<v Grace>from x --> y</v>\n";
+    assert_eq!(
+        entries(vtt),
+        [
+            entry(Some("Ada"), 1_000, 4_000, "Then it goes A --> B and back --> again"),
+            entry(Some("Grace"), 5_000, 6_000, "from x --> y"),
+        ]
+    );
+    // A line that sets out to be a timing and is not one is still an error,
+    // inside a cue as anywhere else.
+    for broken in [
+        "00:00:07 --> 00:00:08",
+        "00:00:07.000 --> later",
+        "7 --> 8",
+        "-00:00:07.0 --> 00:00:08.000",
+    ] {
+        let vtt =
+            format!("WEBVTT\n\n00:00:01.000 --> 00:00:04.000\n<v Ada>Fine.</v>\n{broken}\n<v Grace>secret words</v>\n");
+        let err = TranscriptContent::from_vtt(&vtt).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Decode, "{broken}");
+        assert!(!err.message().contains("secret"), "{}", err.message());
+    }
+    // With no cue open, words with an arrow in them are words that belong to no cue.
+    let err = TranscriptContent::from_vtt("WEBVTT\n\nsee A --> B\n").unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Decode);
+}

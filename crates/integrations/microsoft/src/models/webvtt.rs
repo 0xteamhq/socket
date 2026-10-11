@@ -50,7 +50,9 @@ impl Reader {
         if line.is_empty() {
             return self.end_of_block();
         }
-        if line.contains("-->") {
+        // Inside a cue, an arrow is a timing only on a line that sets out to
+        // be one. "A --> B" is something that was said.
+        if line.contains("-->") && (self.cue.is_none() || sets_out_to_be_a_timing(line)) {
             // A second timing in the same block begins the next cue.
             self.end_of_cue();
             // One line before a timing is the cue's identifier, and a header
@@ -115,6 +117,18 @@ impl Reader {
         }
         Ok(())
     }
+}
+
+/// Whether a line begins as a timing does: with a time, before its arrow.
+/// Such a line is a timing or an error, and never words.
+fn sets_out_to_be_a_timing(line: &str) -> bool {
+    line.split_once("-->").is_some_and(|(start, _)| {
+        let start = start.trim();
+        !start.is_empty()
+            && start
+                .chars()
+                .all(|c| c.is_ascii_digit() || matches!(c, ':' | '.' | '-'))
+    })
 }
 
 fn unreadable(what: &str) -> Error {

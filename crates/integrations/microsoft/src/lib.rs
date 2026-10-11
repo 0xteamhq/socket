@@ -3,7 +3,10 @@
 //! One provider covers Outlook, Teams, OneDrive, SharePoint and Entra ID,
 //! because they share one sign-in. Offers the provider definition, identity,
 //! lookup of a OneDrive or SharePoint sharing link, and typed methods for
-//! Graph grouped by area (`calendars`, `events`, `mail`, `mail_folders`). Every typed method is also
+//! Graph grouped by area: the Outlook calendar (`calendars`, `events`),
+//! Outlook mail (`mail`, `mail_folders`), Teams (`teams`, `channels`,
+//! `channel_messages`, `chats`) and Teams meetings (`online_meetings`,
+//! `transcripts`, `recordings`, `attendance`). Every typed method is also
 //! a named operation. See `docs/integrations/microsoft.md`.
 
 mod client;

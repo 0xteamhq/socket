@@ -262,11 +262,32 @@ pub fn chat_message_returned() -> Value {
         "id": "1616990032035", "replyToId": null, "messageType": "message", "createdDateTime": "2026-10-09T08:13:52.035Z",
         "lastEditedDateTime": null, "deletedDateTime": null,
         "from": { "user": { "id": "u-2", "displayName": "Grace Hopper", "userIdentityType": "aadUser" } },
-        "body": { "contentType": "html" },
+        // The HTML is kept as Graph sent it.
+        "body": { "contentType": "html", "content": "<div><at id=\"0\">Ada Lovelace</at>&nbsp;we shipped. <attachment id=\"a1\"></attachment></div>" },
         // The body as a person would read it.
         "text": "@Ada Lovelace we shipped.\n[attachment: notes.docx]",
         "attachments": [{ "id": "a1", "name": "notes.docx", "contentUrl": "https://contoso.sharepoint.com/notes.docx" }],
         "mentions": [{ "id": 0, "mentionText": "Ada Lovelace", "mentioned": { "user": { "id": "u-1" } } }],
         "reactions": [{ "reactionType": "like", "user": { "user": { "id": "u-1" } } }]
     })
+}
+
+/// A message in a chat: no channel, a chat id, and no address of its own.
+pub fn message_in_chat() -> Value {
+    let mut message = chat_message();
+    message["id"] = json!("1616991463150");
+    message["chatId"] = json!(CHAT);
+    message["channelIdentity"] = json!(null);
+    message["subject"] = json!(null);
+    message["webUrl"] = json!(null);
+    message
+}
+
+/// What an operation that returns `message_in_chat()` must pass on.
+pub fn message_in_chat_returned() -> Value {
+    let mut returned = chat_message_returned();
+    returned["id"] = json!("1616991463150");
+    returned["chatId"] = json!(CHAT);
+    returned["channelIdentity"] = json!(null);
+    returned
 }

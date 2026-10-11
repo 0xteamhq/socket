@@ -45,7 +45,7 @@ async fn what_teams_itself_noted_is_told_apart_from_what_someone_wrote() {
         "createdDateTime": "2026-10-09T08:16:11.266Z", "deletedDateTime": null,
         "body": { "contentType": "html", "content": "<systemEventMessage/>" },
         "attachments": [], "mentions": [], "reactions": [],
-        "eventDetail": { "@odata.type": "#microsoft.graph.membersAddedEventMessageDetail" }
+        "eventDetail": { "@odata.type": "#microsoft.graph.membersAddedEventMessageDetail", "members": [{ "id": "u-3", "displayName": "Alan Turing" }] }
     });
     let deleted = json!({
         "id": "1616990032099", "messageType": "message", "deletedDateTime": "2026-10-09T09:00:00Z",
@@ -66,6 +66,12 @@ async fn what_teams_itself_noted_is_told_apart_from_what_someone_wrote() {
     assert_eq!(items[0]["messageType"], "systemEventMessage");
     assert_eq!(items[0]["from"], json!(null));
     assert_eq!(items[0]["text"], "");
+    // What happened is in the detail, which is kept as Graph sent it.
+    assert_eq!(
+        items[0]["eventDetail"],
+        json!({ "@odata.type": "#microsoft.graph.membersAddedEventMessageDetail", "members": [{ "id": "u-3", "displayName": "Alan Turing" }] })
+    );
+    assert_eq!(items[3]["eventDetail"], json!(null));
     assert_eq!(items[1]["deletedDateTime"], "2026-10-09T09:00:00Z");
     assert_eq!(items[1]["text"], "");
     assert_eq!(items[2]["from"]["application"]["applicationIdentityType"], "bot");

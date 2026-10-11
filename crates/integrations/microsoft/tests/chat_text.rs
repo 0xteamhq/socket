@@ -108,6 +108,38 @@ fn a_message_with_no_body_or_a_deleted_one_reads_as_nothing() {
 }
 
 #[test]
+fn the_symbols_html_writes_by_name_are_read_as_the_symbols() {
+    assert_eq!(
+        text_of(
+            "<p>Wait&hellip; 5&nbsp;&ndash;&nbsp;7 &mdash; &ldquo;done&rdquo; &copy; 2026 &euro;10 &rarr; next</p>"
+        ),
+        "Wait\u{2026} 5 \u{2013} 7 \u{2014} \u{201c}done\u{201d} \u{a9} 2026 \u{20ac}10 \u{2192} next"
+    );
+    assert_eq!(
+        text_of("caf&eacute; na&iuml;ve &Uuml;ber &ntilde;"),
+        "caf\u{e9} na\u{ef}ve \u{dc}ber \u{f1}"
+    );
+    // A soft hyphen and a joiner are not seen, and are not kept.
+    assert_eq!(text_of("co&shy;operate&zwnj;d"), "cooperated");
+    // A name that is no symbol's is kept as it was written, and so is one with the wrong case.
+    assert_eq!(text_of("&notasymbol; &MDASH; &mdash"), "&notasymbol; &MDASH; &mdash");
+}
+
+#[test]
+fn only_the_tag_that_closes_a_script_ends_it() {
+    // `</scripture>` is not `</script>`: what follows is still the script.
+    assert_eq!(
+        text_of("<p>Hi</p><script>var a = '</scripture>'; steal()</script><p>Bye</p>"),
+        "Hi\nBye"
+    );
+    assert_eq!(
+        text_of("<style>p::after { content: '</styles>' } secret</STYLE ><p>Seen</p>"),
+        "Seen"
+    );
+    assert_eq!(text_of("<script>x</script/><p>Seen</p>"), "Seen");
+}
+
+#[test]
 fn cells_of_a_table_are_kept_apart() {
     // Two numbers in neighbouring cells are two numbers.
     let html = "<table><tr><td>Budget</td><td>15</td><td>000</td></tr><tr><th>Q1</th><th>Q2</th></tr></table>";
