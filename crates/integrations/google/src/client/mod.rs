@@ -14,6 +14,11 @@
 // ── gmail: modules ──
 
 // ── calendar: modules ──
+mod calendar_events;
+mod calendar_events_write;
+mod calendar_freebusy;
+mod calendar_list;
+mod calendar_time;
 
 // ── meet: modules ──
 
@@ -30,6 +35,9 @@ use url::Url;
 // ── gmail: groups ──
 
 // ── calendar: groups ──
+pub use calendar_events::CalendarEvents;
+pub use calendar_freebusy::CalendarFreebusy;
+pub use calendar_list::CalendarList;
 
 // ── meet: groups ──
 

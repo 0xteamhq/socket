@@ -22,6 +22,10 @@ use crate::scopes;
 // ── gmail: types ──
 
 // ── calendar: types ──
+use crate::models::{
+    CalendarEvent, CalendarListEntry, CalendarListFilter, EventDelete, EventFilter, EventInsert, EventInstancesFilter,
+    EventPatch, EventResponse, FreeBusy, FreeBusyQuery,
+};
 
 // ── meet: types ──
 
@@ -205,6 +209,77 @@ macro_rules! input {
 // ── gmail: inputs ──
 
 // ── calendar: inputs ──
+input!(
+    CalendarListing {
+        #[serde(flatten)]
+        paging: Paging
+    } + CalendarListFilter
+);
+input!(CalendarOne {
+    /// A calendar's id, or `primary` for the signed-in person's own calendar.
+    calendar: String
+});
+input!(
+    CalendarEventListing {
+        /// A calendar's id, or `primary` for the signed-in person's own calendar.
+        calendar: String,
+        #[serde(flatten)]
+        paging: Paging
+    } + EventFilter
+);
+input!(CalendarOneEvent {
+    /// A calendar's id, or `primary` for the signed-in person's own calendar.
+    calendar: String,
+    /// An event's id.
+    event: String
+});
+input!(
+    CalendarEventInstances {
+        /// A calendar's id, or `primary` for the signed-in person's own calendar.
+        calendar: String,
+        /// The id of the recurring event.
+        event: String,
+        #[serde(flatten)]
+        paging: Paging
+    } + EventInstancesFilter
+);
+input!(
+    CalendarEventInsert {
+        /// The calendar to put the event on, or `primary` for the signed-in person's own.
+        calendar: String
+    } + EventInsert
+);
+input!(
+    CalendarEventPatch {
+        /// A calendar's id, or `primary` for the signed-in person's own calendar.
+        calendar: String,
+        /// The id of the event to change.
+        event: String
+    } + EventPatch
+);
+input!(
+    CalendarEventRespond {
+        /// The calendar the invitation is on. `primary` answers for the signed-in
+        /// person; another calendar's id answers for that calendar's owner.
+        calendar: String,
+        /// The id of the event that was invited to.
+        event: String
+    } + EventResponse
+);
+input!(
+    CalendarEventDelete {
+        /// A calendar's id, or `primary` for the signed-in person's own calendar.
+        calendar: String,
+        /// The id of the event to delete.
+        event: String
+    } + EventDelete
+);
+input!(
+    CalendarAvailability {
+        /// The calendars to check: ids, or `primary`. A person's calendar id is their email address.
+        calendars: Vec<String>
+    } + FreeBusyQuery
+);
 
 // ── meet: inputs ──
 
@@ -231,6 +306,27 @@ fn build() -> Vec<Operation> {
         // ── gmail ──
 
         // ── calendar ──
+        operation("calendar_list.list", "List the calendars on the signed-in person's calendar list.", Read, &[scopes::CALENDAR_READONLY],
+            |g: Google, c: Connection, i: CalendarListing| async move { g.calendar_list(&c).list(i.options, i.paging).await as Result<Page<CalendarListEntry>> }),
+        operation("calendar_list.get", "Get one calendar from the signed-in person's calendar list.", Read, &[scopes::CALENDAR_READONLY],
+            |g: Google, c: Connection, i: CalendarOne| async move { g.calendar_list(&c).get(&i.calendar).await as Result<CalendarListEntry> }),
+        operation("calendar_events.list", "List a calendar's events: inside a time window, matching free text, with recurring events expanded when singleEvents is set.", Read, &[scopes::CALENDAR_READONLY],
+            |g: Google, c: Connection, i: CalendarEventListing| async move { g.calendar_events(&c).list(&i.calendar, i.options, i.paging).await as Result<Page<CalendarEvent>> }),
+        operation("calendar_events.get", "Get one event, with its attendees and their answers, its meeting link and its attachments.", Read, &[scopes::CALENDAR_READONLY],
+            |g: Google, c: Connection, i: CalendarOneEvent| async move { g.calendar_events(&c).get(&i.calendar, &i.event).await as Result<CalendarEvent> }),
+        operation("calendar_events.instances", "List the occurrences of a recurring event.", Read, &[scopes::CALENDAR_READONLY],
+            |g: Google, c: Connection, i: CalendarEventInstances| async move { g.calendar_events(&c).instances(&i.calendar, &i.event, i.options, i.paging).await as Result<Page<CalendarEvent>> }),
+        operation("calendar_events.insert", "Create an event and invite its attendees, with a Google Meet link when createMeetLink is set.", Write, &[scopes::CALENDAR_EVENTS],
+            |g: Google, c: Connection, i: CalendarEventInsert| async move { g.calendar_events(&c).insert(&i.calendar, i.options).await as Result<CalendarEvent> }),
+        operation("calendar_events.patch", "Change an event, replacing the fields given and leaving the rest. Attendees, when given, replace the whole guest list: anyone left out is uninvited.", Destructive, &[scopes::CALENDAR_EVENTS],
+            |g: Google, c: Connection, i: CalendarEventPatch| async move { g.calendar_events(&c).patch(&i.calendar, &i.event, i.options).await as Result<CalendarEvent> }),
+        operation("calendar_events.respond", "Answer an invitation on a calendar: accepted, declined, tentative, or needsAction to take an answer back. On primary this is the signed-in person's own answer. Nobody else on the guest list is changed.", Write, &[scopes::CALENDAR_EVENTS],
+            |g: Google, c: Connection, i: CalendarEventRespond| async move { g.calendar_events(&c).respond(&i.calendar, &i.event, i.options).await as Result<CalendarEvent> }),
+        operation("calendar_events.delete", "Delete an event. Deleting an event the account organised cancels it for its attendees.", Destructive, &[scopes::CALENDAR_EVENTS],
+            |g: Google, c: Connection, i: CalendarEventDelete| async move { g.calendar_events(&c).delete(&i.calendar, &i.event, i.options).await as Result<()> }),
+        // Google offers this only as POST. It reads calendars and changes nothing.
+        operation("calendar_freebusy.query", "Read when calendars are busy inside a time window. Changes nothing.", Read, &[scopes::CALENDAR_READONLY],
+            |g: Google, c: Connection, i: CalendarAvailability| async move { g.calendar_freebusy(&c).query(&i.calendars, i.options).await as Result<FreeBusy> }),
 
         // ── meet ──
 

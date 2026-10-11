@@ -18,9 +18,64 @@ fn gmail_cases() -> Vec<Case> {
 }
 
 // ── calendar: cases ──
+use support::calendar::{
+    AT_NINE, AT_TEN, CALENDAR_EVENT_PATH, CALENDAR_EVENTS_PATH, CALENDAR_LIST_PATH, FREEBUSY_PATH, MEET_LINK,
+    calendar_entry, calendar_event, calendar_events_page, calendar_invitation, freebusy,
+};
 #[rustfmt::skip]
 fn calendar_cases() -> Vec<Case> {
-    vec![]
+    use serde_json::json;
+    let one = json!({ "calendar": "primary", "event": "evt1" });
+    // The invitation Grace reads, and what it is once she has answered it.
+    let mut answered = calendar_invitation();
+    answered["attendees"][1]["responseStatus"] = json!("accepted");
+    answered["attendees"][1]["comment"] = json!("See you there");
+    vec![
+        Case::new("calendar_list.list", json!({ "minAccessRole": "writer", "showHidden": true, "limit": 50, "cursor": "page-1" }), "GET", CALENDAR_LIST_PATH)
+            .query(json!({ "minAccessRole": "writer", "showHidden": "true", "maxResults": "50", "pageToken": "page-1" }))
+            .answers(200, json!({ "kind": "calendar#calendarList", "etag": "\"p33g\"", "items": [calendar_entry()], "nextPageToken": "page-2" }))
+            .returns(json!({ "items": [{ "id": "ada@example.test", "summary": "Ada Lovelace", "accessRole": "owner", "primary": true }], "next_cursor": "page-2" })),
+        Case::new("calendar_list.get", json!({ "calendar": "primary" }), "GET", format!("{CALENDAR_LIST_PATH}/primary"))
+            .answers(200, calendar_entry())
+            .returns(json!({ "id": "ada@example.test", "timeZone": "America/Los_Angeles", "primary": true, "hidden": false })),
+        Case::new("calendar_events.list", json!({ "calendar": "primary", "timeMin": "2026-10-12T00:00:00Z", "timeMax": "2026-10-19T00:00:00Z", "q": "design", "singleEvents": true, "orderBy": "startTime", "limit": 10 }), "GET", CALENDAR_EVENTS_PATH)
+            .query(json!({ "timeMin": "2026-10-12T00:00:00Z", "timeMax": "2026-10-19T00:00:00Z", "q": "design", "singleEvents": "true", "orderBy": "startTime", "maxResults": "10" }))
+            .answers(200, { let mut page = calendar_events_page(json!([calendar_event()])); page["nextPageToken"] = json!("page-2"); page })
+            .returns(json!({ "items": [{ "id": "evt1", "summary": "Design review", "start": { "dateTime": AT_NINE }, "hangoutLink": MEET_LINK }], "next_cursor": "page-2" })),
+        Case::new("calendar_events.get", one.clone(), "GET", CALENDAR_EVENT_PATH)
+            .answers(200, calendar_event())
+            .returns(json!({ "id": "evt1", "organizer": { "email": "ada@example.test", "self": true }, "attendees": [{ "email": "ada@example.test", "responseStatus": "accepted" }, { "email": "grace@example.test", "optional": true }],
+                "conferenceData": { "conferenceId": "abc-defg-hij" }, "attachments": [{ "fileId": "1AbC" }] })),
+        Case::new("calendar_events.instances", json!({ "calendar": "primary", "event": "evt1", "timeMin": "2026-10-01T00:00:00Z", "limit": 5 }), "GET", format!("{CALENDAR_EVENT_PATH}/instances"))
+            .query(json!({ "timeMin": "2026-10-01T00:00:00Z", "maxResults": "5" }))
+            .answers(200, calendar_events_page(json!([{ "kind": "calendar#event", "id": "evt1_20261012T160000Z", "recurringEventId": "evt1", "originalStartTime": { "dateTime": AT_NINE }, "start": { "dateTime": AT_NINE }, "end": { "dateTime": AT_TEN } }])))
+            .returns(json!({ "items": [{ "id": "evt1_20261012T160000Z", "recurringEventId": "evt1", "originalStartTime": { "dateTime": AT_NINE } }], "next_cursor": null })),
+        Case::new("calendar_events.insert", json!({ "calendar": "primary", "summary": "Design review", "location": "Room 4", "start": { "dateTime": AT_NINE }, "end": { "dateTime": AT_TEN }, "attendees": [{ "email": "grace@example.test", "optional": true }], "sendUpdates": "all" }), "POST", CALENDAR_EVENTS_PATH)
+            .query(json!({ "sendUpdates": "all" }))
+            .body(json!({ "summary": "Design review", "location": "Room 4", "start": { "dateTime": AT_NINE }, "end": { "dateTime": AT_TEN }, "attendees": [{ "email": "grace@example.test", "optional": true }] }))
+            .answers(200, calendar_event())
+            .returns(json!({ "id": "evt1", "htmlLink": "https://www.google.com/calendar/event?eid=ZXZ0MQ" })),
+        Case::new("calendar_events.patch", json!({ "calendar": "primary", "event": "evt1", "summary": "Design review (moved)", "location": "Room 5" }), "PATCH", CALENDAR_EVENT_PATH)
+            .body(json!({ "summary": "Design review (moved)", "location": "Room 5" }))
+            .answers(200, calendar_event())
+            .returns(json!({ "id": "evt1" })),
+        // An answer reads the event first, and sends the whole guest list back.
+        Case::new("calendar_events.respond", json!({ "calendar": "primary", "event": "evt1", "responseStatus": "accepted", "comment": "See you there", "sendUpdates": "all" }), "PATCH", CALENDAR_EVENT_PATH)
+            .also("GET", CALENDAR_EVENT_PATH, calendar_invitation())
+            .query(json!({ "sendUpdates": "all" }))
+            .body(json!({ "attendees": answered["attendees"] }))
+            .answers(200, answered.clone())
+            .returns(json!({ "id": "evt1", "attendees": [{ "email": "ada@example.test" }, { "email": "grace@example.test", "self": true, "responseStatus": "accepted", "comment": "See you there" }] })),
+        Case::new("calendar_events.delete", json!({ "calendar": "primary", "event": "evt1", "sendUpdates": "all" }), "DELETE", CALENDAR_EVENT_PATH)
+            .query(json!({ "sendUpdates": "all" }))
+            .answers(204, json!(null))
+            .returns(json!(null)),
+        Case::new("calendar_freebusy.query", json!({ "calendars": ["primary", "grace@example.test"], "timeMin": "2026-10-12T00:00:00Z", "timeMax": "2026-10-13T00:00:00Z", "timeZone": "Europe/Zurich" }), "POST", FREEBUSY_PATH)
+            .body(json!({ "timeMin": "2026-10-12T00:00:00Z", "timeMax": "2026-10-13T00:00:00Z", "timeZone": "Europe/Zurich", "items": [{ "id": "primary" }, { "id": "grace@example.test" }] }))
+            .answers(200, freebusy())
+            .returns(json!({ "calendars": { "primary": { "busy": [{ "start": "2026-10-12T18:00:00+02:00", "end": "2026-10-12T19:00:00+02:00" }], "errors": [] },
+                "grace@example.test": { "busy": [], "errors": [{ "domain": "global", "reason": "notFound" }] } } })),
+    ]
 }
 
 // ── meet: cases ──
@@ -61,6 +116,16 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         // ── gmail: effects ──
 
         // ── calendar: effects ──
+        ("calendar_list.list", Effect::Read, &[scopes::CALENDAR_READONLY]),
+        ("calendar_list.get", Effect::Read, &[scopes::CALENDAR_READONLY]),
+        ("calendar_events.list", Effect::Read, &[scopes::CALENDAR_READONLY]),
+        ("calendar_events.get", Effect::Read, &[scopes::CALENDAR_READONLY]),
+        ("calendar_events.instances", Effect::Read, &[scopes::CALENDAR_READONLY]),
+        ("calendar_freebusy.query", Effect::Read, &[scopes::CALENDAR_READONLY]),
+        ("calendar_events.insert", Effect::Write, &[scopes::CALENDAR_EVENTS]),
+        ("calendar_events.patch", Effect::Destructive, &[scopes::CALENDAR_EVENTS]),
+        ("calendar_events.respond", Effect::Write, &[scopes::CALENDAR_EVENTS]),
+        ("calendar_events.delete", Effect::Destructive, &[scopes::CALENDAR_EVENTS]),
 
         // ── meet: effects ──
 

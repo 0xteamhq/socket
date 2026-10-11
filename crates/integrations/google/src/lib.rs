@@ -26,6 +26,7 @@ use socketkit_core::{
 // ── gmail: groups ──
 
 // ── calendar: groups ──
+pub use client::{CalendarEvents, CalendarFreebusy, CalendarList};
 
 // ── meet: groups ──
 
@@ -356,6 +357,21 @@ impl Google {
     // ── gmail: groups ──
 
     // ── calendar: groups ──
+
+    /// The calendars on the signed-in person's calendar list.
+    pub fn calendar_list<'a>(&self, connection: &'a Connection) -> CalendarList<'a> {
+        CalendarList(client::Api { connection })
+    }
+
+    /// Events on a calendar.
+    pub fn calendar_events<'a>(&self, connection: &'a Connection) -> CalendarEvents<'a> {
+        CalendarEvents(client::Api { connection })
+    }
+
+    /// When calendars are busy.
+    pub fn calendar_freebusy<'a>(&self, connection: &'a Connection) -> CalendarFreebusy<'a> {
+        CalendarFreebusy(client::Api { connection })
+    }
 
     // ── meet: groups ──
 
