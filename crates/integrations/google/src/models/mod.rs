@@ -39,6 +39,11 @@ mod drive_permission;
 mod shared_drive;
 
 // ── docs and sheets: modules ──
+mod document;
+mod document_structure;
+mod document_text;
+mod spreadsheet;
+mod value_range;
 
 // ── gmail: types ──
 
@@ -75,3 +80,14 @@ pub use drive_permission::{DrivePermission, DrivePermissionDetail};
 pub use shared_drive::SharedDrive;
 
 // ── docs and sheets: types ──
+pub use document::{
+    DocsAppendText, DocsCreateDocument, Document, DocumentTab, DocumentTabText, DocumentText, DocumentUpdate,
+    DocumentWriteControl,
+};
+pub(crate) use document_structure::DocumentResource;
+pub use spreadsheet::{Sheet, SheetGridProperties, SheetProperties, Spreadsheet, SpreadsheetProperties};
+pub use value_range::{
+    SheetsAppendValues, SheetsAppendedValues, SheetsDateTimeRenderOption, SheetsDimension, SheetsGetValues,
+    SheetsInsertDataOption, SheetsUpdateValues, SheetsUpdatedValues, SheetsValueInputOption, SheetsValueRanges,
+    SheetsValueRenderOption, ValueRange,
+};

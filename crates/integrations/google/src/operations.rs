@@ -40,6 +40,11 @@ use crate::models::{
 };
 
 // ── docs and sheets: types ──
+use crate::models::{
+    DocsAppendText, DocsCreateDocument, Document, DocumentText, DocumentUpdate, SheetsAppendValues,
+    SheetsAppendedValues, SheetsGetValues, SheetsUpdateValues, SheetsUpdatedValues, SheetsValueRanges, Spreadsheet,
+    ValueRange,
+};
 
 type Running = std::pin::Pin<Box<dyn Future<Output = Result<Value>> + Send>>;
 
@@ -391,6 +396,57 @@ input!(DriveRenamed {
 });
 
 // ── docs and sheets: inputs ──
+input!(DocsOneDocument {
+    /// A document id: the part of its address after `/document/d/`.
+    document: String
+});
+input!(DocsNewDocument {} + DocsCreateDocument);
+input!(
+    DocsAppend {
+        /// The id of the document to add to.
+        document: String
+    } + DocsAppendText
+);
+input!(SheetsOneSpreadsheet {
+    /// A spreadsheet id: the part of its address after `/spreadsheets/d/`.
+    spreadsheet: String
+});
+input!(
+    SheetsRange {
+        /// A spreadsheet id.
+        spreadsheet: String,
+        /// The cells to read, in A1 notation: `Sheet1!A1:C10`, `A:A`, or a
+        /// sheet's name alone for all of it. A name with a space or a symbol
+        /// in it goes between single quotes: `'Q3 plan'!A1:B2`.
+        range: String
+    } + SheetsGetValues
+);
+input!(
+    SheetsRanges {
+        /// A spreadsheet id.
+        spreadsheet: String,
+        /// The ranges to read, each in A1 notation: `Sheet1!A1:C10`.
+        ranges: Vec<String>
+    } + SheetsGetValues
+);
+input!(
+    SheetsUpdate {
+        /// A spreadsheet id.
+        spreadsheet: String,
+        /// The cells to write over, in A1 notation: `Sheet1!A1:C10`. The
+        /// values start at its first cell.
+        range: String
+    } + SheetsUpdateValues
+);
+input!(
+    SheetsAppend {
+        /// A spreadsheet id.
+        spreadsheet: String,
+        /// Where to look for the table to add to, in A1 notation: `Sheet1`
+        /// or `Sheet1!A:E`.
+        range: String
+    } + SheetsAppendValues
+);
 
 // `Destructive` is anything that deletes, removes or overwrites what was
 // there, or that cannot be taken back: mail that was sent cannot be unsent.
@@ -484,5 +540,26 @@ fn build() -> Vec<Operation> {
             |g: Google, c: Connection, i: DriveListing| async move { g.drive_shared_drives(&c).list(i.options).await as Result<Page<SharedDrive>> }),
 
         // ── docs and sheets ──
+        operation("docs_documents.get", "Get a Google Doc's title, revision and tabs, without what is written in it.", Read, &[scopes::DOCUMENTS_READONLY],
+            |g: Google, c: Connection, i: DocsOneDocument| async move { g.docs_documents(&c).get(&i.document).await as Result<Document> }),
+        operation("docs_documents.read", "Read a Google Doc as plain text: the whole document, and each of its tabs. Headings are Markdown headings, list items keep their markers, and a table has a line for each row.", Read, &[scopes::DOCUMENTS_READONLY],
+            |g: Google, c: Connection, i: DocsOneDocument| async move { g.docs_documents(&c).read(&i.document).await as Result<DocumentText> }),
+        operation("docs_documents.create", "Create a blank Google Doc with a title.", Write, &[scopes::DOCUMENTS],
+            |g: Google, c: Connection, i: DocsNewDocument| async move { g.docs_documents(&c).create(i.options).await as Result<Document> }),
+        // Adds to the end and touches nothing that was there. Google offers
+        // it only through `batchUpdate`, a POST.
+        operation("docs_documents.append_text", "Add text at the end of a Google Doc, or of one of its tabs. Nothing that was there is changed.", Write, &[scopes::DOCUMENTS],
+            |g: Google, c: Connection, i: DocsAppend| async move { g.docs_documents(&c).append_text(&i.document, i.options).await as Result<DocumentUpdate> }),
+        operation("sheets_spreadsheets.get", "Get a Google Sheet's title, locale and time zone, and its sheets with their names and sizes. No cell is read.", Read, &[scopes::SPREADSHEETS_READONLY],
+            |g: Google, c: Connection, i: SheetsOneSpreadsheet| async move { g.sheets_spreadsheets(&c).get(&i.spreadsheet).await as Result<Spreadsheet> }),
+        operation("sheets_spreadsheets.values_get", "Read the values of one range of a Google Sheet, in A1 notation.", Read, &[scopes::SPREADSHEETS_READONLY],
+            |g: Google, c: Connection, i: SheetsRange| async move { g.sheets_spreadsheets(&c).values_get(&i.spreadsheet, &i.range, i.options).await as Result<ValueRange> }),
+        operation("sheets_spreadsheets.values_batch_get", "Read the values of several ranges of a Google Sheet in one call. They come back in the order asked for.", Read, &[scopes::SPREADSHEETS_READONLY],
+            |g: Google, c: Connection, i: SheetsRanges| async move { g.sheets_spreadsheets(&c).values_batch_get(&i.spreadsheet, &i.ranges, i.options).await as Result<SheetsValueRanges> }),
+        // What was in the cells is gone once they are written over.
+        operation("sheets_spreadsheets.values_update", "Write values over the cells of a range of a Google Sheet. What was in those cells is replaced.", Destructive, &[scopes::SPREADSHEETS],
+            |g: Google, c: Connection, i: SheetsUpdate| async move { g.sheets_spreadsheets(&c).values_update(&i.spreadsheet, &i.range, i.options).await as Result<SheetsUpdatedValues> }),
+        operation("sheets_spreadsheets.values_append", "Add rows under a table in a Google Sheet. Google finds the table in the range and writes after its last row.", Write, &[scopes::SPREADSHEETS],
+            |g: Google, c: Connection, i: SheetsAppend| async move { g.sheets_spreadsheets(&c).values_append(&i.spreadsheet, &i.range, i.options).await as Result<SheetsAppendedValues> }),
     ]
 }

@@ -34,6 +34,8 @@ mod drive_files_change;
 mod drive_shared_drives;
 
 // ── docs and sheets: modules ──
+mod docs_documents;
+mod sheets_spreadsheets;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -60,6 +62,8 @@ pub use drive_files::DriveFiles;
 pub use drive_shared_drives::DriveSharedDrives;
 
 // ── docs and sheets: groups ──
+pub use docs_documents::DocsDocuments;
+pub use sheets_spreadsheets::SheetsSpreadsheets;
 
 use crate::models::Paging;
 

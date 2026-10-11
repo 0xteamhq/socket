@@ -215,9 +215,79 @@ fn drive_cases() -> Vec<Case> {
 }
 
 // ── docs and sheets: cases ──
+use support::docs::{
+    DOCUMENT, DOCUMENT_FIELDS, PLAN_TEXT, REVISION, SPREADSHEET, SPREADSHEET_FIELDS, created_document, document,
+    document_text, document_updated, document_with_content, spreadsheet, unformatted_values, value_ranges,
+    values_appended, values_updated,
+};
 #[rustfmt::skip]
 fn docs_cases() -> Vec<Case> {
-    vec![]
+    use serde_json::json;
+    let document_path = format!("/v1/documents/{DOCUMENT}");
+    let spreadsheet_path = format!("/v4/spreadsheets/{SPREADSHEET}");
+    vec![
+        // Asks for the names of the document and of its tabs, and nothing written in them.
+        Case::new("docs_documents.get", json!({ "document": DOCUMENT }), "GET", document_path.clone())
+            .query(json!({ "fields": DOCUMENT_FIELDS }))
+            .answers(200, document())
+            .returns(json!({ "documentId": DOCUMENT, "title": "Q3 plan", "revisionId": REVISION, "tabs": [
+                { "tabId": "t.0", "title": "Plan", "index": 0, "nestingLevel": 0, "parentTabId": null },
+                { "tabId": "t.8f2k", "title": "Budget", "index": 0, "nestingLevel": 1, "parentTabId": "t.0" },
+                { "tabId": "t.x1n4", "title": "Notes", "index": 1, "nestingLevel": 0 }
+            ] })),
+        // The whole document, as it stands without what is only suggested.
+        Case::new("docs_documents.read", json!({ "document": DOCUMENT }), "GET", document_path.clone())
+            .query(json!({ "includeTabsContent": "true", "suggestionsViewMode": "PREVIEW_WITHOUT_SUGGESTIONS" }))
+            .answers(200, document_with_content())
+            .returns(json!({ "documentId": DOCUMENT, "title": "Q3 plan", "revisionId": REVISION, "text": document_text(), "tabs": [
+                { "tabId": "t.0", "title": "Plan", "text": PLAN_TEXT },
+                { "tabId": "t.8f2k", "title": "Budget", "parentTabId": "t.0", "nestingLevel": 1, "text": "Rent is the largest cost." },
+                { "tabId": "t.x1n4", "title": "Notes", "text": "" }
+            ] })),
+        Case::new("docs_documents.create", json!({ "title": "Q3 plan" }), "POST", "/v1/documents")
+            .query(json!({ "fields": DOCUMENT_FIELDS }))
+            .body(json!({ "title": "Q3 plan" }))
+            .answers(200, created_document())
+            .returns(json!({ "documentId": DOCUMENT, "title": "Q3 plan", "tabs": [{ "tabId": "t.0", "title": "Tab 1" }] })),
+        Case::new("docs_documents.append_text", json!({ "document": DOCUMENT, "text": "\nDecision: open in Paris first.", "tabId": "t.8f2k" }), "POST", format!("{document_path}:batchUpdate"))
+            .body(json!({ "requests": [{ "insertText": {
+                "text": "\nDecision: open in Paris first.",
+                "endOfSegmentLocation": { "tabId": "t.8f2k" }
+            } }] }))
+            .answers(200, document_updated())
+            .returns(json!({ "documentId": DOCUMENT, "writeControl": { "requiredRevisionId": REVISION } })),
+        // Naming the fields is what keeps the cells out of the answer.
+        Case::new("sheets_spreadsheets.get", json!({ "spreadsheet": SPREADSHEET }), "GET", spreadsheet_path.clone())
+            .query(json!({ "fields": SPREADSHEET_FIELDS }))
+            .answers(200, spreadsheet())
+            .returns(json!({ "spreadsheetId": SPREADSHEET, "properties": { "title": "Stock", "locale": "en_GB", "timeZone": "Europe/London" }, "sheets": [
+                { "properties": { "sheetId": 0, "title": "Sheet1", "index": 0, "sheetType": "GRID", "hidden": false, "gridProperties": { "rowCount": 1000, "columnCount": 26, "frozenRowCount": 1, "frozenColumnCount": 0 } } },
+                { "properties": { "sheetId": 1837264519, "title": "Q3 plan/final", "index": 1, "hidden": true, "gridProperties": { "rowCount": 200, "columnCount": 8 } } },
+                { "properties": { "sheetId": 771203, "title": "Chart1", "sheetType": "OBJECT", "gridProperties": null } }
+            ] })),
+        // The range is one segment of the path, with its `!` and `:` written out.
+        Case::new("sheets_spreadsheets.values_get", json!({ "spreadsheet": SPREADSHEET, "range": "Sheet1!A1:C4", "valueRenderOption": "UNFORMATTED_VALUE", "dateTimeRenderOption": "FORMATTED_STRING" }), "GET", format!("{spreadsheet_path}/values/Sheet1%21A1%3AC4"))
+            .query(json!({ "valueRenderOption": "UNFORMATTED_VALUE", "dateTimeRenderOption": "FORMATTED_STRING" }))
+            .answers(200, unformatted_values())
+            .returns(json!({ "range": "Sheet1!A1:C4", "majorDimension": "ROWS", "values": [["Item", "Qty", "In stock"], ["Bolts", 40, true], ["Nuts"], ["", 12.5]] })),
+        Case::new("sheets_spreadsheets.values_batch_get", json!({ "spreadsheet": SPREADSHEET, "ranges": ["Sheet1!A1:A4", "'Q3 plan/final'!B2"], "majorDimension": "COLUMNS" }), "GET", format!("{spreadsheet_path}/values:batchGet"))
+            .query(json!({ "ranges": ["Sheet1!A1:A4", "'Q3 plan/final'!B2"], "majorDimension": "COLUMNS" }))
+            .answers(200, value_ranges())
+            .returns(json!({ "spreadsheetId": SPREADSHEET, "valueRanges": [
+                { "range": "Sheet1!A1:A4", "majorDimension": "COLUMNS", "values": [["Item", "Bolts", "Nuts"]] },
+                { "range": "'Q3 plan/final'!B2", "values": [] }
+            ] })),
+        Case::new("sheets_spreadsheets.values_update", json!({ "spreadsheet": SPREADSHEET, "range": "Sheet1!A2:C2", "values": [["Bolts", 38, true]], "valueInputOption": "RAW" }), "PUT", format!("{spreadsheet_path}/values/Sheet1%21A2%3AC2"))
+            .query(json!({ "valueInputOption": "RAW" }))
+            .body(json!({ "values": [["Bolts", 38, true]] }))
+            .answers(200, values_updated())
+            .returns(json!({ "spreadsheetId": SPREADSHEET, "updatedRange": "Sheet1!A2:C2", "updatedRows": 1, "updatedColumns": 3, "updatedCells": 3 })),
+        Case::new("sheets_spreadsheets.values_append", json!({ "spreadsheet": SPREADSHEET, "range": "Sheet1!A:C", "values": [["Washers", "=6*2", false]], "valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS" }), "POST", format!("{spreadsheet_path}/values/Sheet1%21A%3AC:append"))
+            .query(json!({ "valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS" }))
+            .body(json!({ "values": [["Washers", "=6*2", false]] }))
+            .answers(200, values_appended())
+            .returns(json!({ "spreadsheetId": SPREADSHEET, "tableRange": "Sheet1!A1:C4", "updates": { "updatedRange": "Sheet1!A5:C5", "updatedRows": 1, "updatedColumns": 3, "updatedCells": 3 } })),
+    ]
 }
 
 /// Every operation, whichever product it belongs to.
@@ -279,6 +349,17 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("drive_shared_drives.list", Effect::Read, &[scopes::DRIVE_READONLY]),
 
         // ── docs and sheets: effects ──
+        ("docs_documents.get", Effect::Read, &[scopes::DOCUMENTS_READONLY]),
+        ("docs_documents.read", Effect::Read, &[scopes::DOCUMENTS_READONLY]),
+        ("docs_documents.create", Effect::Write, &[scopes::DOCUMENTS]),
+        // Adds to the end of a document; nothing that was there is changed.
+        ("docs_documents.append_text", Effect::Write, &[scopes::DOCUMENTS]),
+        ("sheets_spreadsheets.get", Effect::Read, &[scopes::SPREADSHEETS_READONLY]),
+        ("sheets_spreadsheets.values_get", Effect::Read, &[scopes::SPREADSHEETS_READONLY]),
+        ("sheets_spreadsheets.values_batch_get", Effect::Read, &[scopes::SPREADSHEETS_READONLY]),
+        // What was in the cells of the range is written over.
+        ("sheets_spreadsheets.values_update", Effect::Destructive, &[scopes::SPREADSHEETS]),
+        ("sheets_spreadsheets.values_append", Effect::Write, &[scopes::SPREADSHEETS]),
     ]
 }
 

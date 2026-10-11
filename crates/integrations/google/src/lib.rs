@@ -35,6 +35,7 @@ pub use client::{MeetConferenceRecords, MeetParticipants, MeetRecordings, MeetSp
 pub use client::{DriveFiles, DriveSharedDrives};
 
 // ── docs and sheets: groups ──
+pub use client::{DocsDocuments, SheetsSpreadsheets};
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "google";
@@ -420,6 +421,15 @@ impl Google {
     }
 
     // ── docs and sheets: groups ──
+    /// Google Docs: a document's tabs, its text, and adding to it.
+    pub fn docs_documents<'a>(&self, connection: &'a Connection) -> DocsDocuments<'a> {
+        DocsDocuments(client::Api { connection })
+    }
+
+    /// Google Sheets: a spreadsheet's sheets, and reading and writing its cells.
+    pub fn sheets_spreadsheets<'a>(&self, connection: &'a Connection) -> SheetsSpreadsheets<'a> {
+        SheetsSpreadsheets(client::Api { connection })
+    }
 
     fn error(&self, kind: ErrorKind, message: impl Into<String>) -> Error {
         Error::new(kind, message).with_provider(self.spec.id.clone())
