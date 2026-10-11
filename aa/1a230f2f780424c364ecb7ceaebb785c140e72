@@ -1,0 +1,27 @@
+crates/integrations/salesforce/src/lib.rs
+  s_bcb90e4e44ba65::t_1152407a337120 287-317,655-662,1071-1113
+  s_bcb90e4e44ba65::t_f95cf19cad00aa 1114
+docs/integrations/salesforce.md
+  s_bcb90e4e44ba65::t_1152407a337120 110
+crates/integrations/attio/src/models/task.rs
+  s_bcb90e4e44ba65::t_1152407a337120 137-140,154-180
+  s_bcb90e4e44ba65::t_e20f17f33a58a6 181
+README.md
+  s_bcb90e4e44ba65::t_f5232ed66d839c 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "aa1a230f2f780424c364ecb7ceaebb785c140e72",
+  "prompts": {},
+  "sessions": {
+    "s_bcb90e4e44ba65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9b1631a4-f411-425a-a51b-2099dc11635a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
