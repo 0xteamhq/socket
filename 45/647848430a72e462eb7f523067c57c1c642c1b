@@ -1,0 +1,43 @@
+crates/facade/Cargo.toml
+  s_bcb90e4e44ba65::t_6a94da431e1e6a 13,16,20-21,31-43,54-57
+crates/facade/src/lib.rs
+  s_bcb90e4e44ba65::t_6a94da431e1e6a 8-9,14-15,22-25
+docs/roadmap.md
+  s_bcb90e4e44ba65::t_a6595feeea45a9 62-74
+README.md
+  s_bcb90e4e44ba65::t_86d4857a039b33 7
+  s_bcb90e4e44ba65::t_a6595feeea45a9 19,21,43,45-48,54,59,61,71,168-171,173-175
+Cargo.toml
+  s_bcb90e4e44ba65::t_6a94da431e1e6a 22-25
+crates/facade/tests/features.rs
+  s_bcb90e4e44ba65::t_babf2063b4eec1 17,20,24-25,30,34,37,41-42,50-62,65-70,115,118,122-123,143,146,150-151,178,181,185-190,342-429
+  s_bcb90e4e44ba65::t_9e86c0317fd3ec 430
+crates/facade/examples/catalogue.rs
+  s_bcb90e4e44ba65::t_6a94da431e1e6a 12,15,19-20,35
+Cargo.lock
+  s_6c901f7a3e5f5d::t_8f2a0282c22e44 1129,1133,1137-1138,1145-1160,1203-1218,1258-1287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "45647848430a72e462eb7f523067c57c1c642c1b",
+  "prompts": {},
+  "sessions": {
+    "s_6c901f7a3e5f5d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a361d6914c4f8f389",
+        "model": "unknown"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    },
+    "s_bcb90e4e44ba65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9b1631a4-f411-425a-a51b-2099dc11635a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,68 @@
+crates/integrations/microsoft/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 317
+crates/core/src/provider.rs
+  s_bcb90e4e44ba65::t_b8b6c09dc5ad32 174-175,715-717,722-725,769-779
+  s_bcb90e4e44ba65::t_05d541e6d40474 220-222,685-714,718-721,726-768,780-795,797-864
+  s_bcb90e4e44ba65::t_55286c4f98ad30 64-69,96-100,199-219,223-225,228-258,262-264,271-289,291-296,406-436
+  s_bcb90e4e44ba65::t_ee17c6eb5e325d 101,437,865
+crates/core/src/socket.rs
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 392-394,564-565,573-579,630-640,657-660,803-810
+  s_bcb90e4e44ba65::t_b8b6c09dc5ad32 469,561-563,641-656
+  s_bcb90e4e44ba65::t_db870b32fcfc36 811
+crates/core/src/auth.rs
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 231
+crates/core/src/lib.rs
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 27,30
+crates/core/src/secret.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 116,131
+  s_bcb90e4e44ba65::t_55286c4f98ad30 5,42-50,61,65-68
+  s_bcb90e4e44ba65::t_05d541e6d40474 69,144-158
+  s_bcb90e4e44ba65::t_a7bde085a7d778 70,143
+crates/core/tests/wire.rs
+  s_bcb90e4e44ba65::t_05d541e6d40474 2784-2915,2952-3076,3078,3083-3086,3111-3147,3149-3183
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 98,2120
+  s_bcb90e4e44ba65::t_b8b6c09dc5ad32 3077,3079-3082,3087-3110
+crates/integrations/github/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 161
+crates/core/src/http.rs
+  s_bcb90e4e44ba65::t_b8b6c09dc5ad32 591-598,603,893-938,964-1001
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 21-22,264,368,504-514,519,582-590,599-602,604-605,618-619,638
+  s_bcb90e4e44ba65::t_3938c0f1a3b2fb 1002
+crates/testkit/src/lib.rs
+  s_bcb90e4e44ba65::t_271d4a98e22607 306,308,312,314
+  s_bcb90e4e44ba65::t_56f275876b1359 109-113,116,218-305,307,309-311,313,315-343
+  s_bcb90e4e44ba65::t_5ddb1771e9a50f 344-345
+crates/integrations/zoom/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 163
+crates/integrations/slack/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 241
+crates/core/src/oauth.rs
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 194,224-228
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_bcb90e4e44ba65::t_feee72fe5eb9a1 185-186,202-203,285
+crates/core/src/operation.rs
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 9,190-194
+  s_bcb90e4e44ba65::t_b0879fa9b770b4 195-196
+crates/integrations/notion/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 173
+crates/integrations/google/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 256
+crates/integrations/microsoft/tests/wire.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "92456236e39598756a7881e14578ca6162391fd7",
+  "prompts": {},
+  "sessions": {
+    "s_bcb90e4e44ba65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9b1631a4-f411-425a-a51b-2099dc11635a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
