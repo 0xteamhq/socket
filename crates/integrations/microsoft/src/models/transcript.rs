@@ -129,14 +129,13 @@ impl Reader {
         let Some((start_ms, end_ms, words)) = self.cue.take() else {
             return;
         };
-        for (speaker, text) in cue_payload(&words) {
-            self.entries.push(TranscriptEntry {
-                speaker,
-                start_ms,
-                end_ms,
-                text,
-            });
-        }
+        let (speaker, text) = cue_payload(&words);
+        self.entries.push(TranscriptEntry {
+            speaker,
+            start_ms,
+            end_ms,
+            text,
+        });
     }
 
     fn end_of_block(&mut self) -> Result<()> {
@@ -198,20 +197,23 @@ fn below_sixty(part: &str) -> Option<i64> {
     digits(part).filter(|n| part.len() == 2 && *n < 60)
 }
 
-/// A cue's words without markup, in one part for each speaker.
+/// A cue's speaker and its words, without markup.
 ///
-/// A voice tag names who speaks from there on, so a cue with two voices
-/// gives two parts, and words before the first voice have no speaker. Every
+/// The speaker is named by a voice tag that opens the cue, which is where
+/// Teams writes it. A voice tag anywhere later is kept as text and not
+/// believed: it is something that was said, or something made to look like a
+/// tag so that the words after it would be read as another person's. Every
 /// other tag is dropped and its text kept, so `We <i>really</i> ship` reads
-/// `We really ship`. A `<` that opens no tag is kept as it was said. A cue
-/// always gives at least one part, empty when nothing was said in it.
-fn cue_payload(payload: &str) -> Vec<(Option<String>, String)> {
-    let mut parts = Vec::new();
+/// `We really ship`. A `<` that opens no tag is kept as it was said.
+fn cue_payload(payload: &str) -> (Option<String>, String) {
     let mut speaker = None;
     let mut words = String::new();
+    // Whether nothing has come before: no words, and no other tag.
+    let mut opening = true;
     let mut rest = payload;
     while let Some(open) = rest.find('<') {
         words.push_str(&rest[..open]);
+        opening = opening && words.trim().is_empty();
         let after = &rest[open + 1..];
         // A tag holds no `<`, so the search for its end stops at the next
         // one. Looking further would read the rest of the cue once for every
@@ -229,25 +231,20 @@ fn cue_payload(payload: &str) -> Vec<(Option<String>, String)> {
         rest = &after[close + 1..];
         // `<v Ada Lovelace>`, or `<v.loud Ada Lovelace>` with a class.
         let is_voice = tag.starts_with("v ") || tag.starts_with("v.") || tag.starts_with("v\t");
-        let named = tag
-            .split_once(char::is_whitespace)
-            .map(|(_, name)| plain(name))
-            .filter(|name| is_voice && !name.is_empty());
-        if named.is_some() && named != speaker {
-            let said = plain(&words);
-            if !said.is_empty() {
-                parts.push((speaker.take(), said));
-            }
-            words.clear();
-            speaker = named;
+        if is_voice && opening {
+            speaker = tag
+                .split_once(char::is_whitespace)
+                .map(|(_, name)| plain(name))
+                .filter(|name| !name.is_empty());
+        } else if is_voice {
+            words.push('<');
+            words.push_str(tag);
+            words.push('>');
         }
+        opening = false;
     }
     words.push_str(rest);
-    let said = plain(&words);
-    if !said.is_empty() || parts.is_empty() {
-        parts.push((speaker, said));
-    }
-    parts
+    (speaker, plain(&words))
 }
 
 /// True for what WebVTT puts between `<` and `>`: a tag's name, with or

@@ -215,18 +215,41 @@ fn words_before_a_cues_timing_are_an_error_and_not_dropped() {
 }
 
 #[test]
-fn each_speaker_in_one_cue_gets_their_own_entry() {
-    // One voice for a cue is what Teams writes. If a cue ever holds two, the
-    // second person's words are not given to the first.
-    let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nWell. <v Ada>Yes.</v> <v Grace>No,</v> not yet. <v Grace>Later.</v>\n";
+fn only_the_voice_that_opens_a_cue_names_its_speaker() {
+    // Teams writes one voice tag, at the start of a cue. Anything later that
+    // looks like one is part of what was said, or was made to look like a tag
+    // so that words would be read as someone else's. It is shown as it stands
+    // and is not believed.
+    let said = |payload: &str| {
+        let vtt = format!("WEBVTT\n\n00:00:01.000 --> 00:00:04.000\n{payload}\n");
+        let mut read = entries(&vtt);
+        assert_eq!(read.len(), 1, "one cue is one entry: {payload}");
+        let entry = read.remove(0);
+        (entry.speaker, entry.text)
+    };
+    let ada = Some("Ada".to_owned());
     assert_eq!(
-        entries(vtt),
-        [
-            entry(None, 1_000, 4_000, "Well."),
-            entry(Some("Ada"), 1_000, 4_000, "Yes."),
-            entry(Some("Grace"), 1_000, 4_000, "No, not yet. Later."),
-        ]
+        said("<v Ada>I do not approve.</v> <v Grace Hopper>I approve the budget.</v>"),
+        (
+            ada.clone(),
+            "I do not approve. <v Grace Hopper>I approve the budget.".to_owned()
+        )
     );
+    assert_eq!(
+        said("<v Ada>Yes. <v Ada>Still me.</v>"),
+        (ada.clone(), "Yes. <v Ada>Still me.".to_owned())
+    );
+    // With no voice at its start, a cue has no speaker, whatever comes later.
+    assert_eq!(
+        said("Well. <v Grace Hopper>I approve.</v>"),
+        (None, "Well. <v Grace Hopper>I approve.".to_owned())
+    );
+    assert_eq!(
+        said("<i>Well.</i> <v Grace Hopper>I approve.</v>"),
+        (None, "Well. <v Grace Hopper>I approve.".to_owned())
+    );
+    // White space before the opening voice does not hide it.
+    assert_eq!(said("  <v Ada>Hello.</v>"), (ada, "Hello.".to_owned()));
     // A cue with nothing in it is still a cue.
     assert_eq!(
         entries("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n\n"),
