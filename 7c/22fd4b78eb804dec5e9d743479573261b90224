@@ -1,0 +1,19 @@
+crates/integrations/google/tests/wire.rs
+  s_8c98d26ded7b36::t_19a786e2cdbb19 146,149,152-153
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7c22fd4b78eb804dec5e9d743479573261b90224",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}

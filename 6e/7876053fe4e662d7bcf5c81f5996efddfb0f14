@@ -1,0 +1,58 @@
+crates/integrations/google/src/models/drive_file.rs
+  s_8c98d26ded7b36::t_6699276754dcf2 1-116
+crates/integrations/google/src/client/mod.rs
+  s_8c98d26ded7b36::t_065f75d356923c 32-34,59-60
+crates/integrations/google/src/models/drive_export.rs
+  s_8c98d26ded7b36::t_48f8dc021264a1 1-80
+crates/integrations/google/src/client/drive_files.rs
+  s_8c98d26ded7b36::t_e8f829ea0decca 1-119,121-158,160-171
+  s_8c98d26ded7b36::t_7a03acd9e9357d 159
+  s_8c98d26ded7b36::t_19afebf541c961 120
+crates/integrations/google/src/models/shared_drive.rs
+  s_8c98d26ded7b36::t_7a03acd9e9357d 16
+  s_8c98d26ded7b36::t_5041a5628bae07 1-15,17-18
+crates/integrations/google/src/lib.rs
+  s_8c98d26ded7b36::t_065f75d356923c 35,405-414
+crates/integrations/google/tests/operations.rs
+  s_8c98d26ded7b36::t_bde71363f68e32 163-214,270-279
+  s_8c98d26ded7b36::t_c0c6c57cb0b337 157-162
+crates/integrations/google/src/models/mod.rs
+  s_8c98d26ded7b36::t_065f75d356923c 36-39,72-75
+crates/integrations/google/src/client/drive_shared_drives.rs
+  s_8c98d26ded7b36::t_19afebf541c961 25-26
+  s_8c98d26ded7b36::t_3296e4a1b596bd 1-24,27-32
+crates/integrations/google/src/models/drive_permission.rs
+  s_8c98d26ded7b36::t_ce22419b1b7187 1-30,33-49
+  s_8c98d26ded7b36::t_7a03acd9e9357d 31-32
+docs/integrations/google-drive.part.md
+  s_8c98d26ded7b36::t_b492702e05a12b 1-44,46-70,72-81,83-107,109-127,129-140,142-150,152-166,168-182
+  s_8c98d26ded7b36::t_ea2bc0dfd2bf2f 45,71,82,108,128,141,151,167
+crates/integrations/google/tests/drive.rs
+  s_8c98d26ded7b36::t_a7a2364aeefbfb 51,56-59,65,74,76
+  s_8c98d26ded7b36::t_04051bb3998794 32,99-103,127,132,199,211,267,431-438,488,493,630-633,658,688,854,1100,1239,1250,1253-1257
+  s_8c98d26ded7b36::t_abbee3c18d63d9 1-31,33-50,52-55,60-64,66-73,75,77-98,104-126,128-131,133-198,200-210,212-266,268-430,439-487,489-492,494-629,634-657,659-687,689-853,855-1099,1101-1238,1240-1249,1251-1252,1258-1259
+crates/integrations/google/tests/support/drive.rs
+  s_8c98d26ded7b36::t_d5fa1468c11c99 2-136
+crates/integrations/google/src/operations.rs
+  s_8c98d26ded7b36::t_065f75d356923c 37-40,354-391,463-484
+crates/integrations/google/src/client/drive_files_change.rs
+  s_8c98d26ded7b36::t_7a03acd9e9357d 129-130,132-136,138-139
+  s_8c98d26ded7b36::t_19afebf541c961 137
+  s_8c98d26ded7b36::t_438420bb337f5f 1-128,131,140-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6e7876053fe4e662d7bcf5c81f5996efddfb0f14",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}

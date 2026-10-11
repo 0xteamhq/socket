@@ -1,0 +1,83 @@
+crates/integrations/google/src/models/meet_conference.rs
+  s_8c98d26ded7b36::t_9d3b616884c278 1-46
+crates/integrations/google/src/lib.rs
+  s_8c98d26ded7b36::t_b51e5cb6313961 378-401
+  s_8c98d26ded7b36::t_16905a5f0df896 32
+crates/integrations/google/src/client/meet.rs
+  s_8c98d26ded7b36::t_fa039857560552 75-81
+  s_8c98d26ded7b36::t_4cb3a615e6bd50 1-74,82-83,88-111
+  s_8c98d26ded7b36::t_b7267e4a3800c8 84-87
+crates/integrations/google/src/models/mod.rs
+  s_8c98d26ded7b36::t_de992ceb349e71 27-33
+  s_8c98d26ded7b36::t_4c65aa2ec91d7d 54-65
+crates/integrations/google/src/client/meet_recordings.rs
+  s_8c98d26ded7b36::t_fa039857560552 32-34
+  s_8c98d26ded7b36::t_b394425371839a 1-31,35-40
+crates/integrations/google/src/client/meet_conference_records.rs
+  s_8c98d26ded7b36::t_906c46a68388d2 94-95
+  s_8c98d26ded7b36::t_fb1b95a5db8056 108-123
+  s_8c98d26ded7b36::t_e846f8d5163956 1-9,11-18,24-37,39-93,97-107,124
+  s_8c98d26ded7b36::t_bede754e919229 10
+  s_8c98d26ded7b36::t_65319359e070db 96
+  s_8c98d26ded7b36::t_937d4632cc3486 38
+  s_8c98d26ded7b36::t_a1b95f571327d6 19-23
+crates/integrations/google/src/client/meet_participants.rs
+  s_8c98d26ded7b36::t_fa039857560552 46-50
+  s_8c98d26ded7b36::t_102bfc195e30c1 1-45,51-57
+crates/integrations/google/src/operations.rs
+  s_8c98d26ded7b36::t_614b9d1ce1a091 31-34
+  s_8c98d26ded7b36::t_28c91a0bae7132 395-418
+  s_8c98d26ded7b36::t_eb79c5fbf04d29 289-347
+crates/integrations/google/tests/support/meet.rs
+  s_8c98d26ded7b36::t_c39ae64ae89fe2 2-124
+crates/integrations/google/src/models/meet_transcript_content.rs
+  s_8c98d26ded7b36::t_7ad4a17881fc2d 1-85,88-104,110-140
+  s_8c98d26ded7b36::t_fa039857560552 86-87,105-109
+crates/integrations/google/tests/operations.rs
+  s_8c98d26ded7b36::t_39439117e8019d 92-151
+  s_8c98d26ded7b36::t_54a5b98faec411 86
+  s_8c98d26ded7b36::t_3caeaeb0810cb8 84-85,87-91
+  s_8c98d26ded7b36::t_aec3f41fdb2ba9 199-210
+crates/integrations/google/src/models/meet_participant.rs
+  s_8c98d26ded7b36::t_33f02cbd5263d5 1-82
+crates/integrations/google/tests/meet.rs
+  s_8c98d26ded7b36::t_007ccc82bc20e8 1-79,83-93,98-170,173,180-322,331-339,342-358,365-368,374-386,392-394,400-428,435-453,456-473,479-485,493-534,540-555,566-571,577-584,590,596-635,643-701,710-743,748-754,762-814,819-838,845-871,879-893,901-918,924-929,936-979,984-994,1001,1014-1044,1051-1058,1064-1069,1075-1084,1089-1103
+  s_8c98d26ded7b36::t_30cba0cde35e7d 80-82,94-97,171-172,174,323-330,340-341,359-364,369-373,387-391,395-399,429-434,454-455,474-478,486-492,535-539,556-565,572-576,585-589,591-595,636-642,702-709,744-747,755-761,815-818,839-844,872-878,894-900,919-923,930-935,980-983,995-1000,1002-1013,1045-1050,1059-1063,1070-1074,1085-1088
+  s_8c98d26ded7b36::t_f06a9bbbe77bf4 175-179
+crates/integrations/google/src/models/meet_time.rs
+  s_8c98d26ded7b36::t_5f93b3afad6168 1-163
+crates/integrations/google/src/models/meet_recording.rs
+  s_8c98d26ded7b36::t_85d6b4a206a87a 1-31
+crates/integrations/google/src/client/mod.rs
+  s_8c98d26ded7b36::t_91033a75edbd78 49-53
+  s_8c98d26ded7b36::t_8740d4386328c8 24-29
+docs/integrations/google-meet.part.md
+  s_8c98d26ded7b36::t_8036e1e04db044 1-70,72-126
+  s_8c98d26ded7b36::t_3c6f77a6c10364 71
+crates/integrations/google/src/models/meet_space.rs
+  s_8c98d26ded7b36::t_4f959279923aa0 1-78
+crates/integrations/google/src/client/meet_spaces.rs
+  s_8c98d26ded7b36::t_11aa77177cfbeb 1-27
+crates/integrations/google/src/models/meet_transcript.rs
+  s_8c98d26ded7b36::t_81293883298142 1-64
+crates/integrations/google/src/client/meet_transcripts.rs
+  s_8c98d26ded7b36::t_648c8c306f4d39 30
+  s_8c98d26ded7b36::t_fa039857560552 150-152
+  s_8c98d26ded7b36::t_09edb18fd99388 1-29,31-149,153-185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cd11d4a80d06aa75376c62863c99849539ba6fbf",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}

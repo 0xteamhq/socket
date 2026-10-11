@@ -1,0 +1,82 @@
+crates/integrations/google/tests/calendar.rs
+  s_8c98d26ded7b36::t_ca69a339b184bd 1-1574,1577,1580
+  s_8c98d26ded7b36::t_059e011de34483 1575-1576,1578-1579,1581-1615
+crates/integrations/google/src/models/mod.rs
+  s_8c98d26ded7b36::t_fcda59c5113541 18-24,35-44
+crates/integrations/google/src/models/calendar_conference.rs
+  s_8c98d26ded7b36::t_e3cbbe50b45f8a 1-76
+crates/integrations/google/src/client/mod.rs
+  s_8c98d26ded7b36::t_fcda59c5113541 17-21,38-40
+crates/integrations/google/src/lib.rs
+  s_8c98d26ded7b36::t_fcda59c5113541 29,361-374
+  s_8c98d26ded7b36::t_46aba921d32e2e 375
+docs/integrations/google-general.part.md
+  s_8c98d26ded7b36::t_4ef849d0729232 1-255
+crates/integrations/google/src/operations.rs
+  s_8c98d26ded7b36::t_ea797ca5322d9d 25-28,212-282,309-329
+crates/integrations/google/src/client/calendar_freebusy.rs
+  s_8c98d26ded7b36::t_730946cf5ea0b1 1-30,32-49
+  s_8c98d26ded7b36::t_bccb136c8e2b9e 31
+crates/integrations/google/tests/support/calendar.rs
+  s_8c98d26ded7b36::t_594a7896254006 2-91
+crates/integrations/google/src/models/calendar_event.rs
+  s_8c98d26ded7b36::t_fabf63c6ff51dc 1-176
+crates/integrations/google/tests/operations.rs
+  s_8c98d26ded7b36::t_7c2d413636a437 21-24,28-78,119-128
+  s_8c98d26ded7b36::t_aa3ed70183bc4a 27
+crates/integrations/google/src/models/calendar_freebusy.rs
+  s_8c98d26ded7b36::t_b9e3291c3872c8 1-68
+crates/integrations/google/src/models/calendar_event_filter.rs
+  s_8c98d26ded7b36::t_45e51b78f192af 1-41
+crates/integrations/google/src/client/calendar_time.rs
+  s_8c98d26ded7b36::t_539c64becd9112 41
+  s_8c98d26ded7b36::t_29dacac0d3ba86 87
+  s_8c98d26ded7b36::t_01a682617c1fa3 1-23,26-27,29-40,42-61,63-77,79-86,88-93
+  s_8c98d26ded7b36::t_d0363a2c5a248d 24-25,28,62,78
+crates/integrations/google/src/client/calendar_events.rs
+  s_8c98d26ded7b36::t_9bc98cea674cc8 1-40,42-114
+  s_8c98d26ded7b36::t_45982bf9c230df 41
+crates/integrations/google/src/models/calendar.rs
+  s_8c98d26ded7b36::t_7da551c017ed04 21
+  s_8c98d26ded7b36::t_21b3314abbe6bd 39
+  s_8c98d26ded7b36::t_579a73e326ea38 1-20,22-38,40-45
+docs/integrations/google-calendar.part.md
+  s_8c98d26ded7b36::t_78259cc5f0617f 119
+  s_8c98d26ded7b36::t_68562d3125d5e5 1-118,120-133
+crates/integrations/google/src/client/calendar_list.rs
+  s_8c98d26ded7b36::t_cc8a72127cbc18 1-56
+crates/integrations/google/src/client/calendar_events_write.rs
+  s_8c98d26ded7b36::t_7a08040b5dbd93 65-66
+  s_8c98d26ded7b36::t_70db9128c864c6 102
+  s_8c98d26ded7b36::t_b0808389babc04 1-64,67-101,103-138,140-159,161-189,191-194
+  s_8c98d26ded7b36::t_eed8ce17877460 160
+  s_afb0d00c6f7d5b::t_7b6bb70e101f19 139,190
+crates/integrations/google/src/models/calendar_event_time.rs
+  s_8c98d26ded7b36::t_34a5cd3f595ad9 1-45
+crates/integrations/google/src/models/calendar_attendee.rs
+  s_8c98d26ded7b36::t_07a8796ced4a22 1-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "38ae031ce6e836c233555626f0e1c8455af0206e",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    },
+    "s_afb0d00c6f7d5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "667ae86a-e810-4077-99f5-2ba619af5ef2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}

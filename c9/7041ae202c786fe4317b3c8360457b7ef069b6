@@ -1,0 +1,43 @@
+crates/integrations/google/tests/drive.rs
+  s_8c98d26ded7b36::t_b9cee8c59de272 1266-1284
+crates/integrations/google/src/models/document_text.rs
+  s_8c98d26ded7b36::t_5cd01006c71226 202-208,313-325
+  s_8c98d26ded7b36::t_b9cee8c59de272 663-669,675-688
+  s_8c98d26ded7b36::t_85a3094052a95d 689-690
+crates/integrations/google/tests/sheets.rs
+  s_8c98d26ded7b36::t_61fd84eef1851c 495,502-503
+crates/integrations/google/tests/docs.rs
+  s_8c98d26ded7b36::t_61fd84eef1851c 95-97,137-138,145
+crates/integrations/google/src/models/document.rs
+  s_8c98d26ded7b36::t_37f6dbc976a5f7 48-57
+crates/integrations/google/src/client/drive_files_change.rs
+  s_8c98d26ded7b36::t_5cd01006c71226 66-69
+crates/integrations/google/src/client/sheets_spreadsheets.rs
+  s_8c98d26ded7b36::t_5cd01006c71226 140-146
+crates/integrations/google/tests/operations.rs
+  s_8c98d26ded7b36::t_61fd84eef1851c 330
+  s_8c98d26ded7b36::t_5cd01006c71226 458-459
+  s_8c98d26ded7b36::t_c8f8f0a551cab9 308-309
+  s_8c98d26ded7b36::t_5c5b57a2d11d6d 644-680
+crates/integrations/google/src/operations.rs
+  s_8c98d26ded7b36::t_5cd01006c71226 675-678,680
+  s_8c98d26ded7b36::t_c837adaf737bcc 183-188
+crates/integrations/google/src/lib.rs
+  s_8c98d26ded7b36::t_f673b41f873bd1 463-480,584-591
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c97041ae202c786fe4317b3c8360457b7ef069b6",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
