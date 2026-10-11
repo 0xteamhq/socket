@@ -5,6 +5,8 @@ crates/core/src/provider.rs
   s_bcb90e4e44ba65::t_05d541e6d40474 220-222,685-714,718-721,726-768,780-795,797-864
   s_bcb90e4e44ba65::t_55286c4f98ad30 64-69,96-100,199-219,223-225,228-258,262-264,271-289,291-296,406-436
   s_bcb90e4e44ba65::t_ee17c6eb5e325d 101,437,865
+  s_bcb90e4e44ba65::t_c089a3ec3fbb4a 176-179,226-227,259-261,290
+  s_bcb90e4e44ba65::t_18aa42b3346b71 796
 crates/core/src/socket.rs
   s_bcb90e4e44ba65::t_e00b6efe43d1cf 392-394,564-565,573-579,630-640,657-660,803-810
   s_bcb90e4e44ba65::t_b8b6c09dc5ad32 469,561-563,641-656
@@ -13,6 +15,7 @@ crates/core/src/auth.rs
   s_bcb90e4e44ba65::t_e00b6efe43d1cf 231
 crates/core/src/lib.rs
   s_bcb90e4e44ba65::t_e00b6efe43d1cf 27,30
+  s_bcb90e4e44ba65::t_b38c3e58b26dca 29
 crates/core/src/secret.rs
   s_bcb90e4e44ba65::t_c88a9b6877bec8 116,131
   s_bcb90e4e44ba65::t_55286c4f98ad30 5,42-50,61,65-68
@@ -22,12 +25,18 @@ crates/core/tests/wire.rs
   s_bcb90e4e44ba65::t_05d541e6d40474 2784-2915,2952-3076,3078,3083-3086,3111-3147,3149-3183
   s_bcb90e4e44ba65::t_c88a9b6877bec8 98,2120
   s_bcb90e4e44ba65::t_b8b6c09dc5ad32 3077,3079-3082,3087-3110
+  s_bcb90e4e44ba65::t_18aa42b3346b71 3148
+  s_bcb90e4e44ba65::t_eeeabb1008eec0 2916
+  s_bcb90e4e44ba65::t_e04858e231d1b3 2917-2951
 crates/integrations/github/src/lib.rs
   s_bcb90e4e44ba65::t_c88a9b6877bec8 161
 crates/core/src/http.rs
   s_bcb90e4e44ba65::t_b8b6c09dc5ad32 591-598,603,893-938,964-1001
   s_bcb90e4e44ba65::t_e00b6efe43d1cf 21-22,264,368,504-514,519,582-590,599-602,604-605,618-619,638
   s_bcb90e4e44ba65::t_3938c0f1a3b2fb 1002
+  s_bcb90e4e44ba65::t_eeeabb1008eec0 616-617,939
+  s_bcb90e4e44ba65::t_b38c3e58b26dca 606-615,620-621,627-630
+  s_bcb90e4e44ba65::t_e04858e231d1b3 940-963
 crates/testkit/src/lib.rs
   s_bcb90e4e44ba65::t_271d4a98e22607 306,308,312,314
   s_bcb90e4e44ba65::t_56f275876b1359 109-113,116,218-305,307,309-311,313,315-343
@@ -49,6 +58,11 @@ crates/integrations/google/src/lib.rs
   s_bcb90e4e44ba65::t_c88a9b6877bec8 256
 crates/integrations/microsoft/tests/wire.rs
   s_bcb90e4e44ba65::t_c88a9b6877bec8 85
+crates/core/src/http/content.rs
+  s_bcb90e4e44ba65::t_a7a57de40e16ec 15-16,224,228,240,284,310,380,386
+  s_bcb90e4e44ba65::t_00cb70c164a93d 379
+crates/core/tests/content.rs
+  s_bcb90e4e44ba65::t_00cb70c164a93d 841,867
 ---
 {
   "schema_version": "authorship/3.0.0",
