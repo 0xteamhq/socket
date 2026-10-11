@@ -140,11 +140,43 @@ impl CreateTask {
 pub struct UpdateTask {
     /// When it is due, in ISO 8601. `null` takes the deadline away; leaving
     /// this out leaves it as it is.
-    #[serde(default, deserialize_with = "given")]
+    #[serde(default, deserialize_with = "given", skip_serializing_if = "Option::is_none")]
     pub deadline_at: Option<Option<String>>,
     pub is_completed: Option<bool>,
     /// The whole list of records the task is about: one left out is unlinked.
     pub linked_records: Option<Vec<Value>>,
     /// The whole list of people it is assigned to: one left out is unassigned.
     pub assignees: Option<Vec<Value>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_deadline_left_alone_taken_away_or_set_is_the_same_after_being_written_and_read() {
+        let untouched = UpdateTask {
+            is_completed: Some(true),
+            ..UpdateTask::default()
+        };
+        let cleared = UpdateTask {
+            deadline_at: Some(None),
+            ..UpdateTask::default()
+        };
+        let set = UpdateTask {
+            deadline_at: Some(Some("2026-10-20T17:00:00Z".into())),
+            ..UpdateTask::default()
+        };
+        for changes in [untouched.clone(), cleared.clone(), set] {
+            let written = serde_json::to_value(&changes).unwrap();
+            assert_eq!(serde_json::from_value::<UpdateTask>(written).unwrap(), changes);
+        }
+        // Left alone, the deadline is not written at all: written as `null`,
+        // it would be read back as one to take away.
+        let written = serde_json::to_value(&untouched).unwrap();
+        assert!(written.get("deadline_at").is_none(), "{written}");
+        assert_eq!(serde_json::to_value(&cleared).unwrap()["deadline_at"], json!(null));
+    }
 }
