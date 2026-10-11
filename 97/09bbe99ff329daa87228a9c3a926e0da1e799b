@@ -1,0 +1,42 @@
+crates/integrations/google/src/client/calendar_events_write.rs
+  s_8c98d26ded7b36::t_c374361579e0aa 29-38,47,63-70,74-112
+  s_8c98d26ded7b36::t_2380e31495c1af 113-114
+crates/integrations/google/src/operations.rs
+  s_8c98d26ded7b36::t_9250c9b56729df 626
+  s_8c98d26ded7b36::t_c374361579e0aa 624
+crates/integrations/google/tests/meet.rs
+  s_8c98d26ded7b36::t_924398c281c47d 893-908
+  s_8c98d26ded7b36::t_53b832bfc02e2d 892
+crates/integrations/google/src/client/calendar_time.rs
+  s_8c98d26ded7b36::t_866fa151d5ed94 24-28,30,33-34,80-85
+crates/integrations/google/src/models/meet_time.rs
+  s_8c98d26ded7b36::t_4433965ec71978 112-113
+  s_8c98d26ded7b36::t_9052494e01fcad 39-40,49
+crates/integrations/google/src/models/calendar_attendee.rs
+  s_8c98d26ded7b36::t_c374361579e0aa 39-41
+crates/integrations/google/src/models/meet_transcript_content.rs
+  s_8c98d26ded7b36::t_9052494e01fcad 114-118
+  s_8c98d26ded7b36::t_924398c281c47d 27-31
+crates/integrations/google/tests/calendar.rs
+  s_8c98d26ded7b36::t_9250c9b56729df 858-859,877,882,895-972,978-998
+  s_8c98d26ded7b36::t_4433965ec71978 1030-1034
+  s_8c98d26ded7b36::t_2609f8280b6999 1027-1029
+  s_8c98d26ded7b36::t_866fa151d5ed94 973-977
+  s_8c98d26ded7b36::t_115b067fa4023f 999
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9709bbe99ff329daa87228a9c3a926e0da1e799b",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
