@@ -317,7 +317,7 @@ fn teams_cases() -> Vec<Case> {
             json!({ "body": { "contentType": "text", "content": "On my way." } }), Some(ALL_KINDS), 201, chat_message(), json!({ "id": "1616990032035" })),
         // Each member is named by the address of the user in this API.
         case("chats.create", json!({ "chatType": "oneOnOne", "members": ["u-1", "grace@contoso.example"] }), "POST", "/chats", json!({}),
-            json!({ "chatType": "oneOnOne", "members": [bound("u-1"), bound("grace@contoso.example")] }), None, 201, chat(), json!({ "id": CHAT, "chatType": "oneOnOne" })),
+            json!({ "chatType": "oneOnOne", "members": [bound("u-1"), bound("grace%40contoso.example")] }), None, 201, chat(), json!({ "id": CHAT, "chatType": "oneOnOne" })),
     ]
 }
 

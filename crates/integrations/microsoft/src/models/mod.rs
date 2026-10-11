@@ -20,6 +20,7 @@ mod date_time;
 mod email_address;
 mod event;
 mod folder;
+mod html;
 mod identity;
 mod item_body;
 mod member;
@@ -30,6 +31,7 @@ mod paging;
 mod recording;
 mod team;
 mod transcript;
+mod webvtt;
 
 pub use attachment::Attachment;
 pub use attendance::{AttendanceInterval, AttendanceRecord, AttendanceReport};

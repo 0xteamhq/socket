@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 use socketkit_core::{ErrorKind, Page, RawRequest, Result};
 
-use super::{Api, named};
+use super::{Api, encoded, named};
 use crate::models::{Chat, ChatMessage, ChatType, ConversationMember, CreateChat, Cursor, Paging, SendChatMessage};
 
 /// Chats: one-to-one, group and meeting conversations outside a channel.
@@ -67,7 +67,9 @@ impl Chats<'_> {
             return Err(invalid("a one-to-one chat takes no `topic`"));
         }
         // Graph is told who each member is by the address of the user, in
-        // this API. A quote in an id is doubled, as OData writes one.
+        // this API. A quote in a name is doubled, as OData writes one, and
+        // the name is then percent-encoded, so that nothing in it is read as
+        // part of the address: a guest's sign-in name holds a `#`.
         let users = self.0.connection.provider().api_base.as_str().trim_end_matches('/');
         let members: Vec<Value> = chat
             .members
@@ -76,7 +78,7 @@ impl Chats<'_> {
                 json!({
                     "@odata.type": "#microsoft.graph.aadUserConversationMember",
                     "roles": ["owner"],
-                    "user@odata.bind": format!("{users}/users('{}')", member.trim().replace('\'', "''")),
+                    "user@odata.bind": format!("{users}/users('{}')", encoded(&member.trim().replace('\'', "''"))),
                 })
             })
             .collect();

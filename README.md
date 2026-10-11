@@ -4,7 +4,7 @@
 
 Socket gives a product the layers it needs to connect to SaaS APIs: a registry of providers, an OAuth and token-refresh engine, and typed operations for each service. The application owns its OAuth apps and its token storage. Nothing is hosted.
 
-> **Status:** Early. The core, the OAuth flow, token refresh and seven providers are built and tested against local servers (~23k lines of Rust, 359 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
+> **Status:** Early. The core, the OAuth flow, token refresh and seven providers are built and tested against local servers (~23k lines of Rust, 363 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
 
 ## Why
 

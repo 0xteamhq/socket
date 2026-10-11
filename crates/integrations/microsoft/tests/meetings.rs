@@ -228,7 +228,15 @@ async fn graphs_refusals_of_a_transcript_reach_the_caller() {
         .await
         .unwrap_err();
         assert_eq!(err.kind(), kind, "{err}");
-        assert!(err.message().ends_with(reason), "{}", err.message());
+        assert!(err.message().contains(reason), "{}", err.message());
+        // An organisation can withhold who spoke, and Graph then refuses the
+        // format that names speakers. The caller is told that this may be why.
+        assert_eq!(
+            err.message().contains("who spoke"),
+            kind == ErrorKind::AccessDenied,
+            "{}",
+            err.message()
+        );
     }
 }
 

@@ -108,17 +108,72 @@ fn a_message_with_no_body_or_a_deleted_one_reads_as_nothing() {
 }
 
 #[test]
+fn cells_of_a_table_are_kept_apart() {
+    // Two numbers in neighbouring cells are two numbers.
+    let html = "<table><tr><td>Budget</td><td>15</td><td>000</td></tr><tr><th>Q1</th><th>Q2</th></tr></table>";
+    assert_eq!(text_of(html), "Budget | 15 | 000\nQ1 | Q2");
+}
+
+#[test]
+fn what_a_tag_holds_in_its_attributes_is_not_what_was_said() {
+    // A `>` inside a quoted value does not end the tag, so a tooltip or an
+    // address a reader never sees is not read out as part of the message.
+    assert_eq!(
+        text_of("<a href=\"https://x.test/\" title=\"> Approved by your manager\">click</a>"),
+        "click (https://x.test/)"
+    );
+    assert_eq!(
+        text_of("<p>Chart: <img alt=\"a > b\" src=\"https://x.test/secret-token\"></p>"),
+        "Chart: a > b"
+    );
+    // An attribute is found by its own name, not inside another's value.
+    assert_eq!(text_of("<img title=\"x alt='SPOOFED'\" alt=\"real\">"), "real");
+    assert_eq!(text_of("<img data-alt=\"no\" ALT = 'yes'>"), "yes");
+    assert_eq!(text_of("<a data-href=\"https://no.test\">words</a>"), "words");
+    assert_eq!(text_of("<img alt=unquoted src=x>"), "unquoted");
+    // A comment is not shown, whatever it holds.
+    assert_eq!(text_of("<!-- hidden > note --><p>seen</p>"), "seen");
+    assert_eq!(text_of("<!-- <b>hidden</b> --><p>seen</p>"), "seen");
+    assert_eq!(text_of("<p>seen</p><!-- never closed <p>not seen</p>"), "seen");
+    // A tag that never ends is not one: it is shown as it was written.
+    assert_eq!(text_of("a <b title=\"never closed"), "a <b title=\"never closed");
+}
+
+#[test]
+fn what_graph_sends_as_text_is_not_taken_for_the_rendering() {
+    // `text` is Socket's own reading of the body. A message that arrives with
+    // one, or with `null` there, is read all the same and by its body alone.
+    for sent in [json!("made up"), json!(null)] {
+        let read = message(
+            json!({ "contentType": "html", "content": "<p>real</p>" }),
+            json!({ "text": sent }),
+        );
+        assert_eq!(read.plain_text(), "real");
+    }
+}
+
+#[test]
 fn a_message_made_to_be_slow_to_read_is_read_in_one_pass() {
+    // Each of these is read once from end to end. Reading the rest of the
+    // message again for every `<` or `&` in it would take minutes at this
+    // size, and a message may be ten megabytes.
     let started = std::time::Instant::now();
-    let open = "<".repeat(400_000);
+    let many = 1_500_000;
+    let open = "<".repeat(many);
     assert!(text_of(&format!("<p>{open} far away ></p>")).starts_with("<<<<"));
+    assert_eq!(text_of(&"&".repeat(many)).len(), many);
+    assert_eq!(text_of(&"a&b ".repeat(many / 4)).len(), many - 1);
+    assert_eq!(text_of(&format!("<img alt=\"{}\">", "&".repeat(many))).len(), many);
+    // Tags that open a quote and never close it.
+    assert!(text_of(&"<a \"".repeat(many / 4)).starts_with("<a \""));
+    assert!(text_of(&"<a x=\"<\" ".repeat(many / 10)).starts_with("<a x="));
     // Many scripts, each of which is skipped to its end.
     let scripts = "<script>x</script>".repeat(100_000);
     assert_eq!(text_of(&format!("{scripts}<p>Hello</p>")), "Hello");
     // A script that never ends hides the rest, once.
     assert_eq!(text_of(&format!("<p>Hi</p><SCRIPT>{open}")), "Hi");
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(20),
+        started.elapsed() < std::time::Duration::from_secs(30),
         "{:?}",
         started.elapsed()
     );

@@ -327,8 +327,15 @@ async fn a_message_with_nothing_in_it_is_not_sent() {
 #[tokio::test]
 async fn a_chat_is_created_among_the_people_named_and_nobody_else() {
     let (server, socket, key) = answering(201, chat()).await;
-    let input =
-        json!({ "chatType": "group", "topic": "Launch", "members": ["u-1", " grace@contoso.example ", "it's-me"] });
+    let guest = "ada_fabrikam.com#EXT#@contoso.onmicrosoft.com";
+    let members = json!([
+        "u-1",
+        " grace@contoso.example ",
+        "it's-me",
+        guest,
+        "x%27)/manager?a=(%27"
+    ]);
+    let input = json!({ "chatType": "group", "topic": "Launch", "members": members });
     invoke(&socket, &key, "chats.create", input).await.unwrap();
     let request = only_request(&server).await;
     assert_eq!(request.method.as_str(), "POST");
@@ -340,8 +347,17 @@ async fn a_chat_is_created_among_the_people_named_and_nobody_else() {
         json!({
             "chatType": "group",
             "topic": "Launch",
-            // A quote in a name is doubled, so the name cannot end the address early.
-            "members": [member("u-1"), member("grace@contoso.example"), member("it''s-me")]
+            // A name is written so that nothing in it is read as part of the
+            // address: a quote is doubled, and then everything that is not a
+            // letter or a digit is percent-encoded. A guest's sign-in name
+            // holds `#`, which would otherwise end the address early.
+            "members": [
+                member("u-1"),
+                member("grace%40contoso.example"),
+                member("it%27%27s-me"),
+                member("ada_fabrikam.com%23EXT%23%40contoso.onmicrosoft.com"),
+                member("x%2527%29%2Fmanager%3Fa%3D%28%2527")
+            ]
         })
     );
 

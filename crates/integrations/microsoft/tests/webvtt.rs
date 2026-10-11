@@ -262,7 +262,7 @@ fn a_transcript_made_to_be_slow_to_read_is_read_in_one_pass() {
     // Each `<` is looked at once: the search for a tag's end stops at the
     // next `<`. Looking to the end of the cue each time would take hours here.
     let started = std::time::Instant::now();
-    let open = "<".repeat(400_000);
+    let open = "<".repeat(1_500_000);
     let vtt = format!("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Ada>{open} far away >\n");
     let read = entries(&vtt);
     assert_eq!(read.len(), 1);
@@ -275,4 +275,37 @@ fn a_transcript_made_to_be_slow_to_read_is_read_in_one_pass() {
         "{:?}",
         started.elapsed()
     );
+}
+
+#[test]
+fn words_that_only_begin_like_a_note_are_not_skipped_as_one() {
+    // A note is `NOTE` and then a space or the end of the line. A style or a
+    // region is that word alone. The header is the first thing in the text.
+    // Anything else with no timing is text that belongs to no cue.
+    for stray in [
+        "NOTEWORTHY: we will not ship.",
+        "NOTES from the secret meeting",
+        "STYLEd words that were said",
+        "STYLE guide for secret things",
+        "REGIONAL secret matters",
+        "WEBVTT",
+        "WEBVTT secret second header",
+    ] {
+        let vtt = format!("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Ada>Fine.</v>\n\n{stray}\n");
+        let err = TranscriptContent::from_vtt(&vtt).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Decode, "{stray}");
+        assert!(!err.message().contains("secret"), "{}", err.message());
+    }
+    // What is one of them is still skipped.
+    for skipped in [
+        "NOTE",
+        "NOTE a remark",
+        "NOTE\tanother",
+        "STYLE\n::cue { color: red }",
+        "REGION\nid:fred",
+        "STYLE  ",
+    ] {
+        let vtt = format!("WEBVTT\n\n{skipped}\n\n00:00:01.000 --> 00:00:02.000\n<v Ada>Fine.</v>\n");
+        assert_eq!(entries(&vtt), [entry(Some("Ada"), 1_000, 2_000, "Fine.")], "{skipped}");
+    }
 }

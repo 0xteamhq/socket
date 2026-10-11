@@ -37,7 +37,20 @@ impl Transcripts<'_> {
     pub async fn content(&self, meeting: &str, transcript: &str) -> Result<TranscriptContent> {
         let path = format!("{}/content", self.path(meeting, transcript)?);
         let request = RawRequest::get(path).with_header("Accept", "text/vtt").as_text();
-        match self.0.send(request).await? {
+        let answered = self.0.send(request).await.map_err(|e| match e.kind() {
+            // Graph refuses the format that names speakers where an
+            // organisation withholds who spoke, and gives no other sign of it
+            // than a code this error does not carry.
+            ErrorKind::AccessDenied => self.0.error(
+                ErrorKind::AccessDenied,
+                format!(
+                    "{} (if the organisation withholds who spoke, a transcript cannot be read this way yet)",
+                    e.message()
+                ),
+            ),
+            _ => e,
+        })?;
+        match answered {
             Value::String(text) if !text.trim().is_empty() => {
                 TranscriptContent::from_vtt(&text).map_err(|e| e.with_provider(self.0.connection.provider().id.clone()))
             }

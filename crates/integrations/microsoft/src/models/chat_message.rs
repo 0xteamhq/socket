@@ -3,8 +3,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::ItemBody;
 use super::nullable::nullable;
+use super::{ItemBody, html};
 
 /// A message in a channel or a chat.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -38,7 +38,8 @@ pub struct ChatMessage {
     /// `<attachment>` tags where attachments sit.
     pub body: Option<ItemBody>,
     /// The body as plain text, with each mention written as `@` and the name.
-    /// Socket writes this; Graph does not send it.
+    /// Socket writes this from `body`; anything Graph sent here is not used.
+    #[serde(deserialize_with = "nullable")]
     pub text: String,
     #[serde(deserialize_with = "nullable")]
     pub attachments: Vec<ChatAttachment>,
@@ -173,8 +174,9 @@ impl ChatMessage {
     /// A body that is already text is returned as it is. From HTML, each
     /// mention becomes `@` and the name, each attachment `[attachment: name]`
     /// on a line of its own, a picture or an emoji what it stands for, and a
-    /// link its words with its address after them. Paragraphs and breaks
-    /// become lines; every other tag is dropped and its text kept.
+    /// link its words with its address after them, and the cells of a table
+    /// are kept apart. Paragraphs and breaks become lines; every other tag is
+    /// dropped and its text kept.
     pub fn plain_text(&self) -> String {
         let Some(body) = &self.body else {
             return String::new();
@@ -185,7 +187,12 @@ impl ChatMessage {
             .as_deref()
             .is_some_and(|kind| kind.eq_ignore_ascii_case("html"))
         {
-            html_text(content, &self.attachments)
+            html::text(content, |id| {
+                self.attachments
+                    .iter()
+                    .find(|attachment| attachment.id.as_deref() == Some(id))
+                    .and_then(|attachment| attachment.name.clone())
+            })
         } else {
             content.to_owned()
         }
@@ -196,171 +203,4 @@ impl ChatMessage {
         self.text = self.plain_text();
         self
     }
-}
-
-/// Tags that end a line where they open or close.
-const BLOCKS: [&str; 16] = [
-    "p",
-    "div",
-    "li",
-    "ul",
-    "ol",
-    "tr",
-    "table",
-    "blockquote",
-    "pre",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "hr",
-];
-
-fn html_text(html: &str, attachments: &[ChatAttachment]) -> String {
-    let mut out = String::new();
-    // An open link: its address, and where its words begin in `out`.
-    let mut link: Option<(String, usize)> = None;
-    let mut rest = html;
-    while let Some(open) = rest.find('<') {
-        out.push_str(&unescaped(&rest[..open]));
-        let after = &rest[open + 1..];
-        // A `<` that opens no tag is something that was said. A tag holds no
-        // `<`, so the search for its end stops at the next one; looking
-        // further would read the rest of the message once for every `<` in it.
-        let close = after
-            .find(['<', '>'])
-            .filter(|&at| after[at..].starts_with('>') && is_tag(&after[..at]));
-        let Some(close) = close else {
-            out.push('<');
-            rest = after;
-            continue;
-        };
-        let tag = &after[..close];
-        rest = &after[close + 1..];
-        let closing = tag.starts_with('/');
-        let name = tag
-            .trim_start_matches('/')
-            .split(|c: char| c.is_whitespace() || c == '/')
-            .next()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        match name.as_str() {
-            // What a script or a style holds is not what was said.
-            "script" | "style" if !closing => rest = after_closing(rest, &name),
-            "br" => out.push('\n'),
-            "at" if !closing => out.push('@'),
-            "attachment" if !closing => {
-                let id = attribute(tag, "id");
-                let name = attachments
-                    .iter()
-                    .find(|attachment| attachment.id.is_some() && attachment.id == id)
-                    .and_then(|attachment| attachment.name.as_deref())
-                    .filter(|name| !name.trim().is_empty());
-                match name {
-                    Some(name) => out.push_str(&format!("\n[attachment: {name}]\n")),
-                    None => out.push_str("\n[attachment]\n"),
-                }
-            }
-            "img" | "emoji" => out.push_str(&attribute(tag, "alt").unwrap_or_default()),
-            "a" if !closing => link = attribute(tag, "href").map(|address| (address, out.len())),
-            "a" => {
-                if let Some((address, from)) = link.take() {
-                    let words = out.get(from..).unwrap_or_default().trim();
-                    if !address.trim().is_empty() && words != address.trim() {
-                        out.push_str(&format!(" ({})", address.trim()));
-                    }
-                }
-            }
-            name if BLOCKS.contains(&name) => out.push('\n'),
-            _ => {}
-        }
-    }
-    out.push_str(&unescaped(rest));
-    // One space between words, no empty lines.
-    out.lines()
-        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// What follows the tag that closes `name`, or nothing when it is never closed.
-fn after_closing<'a>(rest: &'a str, name: &str) -> &'a str {
-    let closes = |at: usize| {
-        rest[at + 2..]
-            .get(..name.len())
-            .is_some_and(|found| found.eq_ignore_ascii_case(name))
-    };
-    rest.match_indices("</")
-        .find(|&(at, _)| closes(at))
-        .and_then(|(at, _)| rest[at..].find('>').map(|end| &rest[at + end + 1..]))
-        .unwrap_or("")
-}
-
-/// True for what HTML puts between `<` and `>`: a name, with or without a
-/// leading `/`, or a comment. Anything else was said, not marked up.
-fn is_tag(inner: &str) -> bool {
-    let name = inner.strip_prefix('/').unwrap_or(inner);
-    name.starts_with(|c: char| c.is_ascii_alphabetic()) || inner.starts_with('!')
-}
-
-/// The value of one attribute of a tag, with its escapes read.
-fn attribute(tag: &str, name: &str) -> Option<String> {
-    let lower = tag.to_ascii_lowercase();
-    let mut from = 0;
-    while let Some(found) = lower[from..].find(&format!("{name}=")) {
-        let at = from + found;
-        let value = &tag[at + name.len() + 1..];
-        // The name has to begin a word: `id=` and not the end of `data-id=`.
-        let begins = at > 0 && tag[..at].ends_with(char::is_whitespace);
-        if let (true, Some(quote)) = (begins, value.chars().next().filter(|c| matches!(c, '"' | '\''))) {
-            let inner = &value[1..];
-            return inner.find(quote).map(|end| unescaped(&inner[..end]));
-        }
-        from = at + name.len() + 1;
-    }
-    None
-}
-
-/// Text with HTML's escapes read. What looks like one and is not is kept as it was written.
-fn unescaped(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(amp) = rest.find('&') {
-        out.push_str(&rest[..amp]);
-        let after = &rest[amp + 1..];
-        let read = after.find(';').filter(|&end| end <= 10).and_then(|end| {
-            let name = &after[..end];
-            let character = match name {
-                "amp" => Some('&'),
-                "lt" => Some('<'),
-                "gt" => Some('>'),
-                "quot" => Some('"'),
-                "apos" => Some('\''),
-                "nbsp" => Some(' '),
-                _ => {
-                    let code = match name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
-                        Some(hex) => u32::from_str_radix(hex, 16).ok(),
-                        None => name.strip_prefix('#').and_then(|decimal| decimal.parse().ok()),
-                    };
-                    code.and_then(char::from_u32)
-                }
-            };
-            character.map(|character| (character, end))
-        });
-        match read {
-            Some((character, end)) => {
-                out.push(character);
-                rest = &after[end + 1..];
-            }
-            None => {
-                out.push('&');
-                rest = after;
-            }
-        }
-    }
-    out.push_str(rest);
-    out
 }

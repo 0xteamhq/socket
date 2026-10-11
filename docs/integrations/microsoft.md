@@ -276,7 +276,7 @@ microsoft.chats(&connection).send(chat_id, SendChatMessage::text("On my way.")).
 | `chats` | `send(chat, SendChatMessage)` | `ChatMessage` |
 | `chats` | `create(CreateChat)` | `Chat` |
 
-**A message as plain text.** Teams writes a message as HTML, with an `<at>` tag for each mention and an `<attachment>` tag where a file or a card sits. A `ChatMessage` keeps that in `body`, and also carries `text`: the same message as a person would read it. A mention is `@` and the name, an attachment is `[attachment: name]` on a line of its own, an emoji or a picture is what it stands for, a link is its words with its address after them, and paragraphs are lines. Socket writes `text`; Graph does not send it.
+**A message as plain text.** Teams writes a message as HTML, with an `<at>` tag for each mention and an `<attachment>` tag where a file or a card sits. A `ChatMessage` keeps that in `body`, and also carries `text`: the same message as a person would read it. A mention is `@` and the name, an attachment is `[attachment: name]` on a line of its own, an emoji or a picture is what it stands for, a link is its words with its address after them, the cells of a table are kept apart with `|`, and paragraphs are lines. What a tag holds in its attributes, such as a tooltip, is not text, and neither is a comment. Socket writes `text` from `body`; Graph does not send it.
 
 **What a `ChatMessage` carries:** `id`, `replyToId`, `messageType`, `from`, `createdDateTime`, `lastEditedDateTime` (set when it was edited), `deletedDateTime` (set when it was deleted), `body`, `text`, `attachments`, `mentions`, `reactions`, and also `subject`, `importance`, `webUrl`, `chatId` and `channelIdentity`.
 
@@ -288,7 +288,7 @@ microsoft.chats(&connection).send(chat_id, SendChatMessage::text("On my way.")).
 
 **Sending.** `SendChatMessage` has `body` (`{ "contentType": "text" or "html", "content": "…" }`), and optionally `subject` (a new channel message only), `importance` and `mentions`. A message with nothing in it is refused. To mention someone so that they are notified, write `<at id="0">Name</at>` in an HTML body and name who it is in `mentions`, as Graph's own documentation shows. A message is posted as the signed-in person.
 
-**Creating a chat.** `CreateChat` has `chatType` (`oneOnOne` or `group`), `members` (each person's directory id or sign-in name) and, for a group, a `topic`. Everyone in the chat is named, the account that creates it included: two for a one-to-one chat. When a one-to-one chat between the two already exists, Graph returns it.
+**Creating a chat.** `CreateChat` has `chatType` (`oneOnOne` or `group`), `members` (each person's directory id or sign-in name, a guest's `…#EXT#@…` name included) and, for a group, a `topic`. Everyone in the chat is named, the account that creates it included: two for a one-to-one chat. When a one-to-one chat between the two already exists, Graph returns it.
 
 **Permissions.** Three of the reads need an administrator's consent: `teams.members` (`TeamMember.Read.All`), `channels.members` (`ChannelMember.Read.All`) and everything that reads channel messages (`ChannelMessage.Read.All`). The rest do not: `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `Chat.ReadBasic` for chats and their members, `Chat.Read` for chat messages, `ChannelMessage.Send`, `ChatMessage.Send` and `Chat.Create`.
 
@@ -325,14 +325,14 @@ for entry in &content.entries {
 **What was said.** `content` asks for WebVTT and returns `text`, the transcript exactly as Microsoft wrote it, and `entries`: for each thing said, the `speaker`, `startMs` and `endMs` in milliseconds from the start of the transcript, and the `text` without markup. A start can be negative: transcription began while people were already talking.
 
 - **The speaker is the voice tag that opens a cue**, which is where Teams writes it. Anything later in a cue that looks like a voice tag is kept as text and not believed, so that words cannot be made to read as another person's. A name is whatever the person joined under.
-- **A transcript that cannot be read whole is an error**, never a shorter transcript: a cue whose timing cannot be read, or text that is not a cue. The error does not repeat what was said.
+- **A transcript that cannot be read whole is an error**, never a shorter transcript: a cue whose timing cannot be read, or text that is not a cue. Only what WebVTT itself sets apart is skipped: the header, a `NOTE`, a `STYLE` and a `REGION`. The error does not repeat what was said.
 
 **Limits Microsoft sets, which callers will meet:**
 
 - **A transcript or a recording exists only if transcription or recording was switched on** during the meeting; otherwise the list is empty.
 - **The meeting has to be on a calendar.** Transcripts and recordings are not offered for a meeting created through the API with no calendar event, for a live event, or for a meeting that has expired, 60 days after it ended.
 - **Who may read.** A person can read the transcripts and the details of recordings of meetings they organised or were invited to. Attendance reports are the organiser's alone, and exist once the meeting has ended.
-- **An organisation can switch these off.** Graph then answers 403, which arrives as `AccessDenied` with Graph's reason. One such setting withholds who spoke; Microsoft offers a second format without speakers for that case, which Socket does not ask for yet.
+- **An organisation can switch these off.** Graph then answers 403, which arrives as `AccessDenied` with Graph's reason. One such setting withholds who spoke; Microsoft offers a second format without speakers for that case, which Socket does not ask for yet, and a refused transcript says that this may be why.
 - **Permissions.** `OnlineMeetings.Read` for the meeting, `OnlineMeetingTranscript.Read.All` and `OnlineMeetingRecording.Read.All` for transcripts and recordings, both of which need an administrator's consent, and `OnlineMeetingArtifact.Read.All` for attendance.
 
 **Downloading a recording is not built.** `recordings.get` returns `recordingContentUrl`, the address the video is at. The video itself is bytes, which Socket's transport does not carry yet.

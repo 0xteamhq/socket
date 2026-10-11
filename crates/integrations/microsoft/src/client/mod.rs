@@ -270,7 +270,7 @@ pub(super) fn named(request: RawRequest) -> RawRequest {
 
 /// `text` with everything percent-encoded but the characters a URL always
 /// leaves alone: letters, digits and `-._~`.
-fn encoded(text: &str) -> String {
+pub(super) fn encoded(text: &str) -> String {
     let mut encoded = String::with_capacity(text.len());
     for byte in text.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
