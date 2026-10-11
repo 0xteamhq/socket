@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 /// JSON as the MIME type Google knows it by.
 ///
 /// The choice is closed on purpose. Google also exports to PDF, Word, Excel
-/// and other formats that are bytes and not text, which cannot be returned yet.
+/// and other formats that are bytes and not text. An export returns text, so
+/// those are not offered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum DriveExportFormat {
     /// A Doc or a Slides presentation as plain text.

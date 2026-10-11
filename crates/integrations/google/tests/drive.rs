@@ -6,14 +6,14 @@
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
-use socketkit_core::{ConnectionKey, ErrorKind, Integration, Socket};
+use socketkit_core::{Connection, ConnectionKey, ErrorKind, Integration, ProviderSpec, Retry, Socket};
 use socketkit_google::models::{
-    DriveCopyFile, DriveCreateFolder, DriveExport, DriveExportFormat, DriveListFiles, Paging,
+    Download, DriveCopyFile, DriveCreateFolder, DriveExport, DriveExportFormat, DriveListFiles, Paging, TextLimit,
 };
 use socketkit_google::{Google, provider};
 use socketkit_testkit::wiremock::matchers::{any, method, path};
 use socketkit_testkit::wiremock::{Mock, MockServer, Request, ResponseTemplate};
-use socketkit_testkit::{connect, point_at};
+use socketkit_testkit::{connect, point_at, with_content_host};
 
 mod support;
 use support::drive::{
@@ -30,6 +30,7 @@ fn operations_on_a_file() -> Vec<(&'static str, Value, &'static str)> {
     vec![
         ("drive_files.get", json!({}), ""),
         ("drive_files.export", json!({ "mimeType": "text/plain" }), "/export"),
+        ("drive_files.download_text", json!({}), ""),
         ("drive_files.permissions", json!({}), "/permissions"),
         ("drive_files.copy", json!({}), "/copy"),
         ("drive_files.move_to", json!({ "folder": ARCHIVE }), ""),
@@ -469,13 +470,25 @@ async fn an_export_is_the_documents_text_from_its_first_character_to_its_last() 
         .await
         .unwrap();
     assert_eq!(got, json!({ "mimeType": "text/csv", "text": "" }));
+    // Nothing at all has no type either, and is still the empty text that was asked for.
+    let (_server, socket, key) = google_answering(ResponseTemplate::new(200)).await;
+    let got = invoke(&socket, &key, "drive_files.export", export("text/csv"))
+        .await
+        .unwrap();
+    assert_eq!(got, json!({ "mimeType": "text/csv", "text": "" }));
 
-    // Bytes that are not text are never passed off as text.
+    // Bytes that are not text are never passed off as text, whatever they are served as.
     let (_server, socket, key) = answering_text("text/plain", vec![0xff, 0xfe, 0x00, 0x51]).await;
     let err = invoke(&socket, &key, "drive_files.export", export("text/plain"))
         .await
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Decode);
+    let (_server, socket, key) = answering_text("application/pdf", "%PDF-1.7 CONFIDENTIAL").await;
+    let err = invoke(&socket, &key, "drive_files.export", export("text/plain"))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Unsupported);
+    assert!(!format!("{err} {err:?}").contains("CONFIDENTIAL"), "{err:?}");
 }
 
 #[tokio::test]
@@ -543,26 +556,454 @@ async fn an_export_google_refuses_says_why_in_words_a_caller_can_act_on() {
     }
 }
 
+// ── Text by name: an export, and a file that is text ─────────────────────────
+
+const MEGABYTE: usize = 1024 * 1024;
+
+/// The two operations that return text, each with a complete input.
+fn text_by_name() -> [(&'static str, Value); 2] {
+    [
+        ("drive_files.export", export("text/csv")),
+        ("drive_files.download_text", json!({ "file": DOC })),
+    ]
+}
+
 #[tokio::test]
-async fn an_export_too_large_to_read_is_reported_as_too_large_to_export() {
-    // One byte more than the most the transport reads of any answer.
-    let (server, socket, key) = answering_text("text/csv", vec![b'7'; 10 * 1024 * 1024 + 1]).await;
-    let err = invoke(&socket, &key, "drive_files.export", export("text/csv"))
+async fn text_by_name_is_a_megabyte_unless_more_is_asked_for_and_never_more_than_ten() {
+    for (name, input) in text_by_name() {
+        let (server, socket, key) = answering_text("text/csv", vec![b'7'; MEGABYTE + 1]).await;
+        let err = invoke(&socket, &key, name, input.clone()).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::TooLarge, "{name}: {err}");
+        assert_eq!(err.to_wire().code, "too_large", "{name}");
+        assert_eq!(err.retry(), Retry::Never, "{name}");
+        // It says what the limit was, and that the caller can raise it.
+        assert_eq!(
+            err.message(),
+            "google has content larger than the limit of 1048576 bytes set for this request; \
+             `maxBytes` can be raised, up to 10485760",
+            "{name}"
+        );
+
+        // The caller who asks for more gets it, whole.
+        let more = with(input.clone(), "maxBytes", json!(MEGABYTE + 1));
+        let read = invoke(&socket, &key, name, more).await.unwrap();
+        assert_eq!(read["text"].as_str().unwrap().len(), MEGABYTE + 1, "{name}");
+
+        // And the caller who asks for less gets nothing: never a part.
+        for less in [MEGABYTE, 10, 0] {
+            let err = invoke(&socket, &key, name, with(input.clone(), "maxBytes", json!(less)))
+                .await
+                .unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::TooLarge, "{name} {less}");
+            assert!(!format!("{err} {err:?}").contains("7777"), "{name}: {err:?}");
+        }
+
+        let asked = server.received_requests().await.unwrap().len();
+        // More than ten megabytes is never handed back as text, and the refusal says what the most is.
+        for too_much in [json!(10 * MEGABYTE + 1), json!(u64::MAX)] {
+            let err = invoke(&socket, &key, name, with(input.clone(), "maxBytes", too_much.clone()))
+                .await
+                .unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::InvalidInput, "{name} {too_much}: {err}");
+            assert_eq!(
+                err.message(),
+                "`maxBytes` can be at most 10485760 for text",
+                "{name} {too_much}"
+            );
+        }
+        for bad in [json!(-1), json!("many"), json!(1.5)] {
+            let err = invoke(&socket, &key, name, with(input.clone(), "maxBytes", bad.clone()))
+                .await
+                .unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::InvalidInput, "{name} {bad}: {err}");
+        }
+        // How long to wait is not the caller's to set by name.
+        let err = invoke(&socket, &key, name, with(input.clone(), "timeoutSecs", json!(600)))
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{name}");
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            asked,
+            "{name}: none of these reached Google"
+        );
+
+        // At the most that can be asked for, nothing more is offered.
+        let (_server, socket, key) = answering_text("text/csv", vec![b'7'; 10 * MEGABYTE + 1]).await;
+        let most = with(input.clone(), "maxBytes", json!(10 * MEGABYTE));
+        let err = invoke(&socket, &key, name, most).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::TooLarge, "{name}: {err}");
+        assert!(err.message().contains("10485760 bytes"), "{name}: {}", err.message());
+        assert!(!err.message().contains("can be raised"), "{name}: {}", err.message());
+    }
+
+    // The typed methods keep the same rule.
+    let server = MockServer::start().await;
+    Mock::given(any())
+        .respond_with(served(vec![b'7'; MEGABYTE + 1], "text/csv"))
+        .mount(&server)
+        .await;
+    let (google, connection) = typed(&server).await;
+    let drive = google.drive_files(&connection);
+    let err = drive
+        .export(DOC, DriveExportFormat::Csv, TextLimit::default())
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::TooLarge);
+    let err = drive.download_text(DOC, TextLimit::default()).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::TooLarge);
+    let allowed = TextLimit {
+        max_bytes: Some(2 * MEGABYTE),
+    };
+    let whole = drive.download_text(DOC, allowed).await.unwrap();
+    assert_eq!(whole.text.len(), MEGABYTE + 1);
+}
+
+#[tokio::test]
+async fn a_file_is_returned_by_name_only_when_it_is_text() {
+    let one = json!({ "file": DOC });
+    for (body, content_type) in [
+        ("Team,Budget\r\nPlatform,\"1,200\"\r\n", "text/csv"),
+        ("caf\u{e9} \u{2014} notes", "text/plain; charset=utf-8"),
+        ("# 計画\n", "text/markdown"),
+        ("{\"plan\":\"Q4\"}", "application/json"),
+        // A mark at the start of a file is the file's own, and is kept. Only an export loses Google's.
+        ("\u{feff}name,owner\n", "text/csv"),
+        // A file with nothing in it is its own text.
+        ("", "text/plain"),
+    ] {
+        let (server, socket, key) = answering_text(content_type, body).await;
+        let read = invoke(&socket, &key, "drive_files.download_text", one.clone())
+            .await
+            .unwrap_or_else(|e| panic!("{content_type}: {e}"));
+        assert_eq!(read, json!({ "contentType": content_type, "text": body }));
+        let request = only_request(&server).await;
+        assert_eq!(request.url.path(), format!("/drive/v3/files/{DOC}"));
+        assert_eq!(
+            query_of(&request),
+            json!({ "alt": "media", "supportsAllDrives": "true" })
+        );
+    }
+
+    // Bytes are not handed over by name, in any form.
+    let secret = "SALARY TABLE";
+    for content_type in [
+        "application/pdf",
+        "application/octet-stream",
+        "image/png",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ] {
+        let (_server, socket, key) = answering_text(content_type, format!("%PDF {secret}")).await;
+        let err = invoke(&socket, &key, "drive_files.download_text", one.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Unsupported, "{content_type}: {err}");
+        assert_eq!(err.to_wire().code, "unsupported");
+        assert!(err.message().contains("17 bytes"), "{}", err.message());
+        assert!(!format!("{err} {err:?}").contains(secret), "{err:?}");
+    }
+
+    // Something served as text that is not text is refused, not mended, and so is text in another encoding.
+    let (_server, socket, key) = answering_text("text/plain", PDF).await;
+    let err = invoke(&socket, &key, "drive_files.download_text", one.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Decode);
+    let (_server, socket, key) = answering_text("text/plain; charset=iso-8859-1", vec![b'c', b'a', b'f', 0xe9]).await;
+    let err = invoke(&socket, &key, "drive_files.download_text", one)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Unsupported);
+}
+
+#[tokio::test]
+async fn no_drive_operation_called_by_name_returns_bytes() {
+    let (server, socket, key) = answering_text("application/pdf", PDF).await;
+    let err = invoke(&socket, &key, "drive_files.download", json!({ "file": DOC }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Unsupported, "{err}");
+    assert!(server.received_requests().await.unwrap().is_empty());
+
+    // No Drive operation describes its answer as bytes or as base64.
+    for operation in Google::new().operations() {
+        if !operation.name.starts_with("google.drive_") {
+            continue;
+        }
+        let described = operation.output_schema.to_string();
+        for word in ["\"bytes\"", "base64", "contentBytes"] {
+            assert!(!described.contains(word), "{}: {word}", operation.name);
+        }
+    }
+}
+
+// ── Downloading ──────────────────────────────────────────────────────────────
+
+/// A file that is not text: reading it as UTF-8 would change it.
+const PDF: &[u8] = b"%PDF-1.7\n\xff\xfe\x00\x80binary\r\n%%EOF";
+
+fn served(body: impl Into<Vec<u8>>, content_type: &str) -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_raw(body.into(), content_type)
+}
+
+/// Google on `server`, and a connection for the typed methods.
+async fn typed(server: &MockServer) -> (Google, Connection) {
+    typed_with(point_at(provider(), server)).await
+}
+
+async fn typed_with(spec: ProviderSpec) -> (Google, Connection) {
+    let google = Google::with_spec(spec);
+    let integration: Arc<dyn Integration> = Arc::new(google.clone());
+    let (socket, key) = connect(integration, TOKEN).await;
+    let connection = socket.connection(key).await.unwrap();
+    (google, connection)
+}
+
+fn at_most(bytes: usize) -> Download {
+    Download {
+        max_bytes: Some(bytes),
+        ..Download::default()
+    }
+}
+
+#[tokio::test]
+async fn a_download_is_the_bytes_google_served_with_their_type() {
+    let server = MockServer::start().await;
+    Mock::given(any())
+        .respond_with(served(PDF, "application/pdf"))
+        .mount(&server)
+        .await;
+    let (google, connection) = typed(&server).await;
+    let content = google
+        .drive_files(&connection)
+        .download(DOC, Download::default())
+        .await
+        .unwrap();
+    assert_eq!(content.bytes, PDF, "nothing was read as text on the way");
+    assert_eq!(content.content_type.as_deref(), Some("application/pdf"));
+
+    let request = only_request(&server).await;
+    assert_eq!(request.method.as_str(), "GET");
+    assert_eq!(request.url.path(), format!("/drive/v3/files/{DOC}"));
+    // The content and not what describes the file, wherever the file is. No fields: there are none to name.
+    assert_eq!(
+        query_of(&request),
+        json!({ "alt": "media", "supportsAllDrives": "true" })
+    );
+    assert_eq!(
+        request.headers.get("authorization").unwrap(),
+        &format!("Bearer {TOKEN}")
+    );
+}
+
+#[tokio::test]
+async fn a_download_over_what_the_caller_allows_is_refused_whole() {
+    let server = MockServer::start().await;
+    Mock::given(any())
+        .respond_with(served(PDF, "application/pdf"))
+        .mount(&server)
+        .await;
+    let (google, connection) = typed(&server).await;
+    let drive = google.drive_files(&connection);
+    let err = drive.download(DOC, at_most(PDF.len() - 1)).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::TooLarge, "{err}");
+    assert_eq!(err.to_wire().code, "too_large");
+    assert_eq!(err.retry(), Retry::Never);
+    let whole = drive.download(DOC, at_most(PDF.len())).await.unwrap();
+    assert_eq!(whole.bytes, PDF);
+
+    // Unless told otherwise a download stops at ten megabytes, and gives nothing of a larger file.
+    let server = MockServer::start().await;
+    Mock::given(any())
+        .respond_with(served(vec![1u8; 10 * MEGABYTE + 1], "video/mp4"))
+        .mount(&server)
+        .await;
+    let (google, connection) = typed(&server).await;
+    let drive = google.drive_files(&connection);
+    let err = drive.download(DOC, Download::default()).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::TooLarge);
+    let limits = Download {
+        max_bytes: Some(32 * MEGABYTE),
+        timeout_secs: Some(60),
+    };
+    let content = drive.download(DOC, limits).await.unwrap();
+    assert_eq!(content.len(), 10 * MEGABYTE + 1);
+}
+
+#[tokio::test]
+async fn a_google_document_has_nothing_to_download_and_the_error_points_to_export() {
+    let refusal = || {
+        google_error(
+            403,
+            "fileNotDownloadable",
+            "Only files with binary content can be downloaded. Use Export with Docs Editors files.",
+        )
+    };
+    let says = "this file has no content of its own to download: \
+                a Google Doc, Sheet or Slides presentation is read with `export`";
+
+    let server = MockServer::start().await;
+    Mock::given(any()).respond_with(refusal()).mount(&server).await;
+    let (google, connection) = typed(&server).await;
+    let err = google
+        .drive_files(&connection)
+        .download(DOC, Download::default())
+        .await
+        .unwrap_err();
+    // Not a missing permission, which is what a 403 would otherwise read as.
+    assert_eq!(err.kind(), ErrorKind::InvalidInput, "{err}");
+    assert_eq!(err.message(), says);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+
+    let (server, socket, key) = google_answering(refusal()).await;
+    let err = invoke(&socket, &key, "drive_files.download_text", json!({ "file": DOC }))
         .await
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidInput, "{err}");
-    assert_eq!(
-        err.message(),
-        "this file is too large to export: the limit is 10 MB of exported content"
-    );
+    assert_eq!(err.message(), says);
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
 
-    // Only an export is told so. Anything else that large is what it was: an answer that could not be read.
-    let (_server, socket, key) = answering_text("application/json", vec![b' '; 10 * 1024 * 1024 + 1]).await;
-    let err = invoke(&socket, &key, "drive_files.get", json!({ "file": DOC }))
+/// A server that answers every request with `response`.
+async fn google_answering(response: ResponseTemplate) -> (MockServer, Socket, ConnectionKey) {
+    let (server, socket, key) = google().await;
+    Mock::given(any()).respond_with(response).mount(&server).await;
+    (server, socket, key)
+}
+
+#[tokio::test]
+async fn googles_refusal_of_a_download_is_an_error_and_never_a_file() {
+    let flagged = "This file has been identified as malware or spam and cannot be downloaded.";
+    for (response, kind, says) in [
+        // A file Google has flagged is given only to its owner, and only when
+        // the owner accepts the risk. That is never accepted on a person's behalf.
+        (
+            google_error(403, "cannotDownloadAbusiveFile", flagged),
+            ErrorKind::AccessDenied,
+            flagged,
+        ),
+        (
+            google_error(
+                403,
+                "insufficientFilePermissions",
+                "The user does not have sufficient permissions for file 1AbC.",
+            ),
+            ErrorKind::AccessDenied,
+            "The user does not have sufficient permissions for file 1AbC.",
+        ),
+        (
+            google_error(404, "notFound", "File not found: 1AbC."),
+            ErrorKind::NotFound,
+            "has no such resource",
+        ),
+        (
+            google_error(401, "authError", "Invalid Credentials"),
+            ErrorKind::ReconnectRequired,
+            "rejected the stored authorization",
+        ),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(any()).respond_with(response).mount(&server).await;
+        let (google, connection) = typed(&server).await;
+        let err = google
+            .drive_files(&connection)
+            .download(DOC, Download::default())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), kind, "{err}");
+        assert!(err.message().contains(says), "{}", err.message());
+        // The risk of a flagged file was not accepted for the person on any try.
+        for request in server.received_requests().await.unwrap() {
+            assert_eq!(query_of(&request).get("acknowledgeAbuse"), None);
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_download_kept_on_another_host_is_fetched_only_when_that_host_is_declared_and_without_the_token() {
+    let path_of_file = format!("/drive/v3/files/{DOC}");
+    let redirect = |elsewhere: &MockServer| {
+        ResponseTemplate::new(302).insert_header("location", format!("{}/download?sig=abc", elsewhere.uri()).as_str())
+    };
+
+    // Google's own definition names no other host, so the token and the request stay on Google.
+    let drive = MockServer::start().await;
+    let elsewhere = MockServer::start().await;
+    Mock::given(path(path_of_file.as_str()))
+        .respond_with(redirect(&elsewhere))
+        .mount(&drive)
+        .await;
+    Mock::given(any())
+        .respond_with(served(PDF, "application/pdf"))
+        .mount(&elsewhere)
+        .await;
+    let (google, connection) = typed(&drive).await;
+    let err = google
+        .drive_files(&connection)
+        .download(DOC, Download::default())
         .await
         .unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::Decode, "{err}");
+    assert_eq!(err.kind(), ErrorKind::Unexpected, "{err}");
+    assert!(err.message().contains("redirected"), "{}", err.message());
+    assert!(elsewhere.received_requests().await.unwrap().is_empty());
+
+    // An application that declares the host gets the file, and the host never sees the token.
+    let drive = MockServer::start().await;
+    let signed = MockServer::start().await;
+    Mock::given(path(path_of_file.as_str()))
+        .respond_with(redirect(&signed))
+        .mount(&drive)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/download"))
+        .respond_with(served(PDF, "application/pdf"))
+        .mount(&signed)
+        .await;
+    let spec = with_content_host(point_at(provider(), &drive), &signed, false);
+    let (google, connection) = typed_with(spec).await;
+    let content = google
+        .drive_files(&connection)
+        .download(DOC, Download::default())
+        .await
+        .unwrap();
+    assert_eq!(content.bytes, PDF);
+    let at_host = only_request(&signed).await;
+    assert!(at_host.headers.get("authorization").is_none());
+    assert_eq!(at_host.url.query(), Some("sig=abc"));
+}
+
+#[tokio::test]
+async fn the_id_of_a_file_to_download_is_one_segment_whatever_it_holds() {
+    let server = MockServer::start().await;
+    Mock::given(any())
+        .respond_with(served(PDF, "application/pdf"))
+        .mount(&server)
+        .await;
+    let (google, connection) = typed(&server).await;
+    let drive = google.drive_files(&connection);
+    for (id, written) in [
+        ("a/b", "a%2Fb"),
+        ("../about", "..%2Fabout"),
+        ("a?alt=json", "a%3Falt%3Djson"),
+        ("a#b", "a%23b"),
+    ] {
+        drive.download(id, Download::default()).await.unwrap();
+        let received = server.received_requests().await.unwrap();
+        let request = received.last().unwrap();
+        assert_eq!(request.url.path(), format!("/drive/v3/files/{written}"), "{id}");
+        // The id added nothing to the query, and took nothing from it.
+        assert_eq!(
+            query_of(request),
+            json!({ "alt": "media", "supportsAllDrives": "true" }),
+            "{id}"
+        );
+    }
+    let asked = server.received_requests().await.unwrap().len();
+    for id in ["", "  ", ".", ".."] {
+        let err = drive.download(id, Download::default()).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{id:?}");
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), asked);
 }
 
 // ── Who can see a file ───────────────────────────────────────────────────────
@@ -1145,7 +1586,10 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
     assert!(file.owners[0].me);
     assert!(!file.trashed);
 
-    let exported = drive.export(DOC, DriveExportFormat::Markdown).await.unwrap();
+    let exported = drive
+        .export(DOC, DriveExportFormat::Markdown, TextLimit::default())
+        .await
+        .unwrap();
     assert_eq!(
         exported,
         DriveExport {

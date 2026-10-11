@@ -261,6 +261,10 @@ fn drive_cases() -> Vec<Case> {
             .query(json!({ "mimeType": "text/markdown" }))
             .answers_text("text/markdown", markdown)
             .returns(json!({ "mimeType": "text/markdown", "text": markdown })),
+        Case::new("drive_files.download_text", json!({ "file": "1ACsvFile_aBcDeFgHiJkLmNoPqRsTuV" }), "GET", "/drive/v3/files/1ACsvFile_aBcDeFgHiJkLmNoPqRsTuV")
+            .query(json!({ "alt": "media", "supportsAllDrives": "true" }))
+            .answers_text("text/csv", "Team,Budget\r\nPlatform,1200\r\n")
+            .returns(json!({ "contentType": "text/csv", "text": "Team,Budget\r\nPlatform,1200\r\n" })),
         Case::new("drive_files.permissions", json!({ "file": DOC }), "GET", format!("/drive/v3/files/{DOC}/permissions"))
             .query(json!({ "fields": PERMISSIONS_FIELDS, "supportsAllDrives": "true" }))
             .answers(200, permissions(json!([writer(), domain_reader()])))
@@ -449,6 +453,7 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("drive_files.list", Effect::Read, &[scopes::DRIVE_READONLY]),
         ("drive_files.get", Effect::Read, &[scopes::DRIVE_READONLY]),
         ("drive_files.export", Effect::Read, &[scopes::DRIVE_READONLY]),
+        ("drive_files.download_text", Effect::Read, &[scopes::DRIVE_READONLY]),
         ("drive_files.permissions", Effect::Read, &[scopes::DRIVE_READONLY]),
         ("drive_files.create_folder", Effect::Write, &[scopes::DRIVE_FILE]),
         ("drive_files.copy", Effect::Write, &[scopes::DRIVE_FILE]),
@@ -491,8 +496,8 @@ async fn the_tables_above_cover_every_operation_google_offers() {
         tested.len(),
         "a test case names an operation that does not exist, or one is tested twice"
     );
-    // Gmail 19, Calendar 10, Meet 12, Drive 10, Docs and Sheets 9, and the two every integration has.
-    assert_eq!(listed.len(), 62);
+    // Gmail 19, Calendar 10, Meet 12, Drive 11, Docs and Sheets 9, and the two every integration has.
+    assert_eq!(listed.len(), 63);
 }
 
 #[tokio::test]

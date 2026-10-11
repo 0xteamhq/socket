@@ -31,8 +31,8 @@ use crate::models::{
     ValueRange,
 };
 use crate::models::{
-    DriveCopyFile, DriveCreateFolder, DriveExport, DriveExportFormat, DriveFile, DriveListFiles, DrivePermission,
-    SharedDrive,
+    DriveCopyFile, DriveCreateFolder, DriveExport, DriveExportFormat, DriveFile, DriveFileText, DriveListFiles,
+    DrivePermission, SharedDrive,
 };
 use crate::models::{
     GmailAttachmentText, GmailDraft, GmailDraftRef, GmailGetMessage, GmailGetThread, GmailLabel, GmailListDrafts,
@@ -451,13 +451,23 @@ input!(DriveOneFile {
     /// A file or folder id. `google.resource.resolve` reads one from a pasted link.
     file: String
 });
-input!(DriveExported {
-    /// The id of a Google Doc, Sheet or Slides presentation.
-    file: String,
-    /// The format of the text: `text/plain` or `text/markdown` for a Doc, `text/csv` for a Sheet.
-    #[serde(rename = "mimeType")]
-    mime_type: DriveExportFormat
-});
+// The limit is named by its path: it is not Drive's own, and other products'
+// inputs take it too.
+input!(
+    DriveExported {
+        /// The id of a Google Doc, Sheet or Slides presentation.
+        file: String,
+        /// The format of the text: `text/plain` or `text/markdown` for a Doc, `text/csv` for a Sheet.
+        #[serde(rename = "mimeType")]
+        mime_type: DriveExportFormat
+    } + crate::models::TextLimit
+);
+input!(
+    DriveFileAsText {
+        /// The id of a file that has content of its own, such as a CSV or a text file. Not a Google Doc or Sheet.
+        file: String
+    } + crate::models::TextLimit
+);
 input!(
     DrivePermissionsOf {
         /// A file or folder id.
@@ -651,8 +661,12 @@ fn build() -> Vec<Operation> {
             |g: Google, c: Connection, i: DriveFilesListed| async move { g.drive_files(&c).list(i.options).await as Result<Page<DriveFile>> }),
         operation("drive_files.get", "Get what describes one file or folder: its name, type, folder, owners, size and link. Not its content.", Read, &[scopes::DRIVE_READONLY],
             |g: Google, c: Connection, i: DriveOneFile| async move { g.drive_files(&c).get(&i.file).await as Result<DriveFile> }),
-        operation("drive_files.export", "Return a Google document as text: a Doc as plain text or Markdown, a Sheet as CSV (its first sheet only). At most 10 MB; a file that is not a Google document cannot be exported.", Read, &[scopes::DRIVE_READONLY],
-            |g: Google, c: Connection, i: DriveExported| async move { g.drive_files(&c).export(&i.file, i.mime_type).await as Result<DriveExport> }),
+        operation("drive_files.export", "Return a Google document as text: a Doc as plain text or Markdown, a Sheet as CSV (its first sheet only). One megabyte unless maxBytes allows more, up to ten. A file that is not a Google document cannot be exported; read it with download_text.", Read, &[scopes::DRIVE_READONLY],
+            |g: Google, c: Connection, i: DriveExported| async move { g.drive_files(&c).export(&i.file, i.mime_type, i.options).await as Result<DriveExport> }),
+        // The file's bytes are `download`, a typed method only: an operation
+        // called by name returns text or nothing.
+        operation("drive_files.download_text", "Read a file that is text, such as a CSV, a text or a JSON file. One megabyte unless maxBytes allows more, up to ten. Anything that is not text is refused, and nothing of it is returned. A Google Doc or Sheet has no content of its own; read it with export.", Read, &[scopes::DRIVE_READONLY],
+            |g: Google, c: Connection, i: DriveFileAsText| async move { g.drive_files(&c).download_text(&i.file, i.options).await as Result<DriveFileText> }),
         operation("drive_files.permissions", "List who can see a file or folder and in what role: people, groups, whole domains, and anyone with the link.", Read, &[scopes::DRIVE_READONLY],
             |g: Google, c: Connection, i: DrivePermissionsOf| async move { g.drive_files(&c).permissions(&i.file, i.options).await as Result<Page<DrivePermission>> }),
         operation("drive_files.create_folder", "Create a folder, at the top of the account's My Drive or inside another folder.", Write, &[scopes::DRIVE_FILE],

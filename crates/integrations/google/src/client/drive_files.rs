@@ -1,5 +1,6 @@
 //! Files and folders in Drive: finding them, reading what describes one,
-//! exporting a Google document as text, and who can see a file.
+//! downloading a file, exporting a Google document as text, and who can see
+//! a file.
 //!
 //! Making, copying, moving, renaming and binning are in
 //! `drive_files_change.rs`; they are methods of the same group, kept apart
@@ -7,14 +8,18 @@
 //!
 //! Two things hold for every request that names a file or lists files.
 //! It says `supportsAllDrives=true`: without it Google answers as if what is
-//! in a shared drive did not exist. And it names the fields it wants: Drive
-//! returns next to nothing unless `fields` asks.
+//! in a shared drive did not exist. And where it asks for what describes a
+//! file, it names the fields it wants: Drive returns next to nothing unless
+//! `fields` asks. An export takes neither: Google gives it no such parameter.
 
 use serde_json::Value;
-use socketkit_core::{Error, ErrorKind, Page, RawRequest, Result};
+use socketkit_core::{Content, ContentRequest, Error, ErrorKind, Page, RawRequest, Result};
 
 use super::Api;
-use crate::models::{DriveExport, DriveExportFormat, DriveFile, DriveListFiles, DrivePermission, Paging};
+use crate::models::{
+    Download, DriveExport, DriveExportFormat, DriveFile, DriveFileText, DriveListFiles, DrivePermission, Paging,
+    TextLimit,
+};
 
 /// What is asked for of a file: every field of [`DriveFile`], and no other.
 const FILE_FIELDS: &str = "id,name,mimeType,parents,createdTime,modifiedTime,size,\
@@ -87,19 +92,47 @@ impl DriveFiles<'_> {
         self.file(body)
     }
 
+    /// The file itself: its bytes, unchanged, with the type Google serves
+    /// them as. For a file that has content of its own, such as a PDF, an
+    /// image or a text file. A Google Doc, Sheet or Slides presentation has
+    /// none, and is refused with a message that points to [`Self::export`].
+    ///
+    /// Ten megabytes are read unless `limits` allows more, and a larger file
+    /// is refused whole. This is a typed method only: an operation called by
+    /// name never returns bytes.
+    pub async fn download(&self, file: &str, limits: Download) -> Result<Content> {
+        let fetched = self.0.fetch(self.media(file)?, &limits).await;
+        fetched.map_err(|e| self.not_downloaded(e))
+    }
+
+    /// A file that is text, as text: a CSV file, a text file, a JSON file.
+    /// Anything Google does not serve as text is refused with `unsupported`,
+    /// and nothing of it is returned.
+    ///
+    /// One megabyte is read unless `limit` allows more, up to ten.
+    pub async fn download_text(&self, file: &str, limit: TextLimit) -> Result<DriveFileText> {
+        let fetched = self.within(self.media(file)?, &limit).await;
+        let content = fetched.map_err(|e| self.not_downloaded(e))?;
+        let content_type = content.content_type.clone();
+        let text = content.into_text(&self.0.connection.provider().id)?;
+        Ok(DriveFileText { content_type, text })
+    }
+
     /// Returns a Google document as text: a Doc as plain text or Markdown, a
     /// Sheet as CSV, which holds its first sheet only.
     ///
-    /// Google exports at most 10 MB. A file that holds content of its own,
+    /// One megabyte is read unless `limit` allows more, up to ten, which is
+    /// also the most Google exports. A file that holds content of its own,
     /// such as a PDF, is not a Google document and has nothing to export.
-    pub async fn export(&self, file: &str, format: DriveExportFormat) -> Result<DriveExport> {
-        let request = RawRequest::get(format!("{}/export", self.item(file)?))
-            .with_query("mimeType", format.mime_type())
-            .as_text();
-        let text = match self.0.send(request).await.map_err(|e| self.not_exported(e))? {
-            Value::String(text) => text,
+    pub async fn export(&self, file: &str, format: DriveExportFormat, limit: TextLimit) -> Result<DriveExport> {
+        let request =
+            ContentRequest::get(format!("{}/export", self.item(file)?)).with_query("mimeType", format.mime_type());
+        let content = self.within(request, &limit).await.map_err(|e| self.not_exported(e))?;
+        let text = if content.is_empty() {
             // An empty sheet is exported as nothing at all, and that is its text.
-            _ => String::new(),
+            String::new()
+        } else {
+            content.into_text(&self.0.connection.provider().id)?
         };
         // Google begins a Doc's plain text with a byte order mark, which is
         // no part of what the document says.
@@ -138,28 +171,59 @@ impl DriveFiles<'_> {
         Ok(file)
     }
 
-    /// Why an export failed, where the reason is one a caller can act on.
-    ///
-    /// Google refuses both cases below with a 403, which reads as a missing
-    /// permission and is not one. The error that arrives here carries Google's
-    /// message and not the `reason` beside it, so the two are told by their
-    /// wording; a refusal worded any other way is passed on as it came.
-    fn not_exported(&self, error: Error) -> Error {
+    /// The request for a file's own content, wherever the file is.
+    fn media(&self, file: &str) -> Result<ContentRequest> {
+        Ok(ContentRequest::get(self.item(file)?)
+            .with_query("alt", "media")
+            .with_query("supportsAllDrives", "true"))
+    }
+
+    /// Fetches what goes back as text, within what `limit` allows. Content
+    /// over the limit is refused whole, with what the caller can do about it.
+    async fn within(&self, request: ContentRequest, limit: &TextLimit) -> Result<Content> {
+        let limits = self.0.text_limits(limit)?;
+        let most = limits.max_bytes.unwrap_or(Content::MAX_INLINE_BYTES);
+        self.0.fetch(request, &limits).await.map_err(|error| {
+            if error.kind() != ErrorKind::TooLarge {
+                return error;
+            }
+            let ceiling = ContentRequest::DEFAULT_MAX_BYTES;
+            let advice = if most < ceiling {
+                format!("`maxBytes` can be raised, up to {ceiling}")
+            } else {
+                "that is the most that is returned as text".to_owned()
+            };
+            self.0.error(
+                ErrorKind::TooLarge,
+                format!("google has content larger than the limit of {most} bytes set for this request; {advice}"),
+            )
+        })
+    }
+
+    // Google refuses the two cases below with a 403, which reads as a
+    // missing permission and is not one. The error that arrives here carries
+    // Google's message and not the `reason` beside it, so each is told by its
+    // wording; a refusal worded any other way is passed on as it came.
+
+    /// Why a download failed, where the reason is one a caller can act on.
+    fn not_downloaded(&self, error: Error) -> Error {
         let said = error.message();
-        let too_large = match error.kind() {
-            // Google's own limit on what it exports.
-            ErrorKind::AccessDenied => said.contains("too large to be exported"),
-            // The most the transport reads of any answer, which is as much.
-            ErrorKind::Decode => said.contains("too large to read"),
-            _ => false,
-        };
-        if too_large {
+        if error.kind() == ErrorKind::AccessDenied && said.contains("Only files with binary content can be downloaded")
+        {
             return self.0.error(
                 ErrorKind::InvalidInput,
-                "this file is too large to export: the limit is 10 MB of exported content",
+                "this file has no content of its own to download: \
+                 a Google Doc, Sheet or Slides presentation is read with `export`",
             );
         }
-        if error.kind() == ErrorKind::AccessDenied && said.contains("only supports Docs Editors files") {
+        error
+    }
+
+    /// Why an export failed, where the reason is one a caller can act on.
+    /// An export over Google's own limit is told apart earlier, by its
+    /// `reason`, where every answer of Google's is read.
+    fn not_exported(&self, error: Error) -> Error {
+        if error.kind() == ErrorKind::AccessDenied && error.message().contains("only supports Docs Editors files") {
             return self.0.error(
                 ErrorKind::InvalidInput,
                 "this file is not a Google document, so there is nothing to export: \

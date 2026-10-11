@@ -2,7 +2,7 @@
 
 **Status:** built and tested against a local server that answers as Google's documentation says. Not yet run against the real Google. [What was confirmed against that documentation and what was not](#confirmed-against-googles-documentation-and-not) is listed below.
 
-One provider covers Google's products, because they share one sign-in. Today Socket's Google integration gives a program identity, Drive file lookup, and 60 typed methods: Gmail (19), Calendar (10), Meet (12), Drive (10), and Docs and Sheets (9). Each is also an operation callable by name with JSON. This page shows how to connect, lists everything that is supported, and says what is not.
+One provider covers Google's products, because they share one sign-in. Today Socket's Google integration gives a program identity, Drive file lookup, and 60 typed methods: Gmail (19), Calendar (10), Meet (12), Drive (12, of which 11 are operations), and Docs and Sheets (9). Each is also an operation callable by name with JSON, except a method that returns a file's bytes, which is typed only. This page shows how to connect, lists everything that is supported, and says what is not.
 
 ## Connect
 
@@ -64,7 +64,7 @@ Setting `scopes` replaces the defaults, so name the Drive and Docs scopes again 
 
 | Scope | Constant | Covers |
 | --- | --- | --- |
-| `drive.readonly` (default) | `DRIVE_READONLY` | `identity.get`, `resource.resolve`, `drive_files.list`, `.get`, `.export`, `.permissions`, `drive_shared_drives.list` |
+| `drive.readonly` (default) | `DRIVE_READONLY` | `identity.get`, `resource.resolve`, `drive_files.list`, `.get`, `.export`, `.download_text`, `.permissions`, `drive_shared_drives.list`, and the typed `download` |
 | `drive.file` | `DRIVE_FILE` | `drive_files.create_folder`, `.copy`, `.move_to`, `.rename`, `.trash`, on the files this application created or was given |
 | `documents.readonly` (default) | `DOCUMENTS_READONLY` | `docs_documents.get`, `.read` |
 | `documents` | `DOCUMENTS` | `docs_documents.create`, `.append_text` |
@@ -112,7 +112,7 @@ Methods are grouped the way Google groups its own APIs. Each group is reached fr
 | | `google.meet_transcripts(&connection)` | `list`, `get`, `entries`, `read` |
 | | `google.meet_recordings(&connection)` | `list`, `get` |
 | | `google.meet_spaces(&connection)` | `get` |
-| Drive | `google.drive_files(&connection)` | `list`, `get`, `export`, `permissions`, `create_folder`, `copy`, `move_to`, `rename`, `trash` |
+| Drive | `google.drive_files(&connection)` | `list`, `get`, `export`, `download` (typed only), `download_text`, `permissions`, `create_folder`, `copy`, `move_to`, `rename`, `trash` |
 | | `google.drive_shared_drives(&connection)` | `list` |
 | Docs | `google.docs_documents(&connection)` | `get`, `read`, `create`, `append_text` |
 | Sheets | `google.sheets_spreadsheets(&connection)` | `get`, `values_get`, `values_batch_get`, `values_update`, `values_append` |
@@ -432,10 +432,10 @@ Clauses are joined with `AND`. A value is checked to be what its field holds bef
 
 ### Drive: `drive_files` and `drive_shared_drives`
 
-Find files and folders, read what describes one, read a Google document as text, see who can open a file, and file things: make a folder, copy, move, rename, and put in the bin. A Google Doc, a Sheet, a folder and a shortcut are all files in Drive; `mimeType` says which.
+Find files and folders, read what describes one, read a Google document as text, download a file, see who can open a file, and file things: make a folder, copy, move, rename, and put in the bin. A Google Doc, a Sheet, a folder and a shortcut are all files in Drive; `mimeType` says which.
 
 ```rust
-use socketkit::google::models::{DriveCreateFolder, DriveExportFormat, DriveListFiles, Paging};
+use socketkit::google::models::{DriveCreateFolder, DriveExportFormat, DriveListFiles, Paging, TextLimit};
 
 let drive = google.drive_files(&connection);
 
@@ -451,7 +451,7 @@ let found = drive.list(DriveListFiles {
 // Before showing a document to other people, see who was allowed to read it.
 let doc = &found.items[0];
 let who = drive.permissions(&doc.id, Paging::default()).await?;
-let text = drive.export(&doc.id, DriveExportFormat::Markdown).await?.text;
+let text = drive.export(&doc.id, DriveExportFormat::Markdown, TextLimit::default()).await?.text;
 
 // File it away.
 let archive = drive.create_folder(DriveCreateFolder {
@@ -465,7 +465,9 @@ drive.move_to(&doc.id, &archive.id).await?;
 | --- | --- | --- | --- | --- |
 | `drive_files` | `list(DriveListFiles)` | `Page<DriveFile>`: what matches a search, or everything the account can see | read | `drive.readonly` |
 | `drive_files` | `get(file)` | `DriveFile`: what describes one file or folder, not its content | read | `drive.readonly` |
-| `drive_files` | `export(file, DriveExportFormat)` | `DriveExport`: a Google document as text | read | `drive.readonly` |
+| `drive_files` | `export(file, DriveExportFormat, TextLimit)` | `DriveExport`: a Google document as text | read | `drive.readonly` |
+| `drive_files` | `download(file, Download)` | `Content`: the file as bytes, with its type. Typed only | read | `drive.readonly` |
+| `drive_files` | `download_text(file, TextLimit)` | `DriveFileText`: a file that is text, as text | read | `drive.readonly` |
 | `drive_files` | `permissions(file, Paging)` | `Page<DrivePermission>`: who can see a file, and in what role | read | `drive.readonly` |
 | `drive_files` | `create_folder(DriveCreateFolder)` | `DriveFile`: the new folder | write | `drive.file` |
 | `drive_files` | `copy(file, DriveCopyFile)` | `DriveFile`: the copy | write | `drive.file` |
@@ -523,11 +525,33 @@ Join them with `and`, `or` and `not`: `'FOLDER_ID' in parents and trashed = fals
 | `Markdown` | `text/markdown` | A Doc, with its headings, lists, links and tables |
 | `Csv` | `text/csv` | A Sheet. **Only its first sheet is exported.** For the others, read the spreadsheet through Sheets |
 
-- Any other format is refused before Google is called. PDF, Word, Excel and the rest are bytes, which Socket's transport does not carry yet.
-- **An export is at most 10 MB.** Google refuses a larger one, and Socket itself reads an answer of at most 10 MB. Either way the call fails with `InvalidInput` and the message "this file is too large to export: the limit is 10 MB of exported content". There is no way around it here; a document that large has to be read in parts through Docs or Sheets.
-- **Only a Google document can be exported.** A PDF, an image or a Word file has content of its own and nothing to export. Google refuses it, and the call fails with `InvalidInput` and "this file is not a Google document, so there is nothing to export". Check `mimeType` first: it starts with `application/vnd.google-apps.` for the files that can be.
+- Any other format is refused before Google is called. An export is text or nothing: PDF, Word, Excel and the rest are bytes, and are not offered.
+- **An export is one megabyte unless you ask for more.** `TextLimit` has `maxBytes`: the most text to read, one megabyte when not set and at most ten (10,485,760 bytes). A larger `maxBytes` is refused before Google is called. An export over the limit is the error `too_large`, whose message gives the limit and says that `maxBytes` can be raised; it is never cut short.
+- **Google itself exports at most 10 MB.** It refuses a larger one, and the call fails with `InvalidInput` and the message "this file is too large to export: the limit is 10 MB of exported content". There is no way around it here; a document that large has to be read in parts through Docs or Sheets.
+- **Only a Google document can be exported.** A PDF, an image or a Word file has content of its own and nothing to export. Google refuses it, and the call fails with `InvalidInput` and "this file is not a Google document, so there is nothing to export". Check `mimeType` first: it starts with `application/vnd.google-apps.` for the files that can be. The others are read with `download` or `download_text`.
 - A format that does not suit the file, such as `Csv` for a Doc, is Google's to refuse: `InvalidInput` with Google's words.
-- An empty document is an empty `text`, not an error. The byte order mark Google puts before a Doc's plain text is left out; line endings are as Google wrote them.
+- An empty document is an empty `text`, not an error. The byte order mark Google puts before a Doc's plain text is left out; line endings are as Google wrote them. What Google serves that is not UTF-8 text is refused, never mended.
+
+**Downloading a file.** A file that is not a Google document has content of its own: a PDF, an image, a CSV file someone uploaded. Two methods read it, both with `GET drive/v3/files/{id}?alt=media`.
+
+```rust
+use socketkit::google::models::{Download, TextLimit};
+
+// The bytes, for a program: up to 50 MB, and two minutes to arrive.
+let pdf = drive.download(pdf_id, Download { max_bytes: Some(50 * 1024 * 1024), timeout_secs: Some(120) }).await?;
+std::fs::write("plan.pdf", &pdf.bytes)?;
+
+// The text, for a model: one megabyte unless more is asked for.
+let csv = drive.download_text(csv_id, TextLimit::default()).await?.text;
+```
+
+- `download` returns the bytes exactly as Google serves them, with the type Google states, as a `Content` (`bytes`, `content_type`, `len()`). Ten megabytes are read and thirty seconds allowed unless `Download` says otherwise (`maxBytes`, `timeoutSecs`). All of it is held in memory before it is returned; a file over the limit is the error `too_large`, and nothing of it is returned. **There is no operation by this name**, because an operation called by name never returns bytes.
+- `download_text`, which is also the operation `drive_files.download_text`, returns `contentType` and `text` for a file Google serves as text: `text/…`, JSON or XML, in UTF-8. Anything else, text in another encoding included, is the error `unsupported`, whose message gives the size and type and nothing of the content. A file that says it is UTF-8 text and is not is the error `decode`. One megabyte is read unless `maxBytes` allows more, up to ten, exactly as for `export`. The text is the file's own, from its first byte: a byte order mark at its start is kept.
+- **The type is the one the file was stored with**, which is whatever uploaded it said. A Markdown or a log file stored as `application/octet-stream` is not text to `download_text`; read it with `download`.
+- **A Google Doc, Sheet or Slides presentation has no content of its own.** Google refuses to download one, and both methods fail with `InvalidInput` and "this file has no content of its own to download: a Google Doc, Sheet or Slides presentation is read with `export`".
+- **A file Google has flagged as malware or spam** is given only to its owner, and only when the request says the risk is accepted (`acknowledgeAbuse`). Socket never says so on a person's behalf, so such a file is refused: `AccessDenied` with Google's words.
+- **A download that Google answers from another host is refused.** Socket sends the token only to the hosts the provider declares, and follows a redirect only to a declared host. Google's download hosts are many and are named by pattern, which a provider cannot declare yet, so none is declared. If Google answers a download with a redirect to one of them, the call fails with `Unexpected` and "google redirected the request … to an address Socket does not follow", and nothing is fetched. Google's own example of this request follows redirects and does not say when one is sent, so how often this happens is not known.
+- Both say `supportsAllDrives=true`, so a file in a shared drive is read like any other. An owner or an organiser can restrict who may download a file; Google then refuses, which arrives as `AccessDenied`.
 
 **Who can see a file.** `permissions` lists every grant on a file or a folder. Each `DrivePermission` has `id`, `type` (`user`, `group`, `domain` or `anyone`), `role` (`owner`, `organizer`, `fileOrganizer`, `writer`, `commenter` or `reader`), `emailAddress` for a person or a group, `domain` for a domain, `displayName`, `deleted` (the account it was granted to no longer exists), `allowFileDiscovery`, `expirationTime` and `permissionDetails`.
 
@@ -728,7 +752,8 @@ A field an operation does not know is refused and named, not dropped, and input 
 | `google.meet_spaces.get` | read | `meetings.space.readonly` | Get a Meet space from its name, its id, a meeting code or the link people join by. Returns its name, its link and code, how it is set up, and the meeting going on in it now if there is one. |
 | `google.drive_files.list` | read | `drive.readonly` | List the files and folders that match a search in Drive's query language (name, full text, type, parent folder, modified time), or everything the account can see. What is in shared drives is included. |
 | `google.drive_files.get` | read | `drive.readonly` | Get what describes one file or folder: its name, type, folder, owners, size and link. Not its content. |
-| `google.drive_files.export` | read | `drive.readonly` | Return a Google document as text: a Doc as plain text or Markdown, a Sheet as CSV (its first sheet only). At most 10 MB; a file that is not a Google document cannot be exported. |
+| `google.drive_files.export` | read | `drive.readonly` | Return a Google document as text: a Doc as plain text or Markdown, a Sheet as CSV (its first sheet only). One megabyte unless maxBytes allows more, up to ten. A file that is not a Google document cannot be exported; read it with download_text. |
+| `google.drive_files.download_text` | read | `drive.readonly` | Read a file that is text, such as a CSV, a text or a JSON file. One megabyte unless maxBytes allows more, up to ten. Anything that is not text is refused, and nothing of it is returned. A Google Doc or Sheet has no content of its own; read it with export. |
 | `google.drive_files.permissions` | read | `drive.readonly` | List who can see a file or folder and in what role: people, groups, whole domains, and anyone with the link. |
 | `google.drive_files.create_folder` | write | `drive.file` | Create a folder, at the top of the account's My Drive or inside another folder. |
 | `google.drive_files.copy` | write | `drive.file` | Make a copy of a file, beside it or in another folder, under a new name if one is given. A folder cannot be copied. |
@@ -893,6 +918,10 @@ Confirmed:
 - That a sort with a `fullText` search is refused with 400 `badRequest`. <https://developers.google.com/workspace/drive/api/guides/handle-errors>
 - `GET drive/v3/files/{fileId}/export` with `mimeType` as its only parameter, and that exported content is limited to 10 MB. <https://developers.google.com/workspace/drive/api/reference/rest/v3/files/export>
 - The export formats: `text/plain` and `text/markdown` for a Doc, `text/plain` for Slides, `text/csv` for a Sheet with "first sheet only". <https://developers.google.com/workspace/drive/api/guides/ref-export-formats>
+- That a file's content is fetched with `GET drive/v3/files/{fileId}?alt=media` on `www.googleapis.com` with the token in the `Authorization` header, that this is for files stored in Drive and a Google document is exported instead, and that `files.get` takes `supportsAllDrives`. <https://developers.google.com/workspace/drive/api/guides/manage-downloads>, <https://developers.google.com/workspace/drive/api/reference/rest/v3/files/get>
+- That a download of a Google document is refused with 403, reason `fileNotDownloadable` and the message "Only files with binary content can be downloaded. Use Export with Docs Editors files." <https://developers.google.com/workspace/drive/api/guides/handle-errors>
+- That a file flagged as abusive is given only to its owner and only with `acknowledgeAbuse=true`, and that downloading can be restricted (`capabilities.canDownload`). <https://developers.google.com/workspace/drive/api/guides/manage-downloads>
+- That the newer `POST drive/v3/files/{fileId}/download` answers with a long-running operation and not with the content, and is the only way to download a Google Vids file. Socket does not use it. <https://developers.google.com/workspace/drive/api/reference/rest/v3/files/download>
 - `GET drive/v3/files/{fileId}/permissions` with `supportsAllDrives`, `pageSize` (at most 100) and `pageToken`; `kind: "drive#permissionList"`; the fields of a permission and of `permissionDetails`, and the values of `type`, `role` and `permissionType`. <https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions/list>, <https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions>
 - `POST drive/v3/files` for a file with no content, a folder's MIME type, and that a file without `parents` goes to the top of My Drive. <https://developers.google.com/workspace/drive/api/reference/rest/v3/files/create>, <https://developers.google.com/workspace/drive/api/guides/folder>
 - `POST drive/v3/files/{fileId}/copy` with a file as its body. <https://developers.google.com/workspace/drive/api/reference/rest/v3/files/copy>
@@ -904,9 +933,13 @@ Confirmed:
 
 Not confirmed:
 
-- **How Google reports an export that is too large.** Its documentation states the 10 MB limit and not the error. Reports from people who met it give a 403 with the reason `exportSizeLimitExceeded` and the message "This file is too large to be exported.", and that is what Socket recognises.
+- **How Google reports an export that is too large.** Its documentation states the 10 MB limit and not the error. Reports from people who met it give a 403 with the reason `exportSizeLimitExceeded` and the message "This file is too large to be exported." Socket recognises the reason, whatever the message.
 - **How Google reports an export of a file that is not a Google document.** The documentation lists the reason `fileNotExportable` only with a message about Google Vids. The message Socket recognises, "Export only supports Docs Editors files.", is from experience of the API and not from a page.
-- **That these two are told by their message.** Socket's error for a 403 carries Google's message and not the `reason` beside it, so the two cases are recognised by their wording. If Google rewords either, the call still fails, as `AccessDenied` with Google's own words, and not with the clearer message.
+- **That two refusals are told by their message.** A file that cannot be exported, and a Google document that cannot be downloaded, are recognised by Google's wording and not by the `reason` beside it. If Google rewords either, the call still fails, as `AccessDenied` with Google's own words, and not with the clearer message.
+- **Whether Google answers a download with a redirect to another host, and when.** Its example follows redirects without saying why. Socket refuses such a redirect; see "Downloading a file".
+- **The type Google states for a downloaded file.** It is taken to be the file's own `mimeType`; the pages do not say so. For an export it is taken to be the format asked for.
+- **How Google refuses a flagged file** without `acknowledgeAbuse`. The page says the parameter is needed and not what is answered without it.
+- **What Google answers for a download of a folder or a shortcut.** If it is the refusal it gives for a Google document, the message that points to `export` is given for those too.
 - **That a Doc's plain text begins with a byte order mark.** It is what the API returns; no page says so. Socket removes one if it is there.
 - **`fields` on `drives.list` and on the writes.** It is a parameter of every Google API, and the pages for these methods do not list it separately.
 - **A PATCH with an empty object as its body**, which is what a move sends. Google's example sends no body at all. Socket's transport gives no length to a request without a body, which a server may refuse, and an empty object changes nothing.
@@ -1004,8 +1037,11 @@ Across all of Google: incoming events (push notifications and watch channels), i
 
 ### Drive
 
-- **`drive_files.download`**: the content of a file that is not a Google document, such as a PDF. It is bytes, which Socket's transport does not carry yet. It follows issue #6.
-- **Exporting to a format that is not text** (PDF, Word, Excel, PowerPoint, images), and **an export over 10 MB**. Both follow issue #6.
+- **Exporting to a format that is not text** (PDF, Word, Excel, PowerPoint, images). An export returns text; the bytes of such a format are not offered, by name or typed.
+- **An export over 10 MB**, which Google does not make, and **text of more than ten megabytes** by name.
+- **A download Google redirects to another host.** Google's download hosts are named by pattern, which a provider cannot declare yet.
+- **Downloading a file Google has flagged** (`acknowledgeAbuse`), **part of a file** (`Range`), **an earlier revision**, and **Google Vids**, which only the long-running `files.download` gives.
+- **Reading as text a file that is stored under a type that is not text**, or in an encoding other than UTF-8. `download` returns its bytes.
 - **Other sheets of a spreadsheet as CSV.** Drive exports the first only; the rest are read through Sheets.
 - **Searching every shared drive at once, or a whole domain** (`corpora` of `allDrives` or `domain`). Google may then search only part of what was asked and say so in `incompleteSearch`, which a page of results has no place for.
 - **Searching for shared drives** (`q` on `drive_shared_drives.list`), and the lists an administrator sees (`useDomainAdminAccess`).

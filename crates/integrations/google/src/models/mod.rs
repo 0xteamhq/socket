@@ -61,7 +61,9 @@ pub use document::{
 };
 pub use download::{Download, TextLimit};
 pub use drive_export::{DriveExport, DriveExportFormat};
-pub use drive_file::{DriveCopyFile, DriveCreateFolder, DriveFile, DriveListFiles, DriveShortcutDetails, DriveUser};
+pub use drive_file::{
+    DriveCopyFile, DriveCreateFolder, DriveFile, DriveFileText, DriveListFiles, DriveShortcutDetails, DriveUser,
+};
 pub use drive_permission::{DrivePermission, DrivePermissionDetail};
 pub use gmail_address::GmailAddress;
 pub use gmail_attachment::{GmailAttachment, GmailAttachmentText};

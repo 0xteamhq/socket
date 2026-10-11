@@ -65,6 +65,16 @@ pub struct DriveShortcutDetails {
     pub target_resource_key: Option<String>,
 }
 
+/// A file that is text, as text.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DriveFileText {
+    /// The media type Google served it as, such as `text/csv`.
+    pub content_type: Option<String>,
+    /// The file, exactly as it was written.
+    pub text: String,
+}
+
 /// Which files to list.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, rename_all = "camelCase")]
