@@ -673,7 +673,7 @@ fn build() -> Vec<Operation> {
         // ── docs and sheets ──
         operation("docs_documents.get", "Get a Google Doc's title, revision and tabs, without what is written in it.", Read, &[scopes::DOCUMENTS_READONLY],
             |g: Google, c: Connection, i: DocsOneDocument| async move { g.docs_documents(&c).get(&i.document).await as Result<Document> }),
-        operation("docs_documents.read", "Read a Google Doc as plain text: the whole document, and each of its tabs. Headings are Markdown headings, list items keep their markers, and a table has a line for each row.", Read, &[scopes::DOCUMENTS_READONLY],
+        operation("docs_documents.read", "Read a Google Doc as plain text, each of its tabs with its own text. Headings are Markdown headings, list items keep their markers, and a table has a line for each row.", Read, &[scopes::DOCUMENTS_READONLY],
             |g: Google, c: Connection, i: DocsOneDocument| async move { g.docs_documents(&c).read(&i.document).await as Result<DocumentText> }),
         operation("docs_documents.create", "Create a blank Google Doc with a title.", Write, &[scopes::DOCUMENTS],
             |g: Google, c: Connection, i: DocsNewDocument| async move { g.docs_documents(&c).create(i.options).await as Result<Document> }),

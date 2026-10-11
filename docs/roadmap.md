@@ -71,7 +71,7 @@ Meet is 12 methods, all of them reads: conference records, participants and thei
 
 Drive is 10 methods in `drive_files` and `drive_shared_drives`: finding files with Drive's own query language, metadata, who can see a file, a Google document exported as text, and making a folder, copying, moving, renaming and binning. Docs and Sheets are 9 more: a document read as plain text with its tabs, created and added to; a spreadsheet's sheets and sizes, and its cells read, written and appended by range. Downloading a file that is not a Google document returns bytes and waits for the content request.
 
-Sending mail, answering an invitation, changing an event, overwriting a draft or cells, binning a message or a file and deleting are marked destructive. A PUT and a DELETE are still repeated by the transport after a server error, which the guide spells out for the four operations that use them.
+Sending mail, answering an invitation, changing an event, overwriting a draft or cells, moving a file, binning a message or a file and deleting are marked destructive. A PUT and a DELETE are still repeated by the transport after a server error, which the guide spells out for the four operations that use them.
 
 Nothing has been run against the real service; [the guide](./integrations/google.md) lists what was confirmed against Google's documentation and what was not.
 
