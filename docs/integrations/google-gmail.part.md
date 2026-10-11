@@ -13,7 +13,8 @@ None of the Gmail scopes is a default of the provider. Name the ones you need in
 | `gmail_messages.reply(message, GmailReply)` | `GmailMessageRef`: answers in the same thread, at once | destructive | `GMAIL_READONLY` and `GMAIL_SEND` |
 | `gmail_messages.send_draft(draft)` | `GmailMessageRef`: sends a draft as it stands | destructive | `GMAIL_COMPOSE` |
 | `gmail_messages.modify(message, GmailModifyMessage)` | `GmailMessageRef`: adds and removes labels | write | `GMAIL_MODIFY` |
-| `gmail_messages.trash(message)`, `untrash(message)` | `GmailMessageRef`: to the bin, and back | write | `GMAIL_MODIFY` |
+| `gmail_messages.trash(message)` | `GmailMessageRef`: to the bin | destructive | `GMAIL_MODIFY` |
+| `gmail_messages.untrash(message)` | `GmailMessageRef`: back from the bin | write | `GMAIL_MODIFY` |
 | `gmail_threads.list(GmailListThreads, Paging)` | `Page<GmailThread>`: ids and snippets, without messages | read | `GMAIL_READONLY` |
 | `gmail_threads.get(thread, GmailGetThread)` | `GmailThread`: every message of one thread, decoded | read | `GMAIL_READONLY` |
 | `gmail_labels.list()` | `Vec<GmailLabel>`: every label, without counts | read | `GMAIL_READONLY` |
@@ -111,7 +112,7 @@ for row in &unread.items {
 
 Up to 100 labels can be added and 100 removed in one call. `SENT` and `DRAFT` are Gmail's to set and cannot be added. `gmail_labels.list` gives every label's `id`, `name` and `type` (`system` or `user`); the counts (`messagesTotal`, `messagesUnread`, `threadsTotal`, `threadsUnread`) come with `gmail_labels.get`.
 
-**The bin.** `trash` moves a message to the bin and `untrash` brings it back, so both are `write`. Nothing here deletes a message for good.
+**The bin.** `trash` moves a message to the bin and `untrash` brings it back. Gmail empties the bin by itself, and what was in it is then gone for good, so `trash` is `destructive` and a host asks a person first; `untrash` is `write`. Nothing here deletes a message at once.
 
 **Errors.** A message, thread, label or draft that does not exist is `NotFound`. A scope the connection was not given is `AccessDenied`. Gmail's limit on how fast one mailbox is used arrives as `RateLimited`, whether Google sends it as a 429 or as a 403. An answer Socket cannot read is `Decode`, and names the place (`payload.parts[1].body.data`) without repeating what was there.
 

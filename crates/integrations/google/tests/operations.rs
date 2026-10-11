@@ -1,12 +1,12 @@
 //! Every Google operation, called by name against a local server that answers as Google does.
 
-use socketkit_core::{Effect, Integration};
+use socketkit_core::{Effect, ErrorKind, Integration};
 use socketkit_google::{Google, scopes};
-use socketkit_testkit::wiremock::matchers::{method, path};
+use socketkit_testkit::wiremock::matchers::{any, method, path};
 use socketkit_testkit::wiremock::{Mock, ResponseTemplate};
 
 mod support;
-use support::{Case, TOKEN, answer, body_of, contains, google, invoke, query_of};
+use support::{Case, TOKEN, answer, body_of, contains, google, google_error, invoke, query_of};
 
 // One table of cases for each product. A case is one operation: the request
 // that must reach Google, and what the operation returns for Google's answer.
@@ -406,7 +406,8 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         // Google sends a draft under the scope for drafts, not the one for sending.
         ("gmail_messages.send_draft", Effect::Destructive, &[scopes::GMAIL_COMPOSE]),
         ("gmail_messages.modify", Effect::Write, &[scopes::GMAIL_MODIFY]),
-        ("gmail_messages.trash", Effect::Write, &[scopes::GMAIL_MODIFY]),
+        // Takes the message out of the mailbox, and Gmail deletes it for good when it empties the bin.
+        ("gmail_messages.trash", Effect::Destructive, &[scopes::GMAIL_MODIFY]),
         ("gmail_messages.untrash", Effect::Write, &[scopes::GMAIL_MODIFY]),
         ("gmail_threads.list", Effect::Read, &[scopes::GMAIL_READONLY]),
         ("gmail_threads.get", Effect::Read, &[scopes::GMAIL_READONLY]),
@@ -492,6 +493,8 @@ async fn the_tables_above_cover_every_operation_google_offers() {
         tested.len(),
         "a test case names an operation that does not exist, or one is tested twice"
     );
+    // Gmail 19, Calendar 10, Meet 12, Drive 10, Docs and Sheets 9, and the two every integration has.
+    assert_eq!(listed.len(), 62);
 }
 
 #[tokio::test]
@@ -618,4 +621,54 @@ async fn every_operation_describes_its_input_and_marks_what_it_changes() {
         oauth.default_scopes,
         [scopes::DRIVE_READONLY, scopes::DOCUMENTS_READONLY]
     );
+}
+
+#[tokio::test]
+async fn a_field_an_operation_does_not_know_is_refused_by_every_one_of_them_before_google_is_called() {
+    // A field that is not known would be dropped in silence, with what it
+    // said. That holds for an operation that takes nothing as well.
+    let (server, socket, key) = google().await;
+    for case in every_case() {
+        let mut input = case.input.clone();
+        input["notAField"] = serde_json::json!("x");
+        let err = invoke(&socket, &key, case.name, input).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{}: {err}", case.name);
+        assert!(
+            err.message().contains("`notAField`"),
+            "{}: {}",
+            case.name,
+            err.message()
+        );
+    }
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "nothing reached Google"
+    );
+}
+
+#[tokio::test]
+async fn a_change_is_sent_once_when_google_fails_and_a_read_is_tried_again() {
+    for case in every_case() {
+        let (server, socket, key) = google().await;
+        Mock::given(any())
+            .respond_with(google_error(503, "backendError", "Backend Error"))
+            .mount(&server)
+            .await;
+        let err = invoke(&socket, &key, case.name, case.input.clone()).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Unexpected, "{}: {err}", case.name);
+        // The first request an operation makes is the one that failed: the
+        // read it begins with, when it makes several, or else its own.
+        let first = case.also.first().map_or(case.verb, |(verb, _, _)| *verb);
+        let sent = server.received_requests().await.unwrap().len();
+        match first {
+            // The test connection tries twice.
+            "GET" => assert_eq!(sent, 2, "{}: a read is tried again", case.name),
+            // It may have happened, so it is not sent again.
+            "POST" | "PATCH" => assert_eq!(sent, 1, "{}: sent once", case.name),
+            // The transport still repeats these two after a server error; the
+            // guide says what that means for each operation that uses them.
+            "PUT" | "DELETE" => assert_eq!(sent, 2, "{}", case.name),
+            other => panic!("{}: {other} is not a verb Google is sent", case.name),
+        }
+    }
 }

@@ -75,7 +75,11 @@ fn closed(mut schema: Value) -> Value {
     fn close(node: &mut Value) {
         match node {
             Value::Object(fields) => {
-                if fields.contains_key("properties") {
+                // An object that lists no fields, as the input of an operation
+                // that takes nothing does, is closed too: it takes none.
+                let lists_none = fields.get("type").is_some_and(|kind| kind == "object")
+                    && !fields.contains_key("additionalProperties");
+                if fields.contains_key("properties") || lists_none {
                     fields.insert("additionalProperties".to_owned(), Value::Bool(false));
                 }
                 fields.values_mut().for_each(close);
@@ -118,7 +122,13 @@ fn unknown_field(root: &Value, node: &Value, input: &Value) -> Option<(String, S
     };
     match input {
         Value::Object(fields) => {
-            let known = node["properties"].as_object()?;
+            let none = serde_json::Map::new();
+            let known = match node["properties"].as_object() {
+                Some(known) => known,
+                // Closed, and listing no fields: any field is one too many.
+                None if node["additionalProperties"] == false => &none,
+                None => return None,
+            };
             fields.iter().find_map(|(name, value)| match known.get(name) {
                 None => Some((String::new(), name.clone())),
                 Some(schema) => unknown_field(root, schema, value).map(|found| within(name.clone(), found)),
@@ -276,21 +286,7 @@ input!(
         thread: String
     } + GmailGetThread
 );
-/// The input of an operation that takes nothing. Its schema lists no
-/// fields, where the one derived for an empty struct says nothing of fields
-/// at all, so one given to it is refused like any other that is not known.
-#[derive(Debug, Deserialize)]
-struct GmailNothing {}
-
-impl JsonSchema for GmailNothing {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "GmailNothing".into()
-    }
-
-    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        schemars::json_schema!({ "type": "object", "properties": {} })
-    }
-}
+input!(GmailNothing {});
 input!(GmailOneLabel {
     /// A label id, such as `INBOX` or `Label_12`.
     label: String
@@ -579,7 +575,7 @@ fn build() -> Vec<Operation> {
             |g: Google, c: Connection, i: GmailThisDraft| async move { g.gmail_messages(&c).send_draft(&i.draft).await as Result<GmailMessageRef> }),
         operation("gmail_messages.modify", "Add labels to a Gmail message and remove others: remove INBOX to archive, remove UNREAD to mark as read, add STARRED to star.", Write, &[scopes::GMAIL_MODIFY],
             |g: Google, c: Connection, i: GmailLabelled| async move { g.gmail_messages(&c).modify(&i.message, i.options).await as Result<GmailMessageRef> }),
-        operation("gmail_messages.trash", "Move a Gmail message to the bin. It can be brought back with gmail_messages.untrash until Gmail empties the bin.", Write, &[scopes::GMAIL_MODIFY],
+        operation("gmail_messages.trash", "Move a Gmail message to the bin. It can be brought back with gmail_messages.untrash until Gmail empties the bin, after which it is gone for good.", Destructive, &[scopes::GMAIL_MODIFY],
             |g: Google, c: Connection, i: GmailThisMessage| async move { g.gmail_messages(&c).trash(&i.message).await as Result<GmailMessageRef> }),
         operation("gmail_messages.untrash", "Take a Gmail message out of the bin.", Write, &[scopes::GMAIL_MODIFY],
             |g: Google, c: Connection, i: GmailThisMessage| async move { g.gmail_messages(&c).untrash(&i.message).await as Result<GmailMessageRef> }),
