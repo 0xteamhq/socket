@@ -59,6 +59,22 @@ The core fetches content as well as JSON. A provider's definition may declare co
 
 Not done: sending bytes to an address a provider issues, which Slack's upload needs; a stream, so that a file need not be held in memory; and a content host named by a pattern, which a provider that serves each tenant from its own host name needs (SharePoint, for OneDrive files). No provider declares a content host yet: Slack's and Zoom's file hosts are to be added with the methods that read from them.
 
+## Google, built out on the provider that was there
+
+`socketkit-google` was one file with identity and Drive lookup. It now has 63 typed methods on five of Google's products, 61 of them also named operations: the two that return a file's bytes are typed only, since an operation called by name returns text and never bytes. The crate carries its own copy of the operation machinery, as Slack and Microsoft do.
+
+Gmail is 20 methods in `gmail_messages`, `gmail_threads`, `gmail_labels`, `gmail_drafts` and `gmail_profile`. A list returns ids only; a message is read decoded, with its headers, its text, its HTML and what is attached; mail is written from structured content and sent, drafted, and answered in its thread; labels are changed and a message is binned and brought back. A reply goes to the people its caller names and to nobody else: nothing in the message it answers decides who receives it. Not covered: attachments on what is sent, a draft that is a reply, reply-all and forward, creating labels, history and push.
+
+Calendar is 10 methods in `calendar_list`, `calendar_events` and `calendar_freebusy`: events in a window with recurring ones expanded, free and busy times, creating an event with a Meet link, changing, answering and deleting one. An answer changes only the calendar owner's own entry, and names the version it read so that a change made in between is not lost.
+
+Meet is 12 methods, all of them reads: conference records, participants and their sessions, transcripts and their entries, recordings and spaces. `meet_transcripts.read` returns a whole transcript with each speaker named, as entries of speaker, start, end and text: the four fields a Teams transcript has in the Microsoft crate. The two crates agree on those by convention; there is no shared type in the core yet, and the tracking issue asks for that to be settled before a third transcript is built.
+
+Drive is 12 methods in `drive_files` and `drive_shared_drives`, 11 of them operations: finding files with Drive's own query language, metadata, who can see a file, a Google document exported as text, a file downloaded as its bytes or read as text, and making a folder, copying, moving, renaming and binning. Docs and Sheets are 9 more: a document read as plain text with its tabs, created and added to; a spreadsheet's sheets and sizes, and its cells read, written and appended by range. Downloading a file returns bytes, so it is a typed method only; by name the same file is read as text, when it is text. A download that Google redirects to another host is refused, until a provider can declare hosts by pattern.
+
+Sending mail, answering an invitation, changing an event, overwriting a draft or cells, moving a file, binning a message or a file and deleting are marked destructive. A PUT and a DELETE are still repeated by the transport after a server error, which the guide spells out for the four operations that use them.
+
+Nothing has been run against the real service; [the guide](./integrations/google.md) lists what was confirmed against Google's documentation and what was not.
+
 ## Carried forward from reviews
 
 - Decide before the first release whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.

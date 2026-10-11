@@ -1,15 +1,39 @@
 //! Socket integration for Google.
 //!
 //! One provider covers Google's products, because they share one OAuth
-//! provider. Offers the provider definition, `google.identity.get` and
-//! `google.resource.resolve` (a Drive file or folder, which includes Docs and Sheets).
+//! provider. Offers the provider definition, `google.identity.get`,
+//! `google.resource.resolve` (a Drive file or folder, which includes Docs and
+//! Sheets), and typed methods grouped the way Google groups its own APIs:
+//! Gmail (`gmail_messages`, `gmail_threads`, `gmail_labels`, `gmail_drafts`,
+//! `gmail_profile`), Calendar (`calendar_list`, `calendar_events`,
+//! `calendar_freebusy`), Meet (`meet_conference_records`,
+//! `meet_participants`, `meet_transcripts`, `meet_recordings`,
+//! `meet_spaces`), Drive (`drive_files`, `drive_shared_drives`), Docs
+//! (`docs_documents`) and Sheets (`sheets_spreadsheets`). Every typed method
+//! is also a named operation, except the two that return a file's bytes
+//! (`gmail_messages.attachment_content`, `drive_files.download`): by name
+//! the same file is read as text. See `docs/integrations/google.md`.
+
+mod client;
+pub mod models;
+mod operations;
+pub mod scopes;
+
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
 use socketkit_core::{
-    Access, Account, AuthScheme, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec, OAuthClient,
-    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, SecretString, TokenSet, identity_operation,
-    resolve_input, resolve_operation, to_output,
+    Access, Account, AuthScheme, Classifier, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec,
+    OAuthClient, OperationInfo, ProviderId, ProviderSpec, RawRequest, RawResponse, Resource, Result, Retry,
+    SecretString, StandardClassifier, TokenSet, identity_operation, provider_message, resolve_input, resolve_operation,
+    to_output,
+};
+
+pub use client::{
+    CalendarEvents, CalendarFreebusy, CalendarList, DocsDocuments, DriveFiles, DriveSharedDrives, GmailDrafts,
+    GmailLabels, GmailMessages, GmailProfiles, GmailThreads, MeetConferenceRecords, MeetParticipants, MeetRecordings,
+    MeetSpaces, MeetTranscripts, SheetsSpreadsheets,
 };
 
 /// This provider's id, as used in connection keys and operation names.
@@ -28,9 +52,11 @@ pub fn provider() -> ProviderSpec {
         allowed_hosts: vec![
             "www.googleapis.com".into(),
             "oauth2.googleapis.com".into(),
-            // The Docs and Sheets APIs, which the default scopes cover, live on their own hosts.
+            // Docs, Sheets, Gmail and Meet each live on a host of their own.
             "docs.googleapis.com".into(),
             "sheets.googleapis.com".into(),
+            "gmail.googleapis.com".into(),
+            "meet.googleapis.com".into(),
         ],
         content_hosts: Vec::new(),
         auth: AuthScheme::OAuth2(OAuth2Spec {
@@ -38,10 +64,7 @@ pub fn provider() -> ProviderSpec {
                 .parse()
                 .expect("a valid URL"),
             token_url: "https://oauth2.googleapis.com/token".parse().expect("a valid URL"),
-            default_scopes: vec![
-                "https://www.googleapis.com/auth/drive.readonly".into(),
-                "https://www.googleapis.com/auth/documents.readonly".into(),
-            ],
+            default_scopes: vec![scopes::DRIVE_READONLY.into(), scopes::DOCUMENTS_READONLY.into()],
             scope_separator: " ".into(),
             pkce: false,
             client_auth: ClientAuth::Body,
@@ -51,6 +74,72 @@ pub fn provider() -> ProviderSpec {
                 ("prompt".into(), "consent".into()),
             ],
         }),
+    }
+}
+
+/// Google follows HTTP conventions, with a few statuses that mean something
+/// else than they do elsewhere.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GoogleClassifier;
+
+impl Classifier for GoogleClassifier {
+    fn classify(&self, provider: &ProviderId, response: &RawResponse) -> Result<()> {
+        let error = |kind, message: String| Error::new(kind, message).with_provider(provider.clone());
+        // Google states why in `error.errors[].reason`, and its newer APIs in `error.status`.
+        let because = |reasons: &[&str]| {
+            let stated = response.body["error"]["errors"].as_array();
+            let listed = stated
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry["reason"].as_str());
+            listed
+                .chain(response.body["error"]["status"].as_str())
+                .any(|reason| reasons.contains(&reason))
+        };
+        match response.status {
+            // Google throttles with a 403 as well as a 429, and says to treat
+            // them alike. It is not a refusal: trying again later succeeds.
+            // With a Retry-After the standard rules already read it as a
+            // throttle, and keep the wait.
+            403 if response.header("retry-after").is_none()
+                && because(&["rateLimitExceeded", "userRateLimitExceeded", "RESOURCE_EXHAUSTED"]) =>
+            {
+                Err(
+                    error(ErrorKind::RateLimited, format!("{provider} is rate limiting requests"))
+                        .with_retry(Retry::Later),
+                )
+            }
+            // Drive refuses an export over its limit with a 403, which would
+            // read as a missing permission. Its reason is what says otherwise.
+            403 if because(&["exportSizeLimitExceeded"]) => Err(error(
+                ErrorKind::InvalidInput,
+                "this file is too large to export: the limit is 10 MB of exported content".to_owned(),
+            )),
+            // A Google document has no content of its own, and Drive says so
+            // with a 403 as well.
+            403 if because(&["fileNotDownloadable"]) => Err(error(
+                ErrorKind::InvalidInput,
+                "this file has no content of its own to download: a Google Doc, Sheet or Slides presentation is read with `export`".to_owned(),
+            )),
+            // Not something that is gone: a list was asked for changes since
+            // a time, or a point, that Google no longer keeps.
+            410 if because(&["updatedMinTooLongAgo", "fullSyncRequired"]) => Err(error(
+                ErrorKind::InvalidInput,
+                format!("{provider} rejected the request: {}", provider_message(&response.body)),
+            )),
+            // The thing was deleted: an event that is already gone, for one.
+            410 => Err(error(
+                ErrorKind::NotFound,
+                format!("{provider} no longer has that resource"),
+            )),
+            // A change that named the version it was changing, which is no
+            // longer the current one. Reading again and repeating it works.
+            412 => Err(error(
+                ErrorKind::InvalidInput,
+                format!("{provider} did not make the change: what it would have changed was changed first"),
+            )),
+            _ => StandardClassifier.classify(provider, response),
+        }
     }
 }
 
@@ -279,6 +368,115 @@ impl Google {
         self
     }
 
+    /// Gmail messages: finding, reading, sending, labelling and binning them.
+    pub fn gmail_messages<'a>(&self, connection: &'a Connection) -> GmailMessages<'a> {
+        GmailMessages(client::Api { connection })
+    }
+
+    /// Gmail threads: conversations, and the messages in one.
+    pub fn gmail_threads<'a>(&self, connection: &'a Connection) -> GmailThreads<'a> {
+        GmailThreads(client::Api { connection })
+    }
+
+    /// Gmail labels: Gmail's own, and the ones a person made.
+    pub fn gmail_labels<'a>(&self, connection: &'a Connection) -> GmailLabels<'a> {
+        GmailLabels(client::Api { connection })
+    }
+
+    /// Gmail drafts: messages that are written and not yet sent.
+    pub fn gmail_drafts<'a>(&self, connection: &'a Connection) -> GmailDrafts<'a> {
+        GmailDrafts(client::Api { connection })
+    }
+
+    /// The Gmail account itself: its address and how much it holds.
+    pub fn gmail_profile<'a>(&self, connection: &'a Connection) -> GmailProfiles<'a> {
+        GmailProfiles(client::Api { connection })
+    }
+
+    /// The calendars on the signed-in person's calendar list.
+    pub fn calendar_list<'a>(&self, connection: &'a Connection) -> CalendarList<'a> {
+        CalendarList(client::Api { connection })
+    }
+
+    /// Events on a calendar.
+    pub fn calendar_events<'a>(&self, connection: &'a Connection) -> CalendarEvents<'a> {
+        CalendarEvents(client::Api { connection })
+    }
+
+    /// When calendars are busy.
+    pub fn calendar_freebusy<'a>(&self, connection: &'a Connection) -> CalendarFreebusy<'a> {
+        CalendarFreebusy(client::Api { connection })
+    }
+
+    /// The meetings that were held in Meet: one conference record for each.
+    pub fn meet_conference_records<'a>(&self, connection: &'a Connection) -> MeetConferenceRecords<'a> {
+        MeetConferenceRecords(client::Api { connection })
+    }
+
+    /// Who was in a meeting, and each time they were connected.
+    pub fn meet_participants<'a>(&self, connection: &'a Connection) -> MeetParticipants<'a> {
+        MeetParticipants(client::Api { connection })
+    }
+
+    /// What was said in a meeting.
+    pub fn meet_transcripts<'a>(&self, connection: &'a Connection) -> MeetTranscripts<'a> {
+        MeetTranscripts(client::Api { connection })
+    }
+
+    /// The recordings of a meeting.
+    pub fn meet_recordings<'a>(&self, connection: &'a Connection) -> MeetRecordings<'a> {
+        MeetRecordings(client::Api { connection })
+    }
+
+    /// Meeting spaces: the place a meeting code or a link leads to.
+    pub fn meet_spaces<'a>(&self, connection: &'a Connection) -> MeetSpaces<'a> {
+        MeetSpaces(client::Api { connection })
+    }
+
+    /// The files and folders of Drive: finding them, reading what describes
+    /// one, exporting a Google document as text, downloading any other file,
+    /// and filing them.
+    pub fn drive_files<'a>(&self, connection: &'a Connection) -> DriveFiles<'a> {
+        DriveFiles(client::Api { connection })
+    }
+
+    /// The shared drives the account is a member of.
+    pub fn drive_shared_drives<'a>(&self, connection: &'a Connection) -> DriveSharedDrives<'a> {
+        DriveSharedDrives(client::Api { connection })
+    }
+
+    /// Google Docs: a document's tabs, its text, and adding to it.
+    pub fn docs_documents<'a>(&self, connection: &'a Connection) -> DocsDocuments<'a> {
+        DocsDocuments(client::Api { connection })
+    }
+
+    /// Google Sheets: a spreadsheet's sheets, and reading and writing its cells.
+    pub fn sheets_spreadsheets<'a>(&self, connection: &'a Connection) -> SheetsSpreadsheets<'a> {
+        SheetsSpreadsheets(client::Api { connection })
+    }
+
+    fn error(&self, kind: ErrorKind, message: impl Into<String>) -> Error {
+        Error::new(kind, message).with_provider(self.spec.id.clone())
+    }
+
+    /// Refuses input with a field other than those in `fields`, for the two
+    /// operations every integration has. Their schemas allow no other, and
+    /// one that was dropped in silence would take what it said with it.
+    fn takes(&self, input: &Value, fields: &[&str]) -> Result<()> {
+        let given = match input {
+            Value::Object(given) => given,
+            Value::Null => return Ok(()),
+            _ => return Err(self.error(ErrorKind::InvalidInput, "the input is a JSON object")),
+        };
+        if given.keys().all(|name| fields.contains(&name.as_str())) {
+            return Ok(());
+        }
+        Err(self.error(
+            ErrorKind::InvalidInput,
+            "the input has a field this operation does not know",
+        ))
+    }
+
     /// The account the connection is authorised as.
     ///
     /// Read from Drive's `about` resource, which the Drive scopes cover. When a
@@ -345,11 +543,21 @@ impl Integration for Google {
         self.spec.clone()
     }
 
+    /// Google's operations are named `google.…`, so the definition must keep that id.
     fn check(&self) -> Result<()> {
-        match &self.problem {
-            Some(problem) => Err(Error::new(ErrorKind::Config, problem.clone()).with_provider(self.spec.id.clone())),
-            None => Ok(()),
+        if let Some(problem) = &self.problem {
+            return Err(self.error(ErrorKind::Config, problem.clone()));
         }
+        if self.spec.id.as_str() == PROVIDER_ID {
+            return Ok(());
+        }
+        Err(self.error(
+            ErrorKind::Config,
+            format!(
+                "the Google integration needs the provider id {PROVIDER_ID:?}, not {:?}",
+                self.spec.id.as_str()
+            ),
+        ))
     }
 
     fn oauth_client(&self) -> Option<OAuthClient> {
@@ -361,22 +569,44 @@ impl Integration for Google {
     }
 
     fn operations(&self) -> Vec<OperationInfo> {
-        vec![
-            identity_operation(&self.spec.id),
-            resolve_operation(&self.spec.id, "a Google Drive, Docs or Sheets URL, or a file id"),
-        ]
+        // The two every integration offers say which scope they need, so
+        // that what to ask for at sign-in can be read from the catalogue.
+        // Both read Drive: the account from its `about`, and a file.
+        let needing = |operation: OperationInfo| OperationInfo {
+            required_scopes: vec![scopes::DRIVE_READONLY.to_owned()],
+            ..operation
+        };
+        let mut operations = vec![
+            needing(identity_operation(&self.spec.id)),
+            needing(resolve_operation(
+                &self.spec.id,
+                "a Google Drive, Docs or Sheets URL, or a file id",
+            )),
+        ];
+        operations.extend(operations::all().iter().map(|operation| operation.info.clone()));
+        operations
     }
 
     async fn invoke(&self, connection: Connection, operation: String, input: Value) -> Result<Value> {
         let id = &self.spec.id;
         match operation.strip_prefix(&format!("{id}.")) {
-            Some("identity.get") => to_output(id, &self.identity(&connection).await?),
-            Some("resource.resolve") => to_output(id, &self.resolve(&connection, &resolve_input(id, &input)?).await?),
-            _ => Err(
-                Error::new(ErrorKind::Unsupported, format!("google has no operation {operation:?}"))
-                    .with_provider(id.clone()),
-            ),
+            Some("identity.get") => {
+                self.takes(&input, &[])?;
+                to_output(id, &self.identity(&connection).await?)
+            }
+            Some("resource.resolve") => {
+                self.takes(&input, &["input"])?;
+                to_output(id, &self.resolve(&connection, &resolve_input(id, &input)?).await?)
+            }
+            _ => match operations::all().iter().find(|known| known.info.name == operation) {
+                Some(known) => known.run(self.clone(), connection, input).await,
+                None => Err(self.error(ErrorKind::Unsupported, format!("google has no operation {operation:?}"))),
+            },
         }
+    }
+
+    fn classifier(&self) -> Arc<dyn Classifier> {
+        Arc::new(GoogleClassifier)
     }
 }
 

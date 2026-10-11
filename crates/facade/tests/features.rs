@@ -42,13 +42,23 @@ fn all_seven_integrations_register_together_and_each_offers_identity_and_lookup(
         ["github", "google", "linear", "microsoft", "notion", "slack", "zoom"]
     );
     let names: Vec<String> = socket.operations().into_iter().map(|o| o.name).collect();
-    // Every integration has these two; Slack and Microsoft have typed operations besides.
+    // Every integration has these two; Slack, Microsoft and Google have typed operations besides.
     assert!(names.len() >= 14);
     assert!(names.contains(&"slack.chat.post_message".to_owned()));
     assert!(names.contains(&"microsoft.events.create".to_owned()));
     assert!(names.contains(&"microsoft.mail.send".to_owned()));
     assert!(names.contains(&"microsoft.chats.send".to_owned()));
     assert!(names.contains(&"microsoft.transcripts.content".to_owned()));
+    for google in [
+        "google.gmail_messages.send",
+        "google.calendar_events.insert",
+        "google.meet_transcripts.read",
+        "google.drive_files.list",
+        "google.docs_documents.read",
+        "google.sheets_spreadsheets.values_get",
+    ] {
+        assert!(names.contains(&google.to_owned()), "{google}");
+    }
     for id in &ids {
         assert!(names.contains(&format!("{id}.identity.get")), "{id}");
         assert!(names.contains(&format!("{id}.resource.resolve")), "{id}");
