@@ -29,6 +29,7 @@ use socketkit_core::{
 pub use client::{CalendarEvents, CalendarFreebusy, CalendarList};
 
 // ── meet: groups ──
+pub use client::{MeetConferenceRecords, MeetParticipants, MeetRecordings, MeetSpaces, MeetTranscripts};
 
 // ── drive: groups ──
 
@@ -374,6 +375,30 @@ impl Google {
     }
 
     // ── meet: groups ──
+    /// The meetings that were held in Meet: one conference record for each.
+    pub fn meet_conference_records<'a>(&self, connection: &'a Connection) -> MeetConferenceRecords<'a> {
+        MeetConferenceRecords(client::Api { connection })
+    }
+
+    /// Who was in a meeting, and each time they were connected.
+    pub fn meet_participants<'a>(&self, connection: &'a Connection) -> MeetParticipants<'a> {
+        MeetParticipants(client::Api { connection })
+    }
+
+    /// What was said in a meeting.
+    pub fn meet_transcripts<'a>(&self, connection: &'a Connection) -> MeetTranscripts<'a> {
+        MeetTranscripts(client::Api { connection })
+    }
+
+    /// The recordings of a meeting.
+    pub fn meet_recordings<'a>(&self, connection: &'a Connection) -> MeetRecordings<'a> {
+        MeetRecordings(client::Api { connection })
+    }
+
+    /// Meeting spaces: the place a meeting code or a link leads to.
+    pub fn meet_spaces<'a>(&self, connection: &'a Connection) -> MeetSpaces<'a> {
+        MeetSpaces(client::Api { connection })
+    }
 
     // ── drive: groups ──
 

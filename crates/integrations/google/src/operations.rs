@@ -28,6 +28,10 @@ use crate::models::{
 };
 
 // ── meet: types ──
+use crate::models::{
+    ConferenceRecord, MeetListConferenceRecords, MeetParticipant, MeetParticipantSession, MeetReadTranscript,
+    MeetRecording, MeetSpace, MeetTranscript, MeetTranscriptContent, MeetTranscriptEntry,
+};
 
 // ── drive: types ──
 
@@ -282,6 +286,65 @@ input!(
 );
 
 // ── meet: inputs ──
+// A conference record, and each thing in one, is given as its id or as the
+// name Google returned for it: `conferenceRecords/{id}/transcripts/{id}`.
+input!(MeetRecords {} + MeetListConferenceRecords);
+input!(MeetOneRecord {
+    /// A conference record: its name, `conferenceRecords/{id}`, or its id.
+    record: String
+});
+input!(
+    MeetInRecord {
+        /// A conference record: its name, `conferenceRecords/{id}`, or its id.
+        record: String
+    } + Paging
+);
+input!(MeetOneParticipant {
+    /// A conference record: its name, `conferenceRecords/{id}`, or its id.
+    record: String,
+    /// One of the record's participants: its name, as a transcript entry has it in `participant`, or its id.
+    participant: String
+});
+input!(
+    MeetInParticipant {
+        /// A conference record: its name, `conferenceRecords/{id}`, or its id.
+        record: String,
+        /// One of the record's participants: its name or its id.
+        participant: String
+    } + Paging
+);
+input!(MeetOneTranscript {
+    /// A conference record: its name, `conferenceRecords/{id}`, or its id.
+    record: String,
+    /// One of the record's transcripts: its name or its id.
+    transcript: String
+});
+input!(
+    MeetInTranscript {
+        /// A conference record: its name, `conferenceRecords/{id}`, or its id.
+        record: String,
+        /// One of the record's transcripts: its name or its id.
+        transcript: String
+    } + Paging
+);
+input!(
+    MeetWholeTranscript {
+        /// A conference record: its name, `conferenceRecords/{id}`, or its id.
+        record: String,
+        /// One of the record's transcripts: its name or its id.
+        transcript: String
+    } + MeetReadTranscript
+);
+input!(MeetOneRecording {
+    /// A conference record: its name, `conferenceRecords/{id}`, or its id.
+    record: String,
+    /// One of the record's recordings: its name or its id.
+    recording: String
+});
+input!(MeetOneSpace {
+    /// A space: its name (`spaces/{id}`), its id, a meeting code (`abc-mnop-xyz`), or the link people join by.
+    space: String
+});
 
 // ── drive: inputs ──
 
@@ -329,6 +392,30 @@ fn build() -> Vec<Operation> {
             |g: Google, c: Connection, i: CalendarAvailability| async move { g.calendar_freebusy(&c).query(&i.calendars, i.options).await as Result<FreeBusy> }),
 
         // ── meet ──
+        operation("meet_conference_records.list", "List the Meet meetings the account organised, newest first: one conference record for each time a meeting was held. Can be narrowed to one meeting code or space, or to meetings that began between two times. Google keeps a record for 30 days after the meeting ended. At most 100 in a page.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetRecords| async move { g.meet_conference_records(&c).list(i.options).await as Result<Page<ConferenceRecord>> }),
+        operation("meet_conference_records.get", "Get one Meet conference record: when the meeting began and ended, and the space it was held in.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetOneRecord| async move { g.meet_conference_records(&c).get(&i.record).await as Result<ConferenceRecord> }),
+        operation("meet_participants.list", "List who was in a Meet meeting, with the name each was shown under. Someone who left and came back is listed once. At most 250 in a page.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetInRecord| async move { g.meet_participants(&c).list(&i.record, i.options).await as Result<Page<MeetParticipant>> }),
+        operation("meet_participants.get", "Get one participant of a Meet meeting: the name they were shown under, and when they first joined and last left.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetOneParticipant| async move { g.meet_participants(&c).get(&i.record, &i.participant).await as Result<MeetParticipant> }),
+        operation("meet_participants.sessions", "List each time a participant was connected to a Meet meeting: one session for every time they joined, from every device. At most 250 in a page.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetInParticipant| async move { g.meet_participants(&c).sessions(&i.record, &i.participant, i.options).await as Result<Page<MeetParticipantSession>> }),
+        operation("meet_transcripts.list", "List the transcripts of a Meet meeting. Empty when transcription was never switched on. Each names the Google Doc it was saved to. At most 100 in a page.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetInRecord| async move { g.meet_transcripts(&c).list(&i.record, i.options).await as Result<Page<MeetTranscript>> }),
+        operation("meet_transcripts.get", "Get one Meet transcript's details: when it was made, whether its Google Doc has been written, and which Doc that is.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetOneTranscript| async move { g.meet_transcripts(&c).get(&i.record, &i.transcript).await as Result<MeetTranscript> }),
+        operation("meet_transcripts.entries", "List a Meet transcript's entries as Meet returns them: what was said, when, in what language, and the speaker as a reference to a participant, not a name. Google deletes them 30 days after the meeting ended. At most 100 in a page. Use meet_transcripts.read for the whole transcript with names.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetInTranscript| async move { g.meet_transcripts(&c).entries(&i.record, &i.transcript, i.options).await as Result<Page<MeetTranscriptEntry>> }),
+        operation("meet_transcripts.read", "Read what was said in a Meet meeting: the transcript as lines of `Speaker: what was said`, and one entry for each thing said with the speaker's name, the start and the end. Makes several requests. Stops at maxEntries (1000 unless given) and sets truncated when the transcript has more.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetWholeTranscript| async move { g.meet_transcripts(&c).read(&i.record, &i.transcript, i.options).await as Result<MeetTranscriptContent> }),
+        operation("meet_recordings.list", "List the recordings of a Meet meeting. Empty when the meeting was not recorded. Each names the Drive file it was saved to. At most 100 in a page.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetInRecord| async move { g.meet_recordings(&c).list(&i.record, i.options).await as Result<Page<MeetRecording>> }),
+        operation("meet_recordings.get", "Get one Meet recording: whether its file is ready, and the Drive file it was saved to.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetOneRecording| async move { g.meet_recordings(&c).get(&i.record, &i.recording).await as Result<MeetRecording> }),
+        operation("meet_spaces.get", "Get a Meet space from its name, its id, a meeting code or the link people join by. Returns its name, its link and code, how it is set up, and the meeting going on in it now if there is one.", Read, &[scopes::MEETINGS_SPACE_READONLY],
+            |g: Google, c: Connection, i: MeetOneSpace| async move { g.meet_spaces(&c).get(&i.space).await as Result<MeetSpace> }),
 
         // ── drive ──
 

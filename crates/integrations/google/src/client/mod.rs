@@ -21,6 +21,12 @@ mod calendar_list;
 mod calendar_time;
 
 // ── meet: modules ──
+mod meet;
+mod meet_conference_records;
+mod meet_participants;
+mod meet_recordings;
+mod meet_spaces;
+mod meet_transcripts;
 
 // ── drive: modules ──
 
@@ -40,6 +46,11 @@ pub use calendar_freebusy::CalendarFreebusy;
 pub use calendar_list::CalendarList;
 
 // ── meet: groups ──
+pub use meet_conference_records::MeetConferenceRecords;
+pub use meet_participants::MeetParticipants;
+pub use meet_recordings::MeetRecordings;
+pub use meet_spaces::MeetSpaces;
+pub use meet_transcripts::MeetTranscripts;
 
 // ── drive: groups ──
 

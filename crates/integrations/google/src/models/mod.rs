@@ -24,6 +24,13 @@ mod calendar_event_time;
 mod calendar_freebusy;
 
 // ── meet: modules ──
+mod meet_conference;
+mod meet_participant;
+mod meet_recording;
+mod meet_space;
+mod meet_time;
+mod meet_transcript;
+mod meet_transcript_content;
 
 // ── drive: modules ──
 
@@ -44,6 +51,18 @@ pub use calendar_event_time::EventTime;
 pub use calendar_freebusy::{FreeBusy, FreeBusyCalendar, FreeBusyError, FreeBusyPeriod, FreeBusyQuery};
 
 // ── meet: types ──
+pub use meet_conference::{ConferenceRecord, MeetListConferenceRecords};
+pub use meet_participant::{
+    MeetAnonymousUser, MeetParticipant, MeetParticipantSession, MeetPhoneUser, MeetSignedinUser,
+};
+pub use meet_recording::{MeetDriveDestination, MeetRecording};
+pub use meet_space::{
+    MeetActiveConference, MeetArtifactConfig, MeetRecordingConfig, MeetSmartNotesConfig, MeetSpace, MeetSpaceConfig,
+    MeetTranscriptionConfig,
+};
+pub(crate) use meet_time::millis as meet_millis;
+pub use meet_transcript::{MeetDocsDestination, MeetReadTranscript, MeetTranscript, MeetTranscriptEntry};
+pub use meet_transcript_content::{MeetTranscriptContent, MeetTranscriptContentEntry};
 
 // ── drive: types ──
 

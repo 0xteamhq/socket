@@ -81,7 +81,74 @@ fn calendar_cases() -> Vec<Case> {
 // ── meet: cases ──
 #[rustfmt::skip]
 fn meet_cases() -> Vec<Case> {
-    vec![]
+    // Imported here and not at the top, so that a name as plain as `FILE`
+    // or `SPACE` cannot meet another product's fixture of the same name.
+    use serde_json::json;
+    use support::meet::{
+        ADA, ADA_ID, DOCUMENT, FILE, GRACE, MEETING_CODE, MEETING_LINK, RECORD, RECORD_ID, RECORD_PATH, RECORDING,
+        SPACE, TRANSCRIPT, TRANSCRIPT_ID, TRANSCRIPT_PATH, ada, conference_record, entry, grace, recording, session,
+        space, transcript,
+    };
+    // A record, and each thing in one, is given by its name or by its id.
+    let both = json!({ "record": RECORD, "transcript": TRANSCRIPT });
+    let said = entry("e-1", ADA, "2026-10-12T16:00:34.250Z", "2026-10-12T16:00:36Z", "Shall we begin?");
+    vec![
+        Case::new("meet_conference_records.list", json!({ "meetingCode": MEETING_CODE, "startTimeMin": "2026-10-01T00:00:00Z", "limit": 10 }), "GET", "/v2/conferenceRecords")
+            .query(json!({ "filter": "space.meeting_code = \"abc-mnop-xyz\" AND start_time>=\"2026-10-01T00:00:00Z\"", "pageSize": "10" }))
+            .answers(200, json!({ "conferenceRecords": [conference_record()], "nextPageToken": "page-2" }))
+            .returns(json!({ "items": [{ "name": RECORD, "startTime": "2026-10-12T16:00:00.123456Z", "endTime": "2026-10-12T16:45:10.500Z", "expireTime": "2026-11-11T16:45:10.500Z", "space": SPACE }], "next_cursor": "page-2" })),
+        Case::new("meet_conference_records.get", json!({ "record": RECORD_ID }), "GET", RECORD_PATH)
+            .answers(200, conference_record())
+            .returns(json!({ "name": RECORD, "space": SPACE })),
+        Case::new("meet_participants.list", json!({ "record": RECORD, "limit": 250 }), "GET", format!("{RECORD_PATH}/participants"))
+            .query(json!({ "pageSize": "250" }))
+            .answers(200, json!({ "participants": [ada(), grace()] }))
+            .returns(json!({ "items": [
+                { "name": ADA, "signedinUser": { "user": "users/118203456789", "displayName": "Ada Lovelace" }, "earliestStartTime": "2026-10-12T16:00:02Z" },
+                { "name": GRACE, "anonymousUser": { "displayName": "Grace (guest)" } }
+            ], "next_cursor": null })),
+        Case::new("meet_participants.get", json!({ "record": RECORD, "participant": ADA }), "GET", format!("{RECORD_PATH}/participants/{ADA_ID}"))
+            .answers(200, ada())
+            .returns(json!({ "name": ADA, "signedinUser": { "displayName": "Ada Lovelace" }, "latestEndTime": "2026-10-12T16:45:10Z" })),
+        Case::new("meet_participants.sessions", json!({ "record": RECORD_ID, "participant": ADA_ID }), "GET", format!("{RECORD_PATH}/participants/{ADA_ID}/participantSessions"))
+            .answers(200, json!({ "participantSessions": [
+                session("s-2", "2026-10-12T16:20:00Z", "2026-10-12T16:45:10Z"),
+                session("s-1", "2026-10-12T16:00:02Z", "2026-10-12T16:15:00Z")
+            ] }))
+            .returns(json!({ "items": [
+                { "name": format!("{ADA}/participantSessions/s-2"), "startTime": "2026-10-12T16:20:00Z" },
+                { "name": format!("{ADA}/participantSessions/s-1"), "endTime": "2026-10-12T16:15:00Z" }
+            ] })),
+        Case::new("meet_transcripts.list", json!({ "record": RECORD }), "GET", format!("{RECORD_PATH}/transcripts"))
+            .answers(200, json!({ "transcripts": [transcript()] }))
+            .returns(json!({ "items": [{ "name": TRANSCRIPT, "state": "FILE_GENERATED", "docsDestination": { "document": DOCUMENT } }] })),
+        Case::new("meet_transcripts.get", json!({ "record": RECORD_ID, "transcript": TRANSCRIPT_ID }), "GET", TRANSCRIPT_PATH)
+            .answers(200, transcript())
+            .returns(json!({ "name": TRANSCRIPT, "startTime": "2026-10-12T16:00:30Z", "docsDestination": { "document": DOCUMENT, "exportUri": "https://docs.google.com/document/d/1kuceFZohVoCh6FulBHxwy6I15Ogpc4hP/view" } })),
+        Case::new("meet_transcripts.entries", json!({ "record": RECORD, "transcript": TRANSCRIPT, "limit": 100, "cursor": "page-2" }), "GET", format!("{TRANSCRIPT_PATH}/entries"))
+            .query(json!({ "pageSize": "100", "pageToken": "page-2" }))
+            .answers(200, json!({ "transcriptEntries": [said.clone()], "nextPageToken": "page-3" }))
+            .returns(json!({ "items": [{ "name": format!("{TRANSCRIPT}/entries/e-1"), "participant": ADA, "text": "Shall we begin?", "languageCode": "en-US", "startTime": "2026-10-12T16:00:34.250Z", "endTime": "2026-10-12T16:00:36Z" }], "next_cursor": "page-3" })),
+        Case::new("meet_transcripts.read", both, "GET", TRANSCRIPT_PATH)
+            .answers(200, transcript())
+            .also("GET", format!("{TRANSCRIPT_PATH}/entries"), json!({ "transcriptEntries": [said] }))
+            .also("GET", format!("{RECORD_PATH}/participants"), json!({ "participants": [grace(), ada()] }))
+            .returns(json!({
+                "text": "Ada Lovelace: Shall we begin?",
+                "entries": [{ "speaker": "Ada Lovelace", "startMs": 4250, "endMs": 6000, "text": "Shall we begin?", "startTime": "2026-10-12T16:00:34.250Z", "endTime": "2026-10-12T16:00:36Z", "languageCode": "en-US", "participant": ADA }],
+                "truncated": false,
+                "transcript": { "name": TRANSCRIPT, "docsDestination": { "document": DOCUMENT } }
+            })),
+        Case::new("meet_recordings.list", json!({ "record": RECORD }), "GET", format!("{RECORD_PATH}/recordings"))
+            .answers(200, json!({ "recordings": [recording()] }))
+            .returns(json!({ "items": [{ "name": RECORDING, "state": "FILE_GENERATED", "driveDestination": { "file": FILE } }] })),
+        Case::new("meet_recordings.get", json!({ "record": RECORD, "recording": RECORDING }), "GET", format!("{RECORD_PATH}/recordings/rec-01"))
+            .answers(200, recording())
+            .returns(json!({ "name": RECORDING, "driveDestination": { "file": FILE, "exportUri": "https://drive.google.com/file/d/1mZq9Xc0wT3vUu7rLhYp2sNdEaKbJ4gQf/view" } })),
+        Case::new("meet_spaces.get", json!({ "space": MEETING_LINK }), "GET", "/v2/spaces/abc-mnop-xyz")
+            .answers(200, space())
+            .returns(json!({ "name": SPACE, "meetingUri": MEETING_LINK, "meetingCode": MEETING_CODE, "config": { "accessType": "TRUSTED", "artifactConfig": { "transcriptionConfig": { "autoTranscriptionGeneration": "ON" } } }, "activeConference": { "conferenceRecord": RECORD } })),
+    ]
 }
 
 // ── drive: cases ──
@@ -129,6 +196,18 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("calendar_events.delete", Effect::Destructive, &[scopes::CALENDAR_EVENTS]),
 
         // ── meet: effects ──
+        ("meet_conference_records.list", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_conference_records.get", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_participants.list", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_participants.get", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_participants.sessions", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_transcripts.list", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_transcripts.get", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_transcripts.entries", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_transcripts.read", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_recordings.list", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_recordings.get", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
+        ("meet_spaces.get", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
 
         // ── drive: effects ──
 
