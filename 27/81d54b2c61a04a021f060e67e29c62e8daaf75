@@ -1,0 +1,73 @@
+crates/integrations/microsoft/src/models/team.rs
+  s_dbbe1dc13eabf1::t_cf9a952b6b0247 1-22
+crates/integrations/microsoft/tests/support/mod.rs
+  s_dbbe1dc13eabf1::t_58cf2455ae3c38 209-272
+crates/integrations/microsoft/src/models/mod.rs
+  s_dbbe1dc13eabf1::t_cf9a952b6b0247 16-18,25,31,41-43,46,56,63
+  s_dbbe1dc13eabf1::t_638f02a767db1e 44-45,61
+crates/integrations/microsoft/tests/chat_text.rs
+  s_dbbe1dc13eabf1::t_a91136dd4b812d 109-125
+  s_dbbe1dc13eabf1::t_cf9a952b6b0247 8-11,68-70
+  s_dbbe1dc13eabf1::t_7331f215e1bd67 1-7,12-67,71-108
+crates/integrations/microsoft/src/models/chat_message.rs
+  s_dbbe1dc13eabf1::t_638f02a767db1e 6,17-18,112-125
+  s_dbbe1dc13eabf1::t_cf9a952b6b0247 1-5,7-16,19-111,126-228,236-250,252-286,300-366
+  s_dbbe1dc13eabf1::t_83bc2ab2f1ddf7 229-235,251,287-299
+crates/integrations/microsoft/src/client/channels.rs
+  s_dbbe1dc13eabf1::t_638f02a767db1e 1-42
+crates/integrations/microsoft/src/client/mod.rs
+  s_dbbe1dc13eabf1::t_638f02a767db1e 15-17,24,35-37,43,46,118-131,209-241,264-268
+  s_dbbe1dc13eabf1::t_af1a6ade1e1b87 269-270
+crates/integrations/microsoft/src/client/chats.rs
+  s_dbbe1dc13eabf1::t_638f02a767db1e 1-101
+crates/integrations/microsoft/src/client/channel_messages.rs
+  s_dbbe1dc13eabf1::t_638f02a767db1e 1-56
+crates/integrations/microsoft/src/models/member.rs
+  s_dbbe1dc13eabf1::t_cf9a952b6b0247 1-22
+crates/integrations/microsoft/src/models/chat.rs
+  s_dbbe1dc13eabf1::t_cf9a952b6b0247 1-43
+crates/integrations/microsoft/src/models/paging.rs
+  s_dbbe1dc13eabf1::t_638f02a767db1e 16-31
+crates/integrations/microsoft/src/models/channel.rs
+  s_dbbe1dc13eabf1::t_cf9a952b6b0247 1-24
+crates/facade/tests/features.rs
+  s_dbbe1dc13eabf1::t_36777c435d3657 50-51
+docs/roadmap.md
+  s_dbbe1dc13eabf1::t_36777c435d3657 50-53
+crates/integrations/microsoft/src/operations.rs
+  s_dbbe1dc13eabf1::t_af1a6ade1e1b87 580
+  s_dbbe1dc13eabf1::t_153ee15c48a41a 25,319-415,537-579
+README.md
+  s_dbbe1dc13eabf1::t_36777c435d3657 55,161
+  s_dbbe1dc13eabf1::t_7f46465ad20b59 7
+crates/integrations/microsoft/tests/teams.rs
+  s_dbbe1dc13eabf1::t_1d5c666f5f648d 1-29,34-71,76-105,111-115,117-151,156-166,175-211,213-218,224-310,315-329,332-378,383-413,415-511
+  s_dbbe1dc13eabf1::t_79c5d3892477e9 30-33,72-75,106-110,116,152-155,167-174,212,219-223,311-314,330-331,379-382,414
+crates/integrations/microsoft/src/client/teams.rs
+  s_dbbe1dc13eabf1::t_638f02a767db1e 1-38
+crates/integrations/microsoft/src/lib.rs
+  s_dbbe1dc13eabf1::t_638f02a767db1e 28-31,358-376
+  s_dbbe1dc13eabf1::t_a05cae37c4bcb2 377
+crates/integrations/microsoft/tests/operations.rs
+  s_dbbe1dc13eabf1::t_58cf2455ae3c38 17-19,225,268-323,328,349,390-397,467-485
+crates/integrations/microsoft/src/client/online_meetings.rs
+  s_dbbe1dc13eabf1::t_638f02a767db1e 5,18,32
+docs/integrations/microsoft.md
+  s_dbbe1dc13eabf1::t_36777c435d3657 5,243-339,362,383,420-446,454-455,509-516,543-549,556-560
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2781d54b2c61a04a021f060e67e29c62e8daaf75",
+  "prompts": {},
+  "sessions": {
+    "s_dbbe1dc13eabf1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a613a42-f563-420a-9c41-cee8bd04b5b1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
