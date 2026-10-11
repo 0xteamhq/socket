@@ -206,3 +206,67 @@ pub fn transcript() -> Value {
         "meetingOrganizer": organizer()
     })
 }
+
+/// The header that asks Graph to name the kinds it has added since v1.0 was fixed.
+pub const ALL_KINDS: &str = "include-unknown-enum-members";
+
+/// A channel's id and a chat's id as Graph writes them, and as they go into a path.
+pub const CHANNEL: &str = "19:abc@thread.tacv2";
+pub const CHANNEL_PATH: &str = "19%3Aabc%40thread.tacv2";
+pub const CHAT: &str = "19:u-1_u-2@unq.gbl.spaces";
+pub const CHAT_PATH: &str = "19%3Au-1_u-2%40unq.gbl.spaces";
+
+pub fn team() -> Value {
+    json!({ "id": "team-1", "displayName": "Launch crew", "description": "Ships things", "isArchived": false, "tenantId": "t-1",
+            "visibility": null, "webUrl": null, "createdDateTime": null })
+}
+
+pub fn channel() -> Value {
+    json!({ "id": CHANNEL, "displayName": "General", "description": "Everything", "membershipType": "standard", "isArchived": false,
+            "webUrl": "https://teams.microsoft.com/l/channel/19%3Aabc%40thread.tacv2/General", "email": "", "createdDateTime": "2026-01-05T09:00:00Z" })
+}
+
+pub fn member() -> Value {
+    json!({ "@odata.type": "#microsoft.graph.aadUserConversationMember", "id": "MCMjMSMj", "roles": ["owner"], "displayName": "Ada Lovelace",
+            "userId": "u-1", "email": "ada@contoso.example", "tenantId": "t-1", "visibleHistoryStartDateTime": "0001-01-01T00:00:00Z" })
+}
+
+pub fn chat() -> Value {
+    json!({ "id": CHAT, "topic": null, "chatType": "oneOnOne", "createdDateTime": "2026-10-01T09:00:00Z", "lastUpdatedDateTime": "2026-10-09T08:00:00Z",
+            "webUrl": "https://teams.microsoft.com/l/chat/19%3Au-1_u-2%40unq.gbl.spaces/0", "tenantId": "t-1", "onlineMeetingInfo": null })
+}
+
+/// A message in a channel, with a mention, an attachment and a reaction.
+pub fn chat_message() -> Value {
+    json!({
+        "id": "1616990032035", "replyToId": null, "etag": "1616990032035", "messageType": "message",
+        "createdDateTime": "2026-10-09T08:13:52.035Z", "lastModifiedDateTime": "2026-10-09T08:20:00.000Z",
+        "lastEditedDateTime": null, "deletedDateTime": null, "subject": "Release", "summary": null, "chatId": null,
+        "importance": "normal", "locale": "en-us",
+        "webUrl": "https://teams.microsoft.com/l/message/19%3Aabc%40thread.tacv2/1616990032035",
+        "from": { "application": null, "device": null, "user": { "id": "u-2", "displayName": "Grace Hopper", "userIdentityType": "aadUser", "tenantId": "t-1" } },
+        "body": { "contentType": "html", "content": "<div><at id=\"0\">Ada Lovelace</at>&nbsp;we shipped. <attachment id=\"a1\"></attachment></div>" },
+        "channelIdentity": { "teamId": "team-1", "channelId": CHANNEL },
+        "attachments": [{ "id": "a1", "contentType": "reference", "contentUrl": "https://contoso.sharepoint.com/notes.docx", "content": null, "name": "notes.docx", "thumbnailUrl": null, "teamsAppId": null }],
+        "mentions": [{ "id": 0, "mentionText": "Ada Lovelace", "mentioned": { "application": null, "device": null, "conversation": null,
+            "user": { "id": "u-1", "displayName": "Ada Lovelace", "userIdentityType": "aadUser" } } }],
+        "reactions": [{ "reactionType": "like", "createdDateTime": "2026-10-09T08:20:00.000Z",
+            "user": { "application": null, "device": null, "user": { "id": "u-1", "displayName": null, "userIdentityType": "aadUser" } } }],
+        "eventDetail": null
+    })
+}
+
+/// What an operation that returns `chat_message()` must pass on.
+pub fn chat_message_returned() -> Value {
+    json!({
+        "id": "1616990032035", "replyToId": null, "messageType": "message", "createdDateTime": "2026-10-09T08:13:52.035Z",
+        "lastEditedDateTime": null, "deletedDateTime": null,
+        "from": { "user": { "id": "u-2", "displayName": "Grace Hopper", "userIdentityType": "aadUser" } },
+        "body": { "contentType": "html" },
+        // The body as a person would read it.
+        "text": "@Ada Lovelace we shipped.\n[attachment: notes.docx]",
+        "attachments": [{ "id": "a1", "name": "notes.docx", "contentUrl": "https://contoso.sharepoint.com/notes.docx" }],
+        "mentions": [{ "id": 0, "mentionText": "Ada Lovelace", "mentioned": { "user": { "id": "u-1" } } }],
+        "reactions": [{ "reactionType": "like", "user": { "user": { "id": "u-1" } } }]
+    })
+}

@@ -4,7 +4,7 @@
 
 Socket gives a product the layers it needs to connect to SaaS APIs: a registry of providers, an OAuth and token-refresh engine, and typed operations for each service. The application owns its OAuth apps and its token storage. Nothing is hosted.
 
-> **Status:** Early. The core, the OAuth flow, token refresh and seven providers are built and tested against local servers (~20k lines of Rust, 310 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
+> **Status:** Early. The core, the OAuth flow, token refresh and seven providers are built and tested against local servers (~23k lines of Rust, 359 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
 
 ## Why
 
@@ -52,7 +52,7 @@ socket/
 | --- | --- |
 | `socketkit` | What an application depends on. One feature per provider: `github`, `google`, `linear`, `microsoft`, `notion`, `slack`, `zoom`. |
 | `socketkit-core` | Providers, the token store interface, the HTTP transport, OAuth, refresh, and call-by-name. |
-| `socketkit-<provider>` | The provider's definition, plus operations (`identity.get`, `resource.resolve`, and typed methods where they are built: all of Slack, and Microsoft's Outlook calendar and mail). |
+| `socketkit-<provider>` | The provider's definition, plus operations (`identity.get`, `resource.resolve`, and typed methods where they are built: all of Slack, and Microsoft's Outlook calendar, mail, Teams and Teams meetings). |
 | `socketkit-testkit` | A local test server and the conformance checks every provider must pass. |
 
 ## Quick start
@@ -158,7 +158,7 @@ Keep the pending record tied to the session of the person who started the flow, 
 | Notion | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Google | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Zoom | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
-| Microsoft | OAuth 2.0 | 30 typed methods for the Outlook calendar and Outlook mail | Wire-tested |
+| Microsoft | OAuth 2.0 | 57 typed methods for the Outlook calendar, Outlook mail, Teams and Teams meetings | Wire-tested |
 
 All seven support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
 

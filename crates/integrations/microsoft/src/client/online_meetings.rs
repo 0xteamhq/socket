@@ -2,7 +2,7 @@
 
 use socketkit_core::{ErrorKind, RawRequest, Result};
 
-use super::Api;
+use super::{Api, named};
 use crate::models::OnlineMeeting;
 
 /// Teams online meetings.
@@ -15,7 +15,7 @@ impl OnlineMeetings<'_> {
         let meeting = self.0.segment("a meeting id", meeting)?;
         let body = self
             .0
-            .send(RawRequest::get(format!("me/onlineMeetings/{meeting}")))
+            .send(named(RawRequest::get(format!("me/onlineMeetings/{meeting}"))))
             .await?;
         self.meeting(self.0.decode(body, "an online meeting")?)
     }
@@ -29,7 +29,7 @@ impl OnlineMeetings<'_> {
         self.0.required("a join URL", join_url)?;
         // OData writes a quote inside a string as two.
         let filter = format!("JoinWebUrl eq '{}'", join_url.trim().replace('\'', "''"));
-        let request = RawRequest::get("me/onlineMeetings").with_query("$filter", filter);
+        let request = named(RawRequest::get("me/onlineMeetings")).with_query("$filter", filter);
         let found: Vec<OnlineMeeting> = self.0.list(&self.0.send(request).await?, "online meetings")?;
         // The link is not repeated: it lets anyone who holds it into the meeting.
         let first = found.into_iter().next().ok_or_else(|| {

@@ -47,6 +47,8 @@ fn all_seven_integrations_register_together_and_each_offers_identity_and_lookup(
     assert!(names.contains(&"slack.chat.post_message".to_owned()));
     assert!(names.contains(&"microsoft.events.create".to_owned()));
     assert!(names.contains(&"microsoft.mail.send".to_owned()));
+    assert!(names.contains(&"microsoft.chats.send".to_owned()));
+    assert!(names.contains(&"microsoft.transcripts.content".to_owned()));
     for id in &ids {
         assert!(names.contains(&format!("{id}.identity.get")), "{id}");
         assert!(names.contains(&format!("{id}.resource.resolve")), "{id}");

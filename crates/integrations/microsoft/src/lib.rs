@@ -25,7 +25,10 @@ use socketkit_core::{
 };
 use url::Url;
 
-pub use client::{Attendance, Calendars, Events, Mail, MailFolders, OnlineMeetings, Recordings, Transcripts};
+pub use client::{
+    Attendance, Calendars, ChannelMessages, Channels, Chats, Events, Mail, MailFolders, OnlineMeetings, Recordings,
+    Teams, Transcripts,
+};
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "microsoft";
@@ -350,6 +353,26 @@ impl Microsoft {
     /// The folders of the account's mailbox.
     pub fn mail_folders<'a>(&self, connection: &'a Connection) -> MailFolders<'a> {
         MailFolders(client::Api { connection })
+    }
+
+    /// The teams the account belongs to.
+    pub fn teams<'a>(&self, connection: &'a Connection) -> Teams<'a> {
+        Teams(client::Api { connection })
+    }
+
+    /// The channels of a team.
+    pub fn channels<'a>(&self, connection: &'a Connection) -> Channels<'a> {
+        Channels(client::Api { connection })
+    }
+
+    /// The messages of a channel, and the replies under them.
+    pub fn channel_messages<'a>(&self, connection: &'a Connection) -> ChannelMessages<'a> {
+        ChannelMessages(client::Api { connection })
+    }
+
+    /// Chats: one-to-one, group and meeting conversations outside a channel.
+    pub fn chats<'a>(&self, connection: &'a Connection) -> Chats<'a> {
+        Chats(client::Api { connection })
     }
 
     /// Teams online meetings: the meeting behind a join link.

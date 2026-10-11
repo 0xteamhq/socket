@@ -14,8 +14,9 @@ use socketkit_testkit::{connect, point_at};
 
 mod support;
 use support::{
-    AS_TEXT, Case, IN_UTC, MEETING, MEETING_LINK, TRANSCRIPT, VTT, answer, answering, body_of, contains, graph_error,
-    invoke, meeting, message, message_returned, microsoft, only_request, organizer, prefer, query_of, to, transcript,
+    ALL_KINDS, AS_TEXT, CHANNEL, CHAT, Case, IN_UTC, MEETING, MEETING_LINK, TRANSCRIPT, VTT, answer, answering,
+    body_of, channel, chat, chat_message, chat_message_returned, contains, graph_error, invoke, meeting, member,
+    message, message_returned, microsoft, only_request, organizer, prefer, query_of, team, to, transcript,
 };
 
 const JOIN_URL: &str = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0";
@@ -221,7 +222,7 @@ fn mail_cases() -> Vec<Case> {
 /// The Teams meeting operations. All of them read.
 #[rustfmt::skip]
 fn meeting_cases() -> Vec<Case> {
-    let read = |name, input, path, query, accept, response, returns| Case { name, input, verb: "GET", path, query, body: json!(null), prefer: None, accept, status: 200, response, returns };
+    let read = |name: &'static str, input, path, query, accept, response, returns| Case { name, input, verb: "GET", path, query, body: json!(null), prefer: name.starts_with("online_meetings").then_some(ALL_KINDS), accept, status: 200, response, returns };
     let json = "application/json";
     let recording = json!({ "id": "rec-1", "meetingId": MEETING, "callId": "af630fe0", "contentCorrelationId": "bc842d7a-0", "createdDateTime": "2026-09-17T06:09:24.8968037Z", "endDateTime": "2026-09-17T06:27:25.2346000Z",
         "recordingContentUrl": "https://graph.microsoft.com/v1.0/me/onlineMeetings/m/recordings/r/content", "meetingOrganizer": organizer() });
@@ -264,10 +265,67 @@ fn meeting_cases() -> Vec<Case> {
     ]
 }
 
+/// The Teams operations: teams, channels, their messages, and chats.
+#[rustfmt::skip]
+fn teams_cases() -> Vec<Case> {
+    let case = |name, input, verb, path, query, body, prefer, status, response, returns| Case { name, input, verb, path, query, body, prefer, accept: "application/json", status, response, returns };
+    let said = json!({ "contentType": "html", "content": "<p>Shipped.</p>" });
+    let people = json!({ "items": [{ "displayName": "Ada Lovelace", "userId": "u-1", "email": "ada@contoso.example", "roles": ["owner"] }], "next_cursor": null });
+    let messages = json!({ "items": [chat_message_returned()], "next_cursor": null });
+    let bound = |user: &str| json!({ "@odata.type": "#microsoft.graph.aadUserConversationMember", "roles": ["owner"], "user@odata.bind": format!("https://graph.microsoft.com/v1.0/users('{user}')") });
+    vec![
+        // teams
+        case("teams.list_joined", json!({}), "GET", "/me/joinedTeams", json!({}), json!(null), None, 200,
+            json!({ "value": [team()] }), json!({ "items": [{ "id": "team-1", "displayName": "Launch crew", "isArchived": false }], "next_cursor": null })),
+        case("teams.get", json!({ "team": "team-1" }), "GET", "/teams/team-1", json!({}), json!(null), None, 200,
+            team(), json!({ "id": "team-1", "displayName": "Launch crew", "description": "Ships things" })),
+        case("teams.members", json!({ "team": "team-1", "limit": 200 }), "GET", "/teams/team-1/members", json!({ "$top": "200" }), json!(null), None, 200,
+            json!({ "value": [member()] }), people.clone()),
+
+        // channels
+        case("channels.list", json!({ "team": "team-1" }), "GET", "/teams/team-1/channels", json!({}), json!(null), Some(ALL_KINDS), 200,
+            json!({ "value": [channel()] }), json!({ "items": [{ "id": CHANNEL, "displayName": "General", "membershipType": "standard" }], "next_cursor": null })),
+        case("channels.get", json!({ "team": "team-1", "channel": CHANNEL }), "GET", "/teams/team-1/channels/19%3Aabc%40thread.tacv2", json!({}), json!(null), Some(ALL_KINDS), 200,
+            channel(), json!({ "id": CHANNEL, "displayName": "General", "description": "Everything" })),
+        case("channels.members", json!({ "team": "team-1", "channel": CHANNEL }), "GET", "/teams/team-1/channels/19%3Aabc%40thread.tacv2/members", json!({}), json!(null), None, 200,
+            json!({ "value": [member()] }), people.clone()),
+
+        // channel messages
+        case("channel_messages.list", json!({ "team": "team-1", "channel": CHANNEL, "limit": 20 }), "GET", "/teams/team-1/channels/19%3Aabc%40thread.tacv2/messages", json!({ "$top": "20" }), json!(null), Some(ALL_KINDS), 200,
+            json!({ "value": [chat_message()] }), messages.clone()),
+        case("channel_messages.get", json!({ "team": "team-1", "channel": CHANNEL, "message": "1616990032035" }), "GET", "/teams/team-1/channels/19%3Aabc%40thread.tacv2/messages/1616990032035", json!({}), json!(null), Some(ALL_KINDS), 200,
+            chat_message(), chat_message_returned()),
+        case("channel_messages.replies", json!({ "team": "team-1", "channel": CHANNEL, "message": "1616990032035" }), "GET", "/teams/team-1/channels/19%3Aabc%40thread.tacv2/messages/1616990032035/replies", json!({}), json!(null), Some(ALL_KINDS), 200,
+            json!({ "value": [chat_message()] }), messages.clone()),
+        case("channel_messages.send", json!({ "team": "team-1", "channel": CHANNEL, "body": said.clone(), "subject": "Release" }), "POST", "/teams/team-1/channels/19%3Aabc%40thread.tacv2/messages", json!({}),
+            json!({ "body": said.clone(), "subject": "Release" }), Some(ALL_KINDS), 201, chat_message(), json!({ "id": "1616990032035", "channelIdentity": { "teamId": "team-1", "channelId": CHANNEL } })),
+        case("channel_messages.reply", json!({ "team": "team-1", "channel": CHANNEL, "message": "1616990032035", "body": said.clone() }), "POST", "/teams/team-1/channels/19%3Aabc%40thread.tacv2/messages/1616990032035/replies", json!({}),
+            json!({ "body": said.clone() }), Some(ALL_KINDS), 201, chat_message(), json!({ "id": "1616990032035" })),
+
+        // chats
+        case("chats.list", json!({ "limit": 10 }), "GET", "/me/chats", json!({ "$top": "10" }), json!(null), Some(ALL_KINDS), 200,
+            json!({ "value": [chat()] }), json!({ "items": [{ "id": CHAT, "chatType": "oneOnOne", "topic": null }], "next_cursor": null })),
+        case("chats.get", json!({ "chat": CHAT }), "GET", "/chats/19%3Au-1_u-2%40unq.gbl.spaces", json!({}), json!(null), Some(ALL_KINDS), 200,
+            chat(), json!({ "id": CHAT, "chatType": "oneOnOne", "lastUpdatedDateTime": "2026-10-09T08:00:00Z" })),
+        case("chats.members", json!({ "chat": CHAT }), "GET", "/chats/19%3Au-1_u-2%40unq.gbl.spaces/members", json!({}), json!(null), None, 200,
+            json!({ "value": [member()] }), people.clone()),
+        case("chats.messages", json!({ "chat": CHAT, "limit": 50 }), "GET", "/chats/19%3Au-1_u-2%40unq.gbl.spaces/messages", json!({ "$top": "50" }), json!(null), Some(ALL_KINDS), 200,
+            json!({ "value": [chat_message()] }), messages.clone()),
+        case("chats.message_get", json!({ "chat": CHAT, "message": "1616990032035" }), "GET", "/chats/19%3Au-1_u-2%40unq.gbl.spaces/messages/1616990032035", json!({}), json!(null), Some(ALL_KINDS), 200,
+            chat_message(), chat_message_returned()),
+        case("chats.send", json!({ "chat": CHAT, "body": { "contentType": "text", "content": "On my way." } }), "POST", "/chats/19%3Au-1_u-2%40unq.gbl.spaces/messages", json!({}),
+            json!({ "body": { "contentType": "text", "content": "On my way." } }), Some(ALL_KINDS), 201, chat_message(), json!({ "id": "1616990032035" })),
+        // Each member is named by the address of the user in this API.
+        case("chats.create", json!({ "chatType": "oneOnOne", "members": ["u-1", "grace@contoso.example"] }), "POST", "/chats", json!({}),
+            json!({ "chatType": "oneOnOne", "members": [bound("u-1"), bound("grace@contoso.example")] }), None, 201, chat(), json!({ "id": CHAT, "chatType": "oneOnOne" })),
+    ]
+}
+
 /// Every operation, whichever product it belongs to.
 fn every_case() -> Vec<Case> {
     let mut all = cases();
     all.extend(mail_cases());
+    all.extend(teams_cases());
     all.extend(meeting_cases());
     all
 }
@@ -288,7 +346,7 @@ async fn the_table_below_covers_every_operation_microsoft_offers() {
         tested.len(),
         "a test case names an operation that does not exist"
     );
-    assert_eq!(listed.len(), 41);
+    assert_eq!(listed.len(), 59);
 }
 
 #[tokio::test]
@@ -329,12 +387,14 @@ async fn every_operation_sends_the_right_request_and_returns_what_graph_sent() {
             "{}: exactly these parameters reach Graph",
             case.name
         );
-        assert_eq!(
-            body_of(&request),
-            case.body,
-            "{}: exactly this body reaches Graph",
-            case.name
-        );
+        // The test server stands in for Graph, and its address for Graph's.
+        let sent: Value = serde_json::from_str(
+            &body_of(&request)
+                .to_string()
+                .replace(&server.uri(), "https://graph.microsoft.com"),
+        )
+        .unwrap();
+        assert_eq!(sent, case.body, "{}: exactly this body reaches Graph", case.name);
         assert_eq!(
             request.headers.get("accept").unwrap(),
             case.accept,
@@ -404,6 +464,25 @@ async fn every_operation_describes_its_input_and_marks_what_it_changes() {
         // Takes the message from where it was, to Deleted Items if asked, and its id stops working.
         ("mail.move_to", Effect::Destructive, "Mail.ReadWrite"),
         ("mail.delete", Effect::Destructive, "Mail.ReadWrite"),
+        ("teams.list_joined", Effect::Read, "Team.ReadBasic.All"),
+        ("teams.get", Effect::Read, "Team.ReadBasic.All"),
+        ("teams.members", Effect::Read, "TeamMember.Read.All"),
+        ("channels.list", Effect::Read, "Channel.ReadBasic.All"),
+        ("channels.get", Effect::Read, "Channel.ReadBasic.All"),
+        ("channels.members", Effect::Read, "ChannelMember.Read.All"),
+        ("channel_messages.list", Effect::Read, "ChannelMessage.Read.All"),
+        ("channel_messages.get", Effect::Read, "ChannelMessage.Read.All"),
+        ("channel_messages.replies", Effect::Read, "ChannelMessage.Read.All"),
+        // A message that was sent can be deleted by whoever sent it, as in Slack.
+        ("channel_messages.send", Effect::Write, "ChannelMessage.Send"),
+        ("channel_messages.reply", Effect::Write, "ChannelMessage.Send"),
+        ("chats.list", Effect::Read, "Chat.ReadBasic"),
+        ("chats.get", Effect::Read, "Chat.ReadBasic"),
+        ("chats.members", Effect::Read, "Chat.ReadBasic"),
+        ("chats.messages", Effect::Read, "Chat.Read"),
+        ("chats.message_get", Effect::Read, "Chat.Read"),
+        ("chats.send", Effect::Write, "ChatMessage.Send"),
+        ("chats.create", Effect::Write, "Chat.Create"),
         ("online_meetings.get", Effect::Read, "OnlineMeetings.Read"),
         ("online_meetings.find_by_join_url", Effect::Read, "OnlineMeetings.Read"),
         ("transcripts.list", Effect::Read, "OnlineMeetingTranscript.Read.All"),
