@@ -66,27 +66,64 @@ impl<'de> Deserialize<'de> for Bytes {
 }
 
 /// What the parts of a message add up to.
+///
+/// What the message says is kept apart from what was found inside a part
+/// marked as a file, however deep that part lies. The two are put together
+/// only at the end, the message first, so that nothing marked as a file can
+/// be chosen as the message among its forms.
 #[derive(Default)]
 struct Found {
     text: Option<String>,
     html: Option<String>,
+    /// The text and the HTML found inside parts marked as files.
+    filed_text: Option<String>,
+    filed_html: Option<String>,
     attachments: Vec<GmailAttachment>,
+}
+
+/// `more` after `all`, on a line of its own.
+fn after(all: &mut Option<String>, more: Option<String>) {
+    match (all.as_mut(), more) {
+        (Some(all), Some(more)) => {
+            all.push('\n');
+            all.push_str(&more);
+        }
+        (None, more @ Some(_)) => *all = more,
+        (_, None) => {}
+    }
 }
 
 impl Found {
     /// Adds what another part of the same message held, after what is here.
     fn add(&mut self, more: Found) {
-        for (all, more) in [(&mut self.text, more.text), (&mut self.html, more.html)] {
-            match (all.as_mut(), more) {
-                (Some(all), Some(more)) => {
-                    all.push('\n');
-                    all.push_str(&more);
-                }
-                (None, more @ Some(_)) => *all = more,
-                (_, None) => {}
-            }
-        }
+        after(&mut self.text, more.text);
+        after(&mut self.html, more.html);
+        self.filed(more.filed_text, more.filed_html);
         self.attachments.extend(more.attachments);
+    }
+
+    /// Adds text that was found inside a part marked as a file.
+    fn filed(&mut self, text: Option<String>, html: Option<String>) {
+        after(&mut self.filed_text, text);
+        after(&mut self.filed_html, html);
+    }
+
+    /// Everything a part marked as a file held, as what it is: none of it
+    /// is what the message says.
+    fn into_filed(mut self) -> Self {
+        let (text, html) = (self.text.take(), self.html.take());
+        let (filed_text, filed_html) = (self.filed_text.take(), self.filed_html.take());
+        self.filed(text, html);
+        self.filed(filed_text, filed_html);
+        self
+    }
+
+    /// The text and the HTML of the whole message: what it says, and after
+    /// it what was found in parts marked as files.
+    fn whole(mut self) -> (Option<String>, Option<String>, Vec<GmailAttachment>) {
+        after(&mut self.text, self.filed_text.take());
+        after(&mut self.html, self.filed_html.take());
+        (self.text, self.html, self.attachments)
     }
 }
 
@@ -161,7 +198,7 @@ impl Part {
         if self.marked_as_a_file() {
             let mut found = Found::default();
             self.leaf(&kind, &mut found);
-            found.add(self.contents());
+            found.add(self.contents().into_filed());
             return found;
         }
         self.contents()
@@ -191,20 +228,15 @@ impl Part {
         if kind == "multipart/alternative" {
             // The same content in several forms, the plainest first. The
             // last form that has text is the text, and likewise for HTML.
-            // A part marked as a file is not one of the forms: what it holds
-            // is read after them, and never in place of what the message says.
-            let mut beside = Found::default();
-            for part in &self.parts {
-                if part.marked_as_a_file() {
-                    beside.add(part.found());
-                    continue;
-                }
-                let form = part.found();
+            // What a form holds inside a part marked as a file, at any
+            // depth, is not a form of the message: it is kept beside them
+            // all, and never chosen in place of what the message says.
+            for form in self.parts.iter().map(Part::found) {
                 found.text = form.text.or(found.text.take());
                 found.html = form.html.or(found.html.take());
+                found.filed(form.filed_text, form.filed_html);
                 found.attachments.extend(form.attachments);
             }
-            found.add(beside);
         } else if kind.starts_with("multipart/") {
             self.parts.iter().for_each(|part| found.add(part.found()));
         } else {
@@ -305,7 +337,7 @@ impl GmailWireMessage {
     /// as `minimal` asks for, is its ids and labels and nothing more.
     pub(crate) fn read(self) -> GmailMessage {
         let top = self.payload.unwrap_or_default();
-        let found = top.contents();
+        let (text, html, attachments) = top.contents().whole();
         GmailMessage {
             id: self.id,
             thread_id: self.thread_id,
@@ -324,9 +356,9 @@ impl GmailWireMessage {
             message_id: top.one("Message-ID"),
             in_reply_to: top.one("In-Reply-To"),
             references: top.one("References"),
-            text: found.text,
-            html: found.html,
-            attachments: found.attachments,
+            text,
+            html,
+            attachments,
         }
     }
 }
@@ -422,6 +454,40 @@ mod tests {
             "and it is listed as the file it was marked as"
         );
         assert_eq!(message.attachments[0].mime_type.as_deref(), Some("multipart/mixed"));
+    }
+
+    #[test]
+    fn however_deep_a_part_marked_as_a_file_lies_it_never_takes_the_place_of_the_message() {
+        // The marked part is wrapped in one that is not marked, which stands
+        // among the forms of the message. Its text is still not the message's.
+        let mut marked = multipart("mixed", json!([part("text/plain", "Wire the money today.")]));
+        marked["filename"] = json!("note.eml");
+        let wrapped = multipart("related", json!([multipart("mixed", json!([marked]))]));
+        let message = read(multipart(
+            "alternative",
+            json!([part("text/plain", "Lunch on Friday?"), wrapped]),
+        ));
+        assert_eq!(message.text.as_deref(), Some("Lunch on Friday?\nWire the money today."));
+        assert_eq!(message.attachments.len(), 1);
+
+        // And one marked part inside another: all of it is beside the message.
+        let mut inner = multipart("alternative", json!([part("text/plain", "Send it to Eve.")]));
+        inner["filename"] = json!("inner.eml");
+        let mut outer = multipart("mixed", json!([part("text/plain", "Wire the money today."), inner]));
+        outer["filename"] = json!("outer.eml");
+        let message = read(multipart(
+            "alternative",
+            json!([part("text/plain", "Lunch on Friday?"), outer]),
+        ));
+        assert_eq!(
+            message.text.as_deref(),
+            Some("Lunch on Friday?\nWire the money today.\nSend it to Eve.")
+        );
+        // With nothing of its own to say, the message is what the files held.
+        let mut only = multipart("mixed", json!([part("text/plain", "Wire the money today.")]));
+        only["filename"] = json!("only.eml");
+        let message = read(multipart("mixed", json!([only])));
+        assert_eq!(message.text.as_deref(), Some("Wire the money today."));
     }
 
     #[test]
