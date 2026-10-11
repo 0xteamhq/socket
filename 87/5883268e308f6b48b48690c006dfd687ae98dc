@@ -1,0 +1,122 @@
+crates/integrations/google/src/client/mod.rs
+  s_8c98d26ded7b36::t_6b50180e9c920d 15-20
+  s_8c98d26ded7b36::t_ddc7f7aecf758b 37-41
+crates/integrations/google/src/lib.rs
+  s_8c98d26ded7b36::t_b473d25bcc5f9e 27
+  s_8c98d26ded7b36::t_d5db87ab33bbff 357-380
+crates/integrations/google/src/client/gmail_threads.rs
+  s_8c98d26ded7b36::t_4530bedb61910d 1-14,16-36,38-53
+  s_8c98d26ded7b36::t_a0c548399c8be9 15,37
+crates/integrations/google/tests/support/gmail.rs
+  s_8c98d26ded7b36::t_a2dd3ede37a1ef 2-239
+  s_8c98d26ded7b36::t_d97bb347dd8eb1 240-268
+crates/integrations/google/src/client/gmail_drafts.rs
+  s_8c98d26ded7b36::t_0c0c7e84a0d34f 1-98
+docs/integrations/google-gmail.part.md
+  s_8c98d26ded7b36::t_dadef36322952e 68
+  s_8c98d26ded7b36::t_54dc37968cc872 1-61,63-67,69-88,90-147,149-171
+  s_8c98d26ded7b36::t_2f63c9a2626e1e 62
+  s_8c98d26ded7b36::t_50995af89b7036 148
+  s_8c98d26ded7b36::t_acc1a9d9cf10b5 89
+crates/integrations/google/src/models/gmail_profile.rs
+  s_8c98d26ded7b36::t_8de50f1a5dcca2 1-17
+crates/integrations/google/src/models/gmail_label.rs
+  s_8c98d26ded7b36::t_ede5f100d89b80 1-40
+crates/integrations/google/src/models/gmail_address.rs
+  s_8c98d26ded7b36::t_f9e10d6426b093 138,142-149
+  s_8c98d26ded7b36::t_839ff2ccf62345 1-123,125-137,139-141,150-163,166-242,244-252,254-295,298-301
+  s_8c98d26ded7b36::t_f39b07dc2632a9 124,164-165,296-297
+  s_bcb90e4e44ba65::t_51f6399be78004 243,253
+crates/integrations/google/src/client/gmail_messages_send.rs
+  s_8c98d26ded7b36::t_e30539fd25c95f 44-57
+  s_8c98d26ded7b36::t_7ed3202db6eebb 69
+  s_8c98d26ded7b36::t_d959401bdf5fc6 1-43,58-68,70-92
+crates/integrations/google/src/models/gmail_message.rs
+  s_8c98d26ded7b36::t_752ec43c0f4593 1-71,73-165
+  s_8c98d26ded7b36::t_996e0eed0c9655 72
+crates/integrations/google/src/models/gmail_mime.rs
+  s_8c98d26ded7b36::t_eaf6f504db6f23 1-112,114-429
+  s_8c98d26ded7b36::t_18177555b6f0c4 113
+  s_8c98d26ded7b36::t_9d36061d11279e 430-478
+crates/integrations/google/tests/gmail_compose.rs
+  s_8c98d26ded7b36::t_d620270ca6f6d9 1-87,92-120,123-386,388,391
+  s_8c98d26ded7b36::t_4faafcacb0d6ad 121-122
+  s_8c98d26ded7b36::t_e85cb146571608 90-91
+  s_8c98d26ded7b36::t_6ca713f76fb074 88-89
+  s_8c98d26ded7b36::t_690b8cdade69fe 387,389-390,392-609
+crates/integrations/google/tests/operations.rs
+  s_8c98d26ded7b36::t_8fc650be7fcadc 15-19,23-105
+  s_8c98d26ded7b36::t_fc12860796a4ec 22
+  s_8c98d26ded7b36::t_c52fdd79730df2 150-172
+crates/integrations/google/tests/gmail.rs
+  s_8c98d26ded7b36::t_4faafcacb0d6ad 289-291,293-296,298,330-332,334
+  s_8c98d26ded7b36::t_06791264831928 1-32,34-37,39-42,44-106,108-133,135-228,266-275,277-280,282-285,287-288,299-301,303-306,308-311,313-316,318-321,323-326,328-329,335-339,341-345,347-350,352-355,357-361,363-366,368-371,373-376,378-381,383-386,388-405,407-411,413-417,419-423,425-429,431-435,437-441,443-447,449-453,455-459,461-465,467-471,473-499,501-505,507-511,513-517,519-523,525-529,531-535,537-541,543-547,549-553,555-559,561-565,567-571,573-592,594-598,600-605,607-610,612-616,618-622,624-628,630-636,638-641,643-646,648-652,654-658,660-663,665-668,670-673,675-678,680-702,704-708,710,712-714,716-719,721-723,725-747,749-753,755-759,761-782,784-898
+  s_8c98d26ded7b36::t_922bbd67e6cf7d 229-256,262-265
+  s_8c98d26ded7b36::t_d9a8410d03fc9d 257-261
+  s_8c98d26ded7b36::t_95209719c792a5 33,38,43,107,134,276,281,286,292,297,302,307,312,317,322,327,333,340,346,351,356,362,367,372,377,382,387,406,412,418,424,430,436,442,448,454,460,466,472,500,506,512,518,524,530,536,542,548,554,560,566,572,593,599,606,611,617,623,629,637,642,647,653,659,664,669,674,679,703,709,711,715,720,724,748,754,760,783
+crates/integrations/google/src/operations.rs
+  s_8c98d26ded7b36::t_a0c548399c8be9 332,351,353
+  s_8c98d26ded7b36::t_104a1c026d219e 23-27
+  s_8c98d26ded7b36::t_7d214b87b2d79c 211-261,277-305
+  s_8c98d26ded7b36::t_cf1b63c97c7128 333-350,352,354-373
+  s_8c98d26ded7b36::t_2f558701ea33ee 262-276
+crates/integrations/google/src/models/gmail_words.rs
+  s_8c98d26ded7b36::t_6d1648a4f9cc8a 1-262
+  s_8c98d26ded7b36::t_7185ebff831e87 263
+crates/integrations/google/src/models/gmail_rfc2822.rs
+  s_8c98d26ded7b36::t_5184a944d0649c 312-319,347-351
+  s_8c98d26ded7b36::t_71f5dbc00c4f57 1-36,38-72,74-92,97-145,148-149,155-210,212-240,243-269,271-278,293-304,356-517
+  s_8c98d26ded7b36::t_003c8426792426 37
+  s_8c98d26ded7b36::t_40249d6ab5b93a 93-96
+  s_8c98d26ded7b36::t_9647b401144ef6 241-242
+  s_8c98d26ded7b36::t_981dc25a1770fb 279-285,287-292
+  s_8c98d26ded7b36::t_92c55b63038c4e 305-311,320-346,352-355
+  s_8c98d26ded7b36::t_12ba86f3b06835 146-147,150-154
+  s_8c98d26ded7b36::t_42462e5dae2535 73,211,270,286
+crates/integrations/google/src/models/gmail_reply.rs
+  s_8c98d26ded7b36::t_2d0e81e9c9d8ba 1-35,37-112,114-150,152-190,195-213
+  s_8c98d26ded7b36::t_7ed3202db6eebb 36,113,151,191-194
+crates/integrations/google/src/models/gmail_thread.rs
+  s_8c98d26ded7b36::t_addaf0b8f9f584 1-8,10-66
+  s_8c98d26ded7b36::t_a0c548399c8be9 9
+crates/integrations/google/src/client/gmail_messages.rs
+  s_8c98d26ded7b36::t_94b3f56d92398a 61-62
+  s_8c98d26ded7b36::t_d2ab10dd54c01f 26-27
+  s_8c98d26ded7b36::t_4a9ca89f73930e 1-25,28-60,63-87,89-102,110-112,115-156
+  s_8c98d26ded7b36::t_96d8d1df4eb012 103-109
+  s_8c98d26ded7b36::t_ea875f79877b08 113-114
+  s_bcb90e4e44ba65::t_627bb16f4d2300 88
+crates/integrations/google/src/models/gmail_draft.rs
+  s_8c98d26ded7b36::t_41fe44144e4954 1-58
+crates/integrations/google/src/client/gmail_labels.rs
+  s_8c98d26ded7b36::t_32563f6abd9537 1-38
+crates/integrations/google/src/models/mod.rs
+  s_8c98d26ded7b36::t_8206a77530ea09 16-25
+  s_8c98d26ded7b36::t_41ecdb15498ae1 36-49
+crates/integrations/google/src/client/gmail_profile.rs
+  s_8c98d26ded7b36::t_3b1b42ffbe8aae 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "875883268e308f6b48b48690c006dfd687ae98dc",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    },
+    "s_bcb90e4e44ba65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9b1631a4-f411-425a-a51b-2099dc11635a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
