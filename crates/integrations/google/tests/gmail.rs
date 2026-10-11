@@ -2,15 +2,16 @@
 //! reading mail, labels, and what a wrong call or a wrong answer comes to.
 //!
 //! What every operation sends and returns is in the table in `operations.rs`.
-//! Writing and sending mail is in `gmail_compose.rs`.
+//! Writing and sending mail is in `gmail_compose.rs`, and what is attached to
+//! a message in `gmail_attachments.rs`.
 
 use std::sync::Arc;
 
 use serde_json::{Value, json};
 use socketkit_core::ErrorKind;
 use socketkit_google::models::{
-    GmailAddress, GmailFormat, GmailGetMessage, GmailGetThread, GmailListMessages, GmailModifyMessage, GmailReply,
-    GmailSendMessage, Paging,
+    Download, GmailAddress, GmailFormat, GmailGetMessage, GmailGetThread, GmailListMessages, GmailModifyMessage,
+    GmailReply, GmailSendMessage, Paging, TextLimit,
 };
 use socketkit_google::{Google, provider};
 use socketkit_testkit::wiremock::matchers::{any, method, path};
@@ -207,25 +208,6 @@ async fn a_message_gmail_built_oddly_is_still_read() {
     );
 }
 
-#[tokio::test]
-async fn an_attachment_comes_as_gmail_sends_it_and_an_empty_file_is_still_a_file() {
-    for (response, returned) in [
-        (
-            json!({ "attachmentId": GMAIL_ATTACHMENT, "size": 9, "data": gmail_data("%PDF-1.7\n") }),
-            json!({ "size": 9, "data": "JVBERi0xLjcK" }),
-        ),
-        (json!({ "size": 0 }), json!({ "size": 0, "data": "" })),
-        (json!({ "size": 0, "data": "" }), json!({ "size": 0, "data": "" })),
-    ] {
-        let (_server, socket, key) = answering(200, response.clone()).await;
-        let input = json!({ "message": GMAIL_MESSAGE, "attachment": GMAIL_ATTACHMENT });
-        let read = invoke(&socket, &key, "gmail_messages.attachment_get", input)
-            .await
-            .unwrap();
-        assert_eq!(read, returned, "{response}");
-    }
-}
-
 // ── Labels ───────────────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -309,12 +291,12 @@ async fn what_could_only_fail_is_refused_before_google_is_called() {
             "`metadataHeaders` is not a field",
         ),
         (
-            "gmail_messages.attachment_get",
+            "gmail_messages.attachment_text",
             json!({ "message": "m1", "attachment": "" }),
             "an attachment id is required",
         ),
         (
-            "gmail_messages.attachment_get",
+            "gmail_messages.attachment_text",
             json!({ "message": "", "attachment": "a1" }),
             "a message id is required",
         ),
@@ -448,7 +430,7 @@ async fn an_id_stays_one_segment_of_the_path_whatever_it_contains() {
             format!("{GMAIL_MESSAGES}/18c1"),
         ),
         (
-            "gmail_messages.attachment_get",
+            "gmail_messages.attachment_text",
             json!({ "message": "m/1", "attachment": "ANG/x?alt=media#" }),
             "GET",
             format!("{GMAIL_MESSAGES}/m%2F1/attachments/ANG%2Fx%3Falt%3Dmedia%23"),
@@ -578,7 +560,7 @@ async fn an_answer_that_cannot_be_read_names_the_field_and_never_repeats_gmail()
             "color",
         ),
         (
-            "gmail_messages.attachment_get",
+            "gmail_messages.attachment_text",
             json!({ "message": "m1", "attachment": "a1" }),
             json!({ "size": secret, "data": "eA" }),
             "size",
@@ -631,18 +613,18 @@ async fn a_success_without_what_was_asked_for_is_an_error() {
         ("gmail_messages.list", json!({}), json!([])),
         ("gmail_messages.list", json!({}), json!(null)),
         (
-            "gmail_messages.attachment_get",
+            "gmail_messages.attachment_text",
             json!({ "message": "m1", "attachment": "a1" }),
             json!({}),
         ),
         (
-            "gmail_messages.attachment_get",
+            "gmail_messages.attachment_text",
             json!({ "message": "m1", "attachment": "a1" }),
             json!({ "attachmentId": "a1" }),
         ),
         // A file of some size, and none of it.
         (
-            "gmail_messages.attachment_get",
+            "gmail_messages.attachment_text",
             json!({ "message": "m1", "attachment": "a1" }),
             json!({ "size": 41230 }),
         ),
@@ -780,6 +762,11 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
         ("GET", one.clone(), gmail_message()),
         (
             "GET",
+            format!("{one}/attachments/{GMAIL_ATTACHMENT}"),
+            json!({ "size": 11, "data": gmail_data("date,total\n") }),
+        ),
+        (
+            "GET",
             format!("{GMAIL_THREADS}/{GMAIL_THREAD}"),
             json!({ "id": GMAIL_THREAD, "messages": [gmail_metadata()] }),
         ),
@@ -833,6 +820,20 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
     assert_eq!(read.attachments[0].attachment_id.as_deref(), Some(GMAIL_ATTACHMENT));
     assert_eq!(read.attachments[0].filename, "q3-plan.pdf");
     assert!(read.label_ids.iter().any(|label| label == "UNREAD"));
+
+    // The file as bytes, which no named operation returns, and as text,
+    // which `gmail_messages.attachment_text` does.
+    let attached = read.attachments[0].attachment_id.as_deref().unwrap();
+    let file = messages
+        .attachment_content(&first.id, attached, Download::default())
+        .await
+        .unwrap();
+    assert_eq!((file.bytes.as_slice(), file.content_type), (&b"date,total\n"[..], None));
+    let text = messages
+        .attachment_text(&first.id, attached, TextLimit::default())
+        .await
+        .unwrap();
+    assert_eq!((text.text.as_str(), text.size), ("date,total\n", 11));
 
     let headers = GmailGetThread {
         format: Some(GmailFormat::Metadata),
@@ -903,6 +904,16 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
             ("GET", one.as_str(), none.clone()),
             (
                 "GET",
+                format!("{one}/attachments/{GMAIL_ATTACHMENT}").as_str(),
+                none.clone()
+            ),
+            (
+                "GET",
+                format!("{one}/attachments/{GMAIL_ATTACHMENT}").as_str(),
+                none.clone()
+            ),
+            (
+                "GET",
                 format!("{GMAIL_THREADS}/{GMAIL_THREAD}").as_str(),
                 json!({ "format": "metadata" })
             ),
@@ -914,14 +925,14 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
             ("POST", GMAIL_DRAFTS, none),
         ]
     );
-    assert_eq!(body_of(&received[5]), json!({ "removeLabelIds": ["INBOX", "UNREAD"] }));
-    let answered = body_of(&received[7]);
+    assert_eq!(body_of(&received[7]), json!({ "removeLabelIds": ["INBOX", "UNREAD"] }));
+    let answered = body_of(&received[9]);
     assert_eq!(answered["threadId"], GMAIL_THREAD);
     assert_eq!(
         gmail_sent(&answered["raw"]).header("To"),
         Some("Grace Hopper <grace@example.test>")
     );
-    let drafted = gmail_sent(&body_of(&received[8])["message"]["raw"]);
+    let drafted = gmail_sent(&body_of(&received[10])["message"]["raw"]);
     assert_eq!(
         (drafted.header("Subject"), drafted.text.as_deref()),
         (Some("Monday"), Some("See you Monday."))

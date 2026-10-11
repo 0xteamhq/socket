@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::GmailAddress;
+use super::{GmailAddress, GmailAttachment};
 
 /// A message as Gmail names it, without its content: a row of a list, and
 /// what Gmail answers when a message is sent, labelled or moved to the bin.
@@ -64,38 +64,6 @@ pub struct GmailMessage {
     pub html: Option<String>,
     /// What is attached, without the files themselves.
     pub attachments: Vec<GmailAttachment>,
-}
-
-/// A file carried by a message, without its content.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(default, rename_all = "camelCase")]
-pub struct GmailAttachment {
-    /// What `attachment_get` takes. Absent when Gmail sent the content inside
-    /// the message and not as a file to fetch.
-    pub attachment_id: Option<String>,
-    /// The file's name. Empty when the part has none.
-    pub filename: String,
-    /// The media type, such as `application/pdf`.
-    pub mime_type: Option<String>,
-    /// The size in bytes.
-    pub size: Option<i64>,
-    /// Whether the sender marked it to be shown in the body, as a picture in
-    /// a signature is, and not offered as a file.
-    pub inline: bool,
-    /// The name the HTML body refers to an inline part by, as `cid:…`.
-    pub content_id: Option<String>,
-    /// Where the part sits in the message: `1`, `0.1`.
-    pub part_id: Option<String>,
-}
-
-/// The content of one attachment.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(default, rename_all = "camelCase")]
-pub struct GmailAttachmentBody {
-    /// The size of the file in bytes, before it was encoded.
-    pub size: i64,
-    /// The file as Gmail sends it: base64 in the URL-safe alphabet.
-    pub data: String,
 }
 
 /// How much of a message Gmail returns.

@@ -99,7 +99,7 @@ Methods are grouped the way Google groups its own APIs. Each group is reached fr
 
 | Product | Reached with | Methods |
 | --- | --- | --- |
-| Gmail | `google.gmail_messages(&connection)` | `list`, `get`, `attachment_get`, `send`, `reply`, `send_draft`, `modify`, `trash`, `untrash` |
+| Gmail | `google.gmail_messages(&connection)` | `list`, `get`, `attachment_content`, `attachment_text`, `send`, `reply`, `send_draft`, `modify`, `trash`, `untrash` |
 | | `google.gmail_threads(&connection)` | `list`, `get` |
 | | `google.gmail_labels(&connection)` | `list`, `get` |
 | | `google.gmail_drafts(&connection)` | `list`, `get`, `create`, `update`, `delete` |
@@ -135,7 +135,8 @@ None of the Gmail scopes is a default of the provider. Name the ones you need in
 | --- | --- | --- | --- |
 | `gmail_messages.list(GmailListMessages, Paging)` | `Page<GmailMessageRef>`: the ids of the messages a search finds | read | `GMAIL_READONLY` |
 | `gmail_messages.get(message, GmailGetMessage)` | `GmailMessage`: headers, text, HTML, attachments without their content | read | `GMAIL_READONLY` |
-| `gmail_messages.attachment_get(message, attachment)` | `GmailAttachmentBody`: one attachment's content in URL-safe base64, and its size | read | `GMAIL_READONLY` |
+| `gmail_messages.attachment_content(message, attachment, Download)` | `Content`: one attachment's bytes, unchanged. Typed only, not a named operation | read | `GMAIL_READONLY` |
+| `gmail_messages.attachment_text(message, attachment, TextLimit)` | `GmailAttachmentText`: an attachment that is text, as text, and its size | read | `GMAIL_READONLY` |
 | `gmail_messages.send(GmailSendMessage)` | `GmailMessageRef`: sends at once | destructive | `GMAIL_SEND` |
 | `gmail_messages.reply(message, GmailReply)` | `GmailMessageRef`: answers in the same thread, at once, to the people named in `to` | destructive | `GMAIL_READONLY` and `GMAIL_SEND` |
 | `gmail_messages.send_draft(draft)` | `GmailMessageRef`: sends a draft as it stands | destructive | `GMAIL_COMPOSE` |
@@ -153,7 +154,7 @@ None of the Gmail scopes is a default of the provider. Name the ones you need in
 | `gmail_drafts.update(draft, GmailSendMessage)` | `GmailDraftRef`: replaces the whole draft | destructive | `GMAIL_COMPOSE` |
 | `gmail_drafts.delete(draft)` | nothing: deletes the draft for good | destructive | `GMAIL_COMPOSE` |
 
-Each is also a named operation: `google.gmail_messages.list`, `google.gmail_drafts.create`, and so on. In an operation's input the plain arguments are `message`, `attachment`, `thread`, `label` and `draft`, the options sit beside them under Gmail's own names, and paging is `cursor` and `limit`.
+Each but `attachment_content` is also a named operation: `google.gmail_messages.list`, `google.gmail_drafts.create`, and so on. An operation called by name never returns a file's bytes, so `attachment_content` is a typed method only, and `attachment_text` is the one that can be called by name. In an operation's input the plain arguments are `message`, `attachment`, `thread`, `label` and `draft`, the options sit beside them under Gmail's own names, and paging is `cursor` and `limit`.
 
 ```rust
 use socketkit::google::models::{
@@ -210,7 +211,12 @@ for row in &unread.items {
 - `attachments` lists every part that is a file: `attachmentId`, `filename`, `mimeType`, `size`, `inline`, `contentId` and `partId`. A text file that was attached is listed here and is not part of `text`. `inline` is `true` for a part the sender marked to be shown in the body, such as a picture in a signature, which the HTML refers to as `cid:` and its `contentId`.
 - `format` chooses how much comes back: `full` (the default), `metadata` (headers, no body, no attachments) or `minimal` (ids and labels). Gmail's `raw` format is not offered, since it is the undecoded message.
 
-**Attachments.** `attachment_get` returns `data` as Gmail sends it, in base64 with the URL-safe alphabet (`-` and `_`), and the `size` of the file in bytes. Socket reads an answer of at most 10 MB, so a file over about 7 MB cannot be fetched this way yet and fails with `Decode`.
+**Attachments.** A message lists its files without their content. Each entry's `attachmentId` is what the two methods that read a file take, with the message's id.
+
+- **`attachment_content(message, attachment, Download)`** returns the file as a `Content`: its bytes, unchanged. Gmail hands a file over in base64 inside JSON, and Socket takes it out. Gmail does not say what the file is, so `content_type` is always `None`; the type and the name are on the message, in the `mimeType` and `filename` of the entry the id came from. It is a typed method only. No operation called by name returns bytes.
+- **`attachment_text(message, attachment, TextLimit)`**, which is `google.gmail_messages.attachment_text`, returns a file that is text: `{ "size": …, "text": … }`, with `size` the file's bytes. Since Gmail states no type, the file has to be text by its own bytes: UTF-8, with no control character but a tab, a line feed, a carriage return and a form feed. Anything else is refused with `Unsupported` and nothing of it is returned: a PDF, a picture, a spreadsheet, text in another encoding (UTF-16, Windows-1252), and a file that reads as UTF-8 and holds a NUL or an escape character, which is what a small binary file looks like and how text takes over the screen it is shown on. A byte order mark at the start is left out of `text`.
+- **Limits.** `Download.max_bytes` is the most bytes of the file to accept: ten megabytes unless set, and as much as the caller sets. `TextLimit.max_bytes` (`maxBytes` in an operation's input) is one megabyte unless set, and at most ten; asking for more is refused with `InvalidInput` before Google is called. A file over the limit is refused whole with `TooLarge` (`too_large`), never cut short, and the error names the limit that was asked for. The limit is on the file. What Socket fetches is larger, by the third that base64 adds and by the JSON around it, and the fetch is limited to that, so a file far over the limit is not read to its end. `Download.timeout_secs` is the longest to wait, thirty seconds unless set.
+- An answer that holds no file, or data that is not base64, is `Decode`, with nothing of it in the error. An empty file is a file: zero bytes, or the text `""`.
 
 **Sending.** `GmailSendMessage` is `to`, `cc`, `bcc`, `subject`, `text` and `html`. Each person is `{ "email": "grace@example.test", "name": "Grace Hopper" }`, with the name optional. Socket writes the message as mail travels (RFC 5322 and MIME) and sends it to Gmail in `raw`:
 
@@ -680,8 +686,8 @@ A field an operation does not know is refused and named, not dropped, and input 
 | `google.identity.get` | read | `drive.readonly` | Return the account this connection is authorised as, confirming the token still works. |
 | `google.resource.resolve` | read | `drive.readonly` | Confirm that a resource exists and the account can reach it. Accepts a Google Drive, Docs or Sheets URL, or a file id. |
 | `google.gmail_messages.list` | read | `gmail.readonly` | List the messages a Gmail search finds. Returns ids only: each message's id and its thread's id. Read one with gmail_messages.get. |
-| `google.gmail_messages.get` | read | `gmail.readonly` | Get one Gmail message, decoded: its headers, its body as plain text and as HTML, and its attachments without their content. |
-| `google.gmail_messages.attachment_get` | read | `gmail.readonly` | Get the content of one attachment of a Gmail message, in URL-safe base64, with its size. A file over about 7 MB cannot be read yet. |
+| `google.gmail_messages.get` | read | `gmail.readonly` | Get one Gmail message, decoded: its headers, its body as plain text and as HTML, and its attachments without their content. Read an attachment that is text with gmail_messages.attachment_text. |
+| `google.gmail_messages.attachment_text` | read | `gmail.readonly` | Read an attachment of a Gmail message that is text, such as a CSV file, a text file or a calendar invitation. One megabyte unless maxBytes allows more, up to ten. A file that is not UTF-8 text, such as a PDF or a picture, is refused, and nothing of it is returned. |
 | `google.gmail_messages.send` | destructive | `gmail.send` | Send a message at once from the Gmail account's own address. It cannot be taken back. |
 | `google.gmail_messages.reply` | destructive | `gmail.readonly`, `gmail.send` | Answer a Gmail message in its thread and send the answer at once, to the people named in `to` and nobody else. `to` is required: nothing in the message answered decides who a reply goes to, so read its `from` and `replyTo` and name them. It cannot be taken back. |
 | `google.gmail_messages.send_draft` | destructive | `gmail.compose` | Send a Gmail draft as it stands. It cannot be taken back, and the draft is gone once it is sent. |
@@ -773,7 +779,7 @@ Confirmed:
 - `GET users/me/messages`, with `q`, `labelIds` (repeated), `includeSpamTrash`, `maxResults` (100 by default, 500 at most) and `pageToken`; that each row is only an `id` and a `threadId`; and its scopes. ([users.messages/list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list))
 - `GET users/me/messages/{id}` with `format` and `metadataHeaders`, and the formats `full`, `metadata`, `minimal` and `raw`. ([users.messages/get](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get), [Format](https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format))
 - The fields of a message, of a part (`partId`, `mimeType`, `filename`, `headers`, `body`, `parts`), of a header and of a part's body (`attachmentId`, `size`, `data` in base64url). ([users.messages](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages), [users.messages.attachments](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages.attachments))
-- `GET users/me/messages/{messageId}/attachments/{id}`. ([users.messages.attachments/get](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages.attachments/get))
+- `GET users/me/messages/{messageId}/attachments/{id}`, which answers with a part's body: the file in base64url in `data`, its `size`, and nothing that says what the file is. ([users.messages.attachments/get](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages.attachments/get))
 - `POST users/me/messages/send` with a message whose `raw` is the RFC 2822 message in base64url, that it sends to the people in `To`, `Cc` and `Bcc`, and that `gmail.send` is among its scopes. ([users.messages/send](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send), [sending](https://developers.google.com/workspace/gmail/api/guides/sending))
 - What keeps a message in a thread: the `threadId` on the request, `References` and `In-Reply-To` by RFC 2822, and matching subjects. ([threads](https://developers.google.com/workspace/gmail/api/guides/threads))
 - `POST users/me/messages/{id}/modify` with `addLabelIds` and `removeLabelIds`, 100 of each at most, under `gmail.modify`. ([users.messages/modify](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/modify))
@@ -798,7 +804,9 @@ Not confirmed:
 - **The order of a list**, and of the messages of a thread. No page states either. In practice a list is newest first and a thread oldest first.
 - **How long the bin keeps a message.** The reference for `trash` does not say.
 - **Whether an attachment's id stays the same** from one read of a message to the next. `partId` and `filename` are steadier ways to recognise a part.
-- **Whether a long body ever arrives as an `attachmentId` and not as `data`.** If it does, it is listed in `attachments` with an empty `filename`, and `attachment_get` returns it.
+- **Whether a long body ever arrives as an `attachmentId` and not as `data`.** If it does, it is listed in `attachments` with an empty `filename`, and `attachment_text` returns it.
+- **What an attachment's answer looks like for an empty file, and how much Gmail writes around the file.** Socket takes an answer with a `size` of 0 and no `data` as an empty file, and allows 8 KB for the JSON around the base64 (its field names, and an `attachmentId` if Gmail repeats one) when it works out how much to fetch for a given limit. An answer with more around it than that would make a file of exactly the limit fail with `TooLarge`.
+- **That `size` in an attachment's answer is the length of the file.** Socket does not go by it: the file is what `data` decodes to.
 - **How Gmail compares subjects** when it decides whether a reply belongs to a thread, beyond "the subjects must match".
 - **The word Gmail gives for each refusal** (`notFound`, `insufficientPermissions`, `userRateLimitExceeded`). Socket goes by the status, and by Google's general rule for a throttling 403.
 - **Gmail's own limits**: the size of a message, the number of recipients, how much can be sent in a day. None was read.
@@ -958,7 +966,9 @@ Across all of Google: incoming events (push notifications and watch channels), i
 - **Deleting a message for good** (`messages.delete`), on purpose. `trash` can be undone, and that is enough.
 - **Change tracking** (`history.list`) and **push notifications** (`users.watch`). `historyId` is returned everywhere so that they can follow.
 - **Attachments on a message that is sent or drafted.** `GmailSendMessage` is text and HTML.
-- **Attachments over about 7 MB**, until the transport can return content as it is (issue #6).
+- **An attachment's bytes from an operation called by name.** `attachment_content` is a typed method only; by name, `attachment_text` returns a file that is UTF-8 text and refuses any other.
+- **Attachments that are text in another encoding** (UTF-16, Windows-1252), read as text. `attachment_content` returns their bytes.
+- **Reading part of an attachment.** A file is fetched whole or refused; Gmail offers no range of one.
 - **A draft that is a reply.** `reply` sends at once; `gmail_drafts.create` starts a new thread.
 - **Reply all, and forwarding.** Give `reply` the `to` and `cc` you want.
 - **Marking a message as spam.** `modify` refuses `SPAM` in `addLabelIds`. Removing it is not refused.

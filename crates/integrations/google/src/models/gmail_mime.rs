@@ -53,7 +53,8 @@ struct Body {
 /// A body's bytes, taken out of base64 while the answer is read. What is
 /// not base64 fails there, so the error names the part it was found in
 /// (`payload.parts[1].body.data`) and says nothing of what the part held.
-struct Bytes(Vec<u8>);
+/// An attachment that is fetched by itself arrives the same way.
+pub(super) struct Bytes(pub(super) Vec<u8>);
 
 impl<'de> Deserialize<'de> for Bytes {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {

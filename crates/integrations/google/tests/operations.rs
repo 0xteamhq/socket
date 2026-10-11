@@ -27,7 +27,8 @@ fn gmail_cases() -> Vec<Case> {
     let answer = gmail_data(&format!(
         "To: Grace Hopper <grace@example.test>\r\nSubject: Re: Q3 plan\r\nIn-Reply-To: <CAF1plan@mail.example.test>\r\nReferences: <CAF0kickoff@mail.example.test> <CAF1plan@mail.example.test>\r\nMIME-Version: 1.0\r\n{}",
         gmail_part("text/plain", "Monday works.")));
-    let pdf = json!({ "size": 9, "data": gmail_data("%PDF-1.7\n") });
+    // Gmail hands a file over in base64, inside JSON. One megabyte is asked for, and the file comes back as text.
+    let csv = "date,total\r\n2026-10-09,42\r\n";
     let inbox = json!({ "id": "INBOX", "name": "INBOX", "type": "system", "messageListVisibility": "hide", "labelListVisibility": "labelShow" });
     let projects = json!({ "id": "Label_12", "name": "Projects/Q3", "type": "user", "messageListVisibility": "show", "labelListVisibility": "labelShow" });
     let profile = json!({ "emailAddress": "ada@example.test", "messagesTotal": 20481, "threadsTotal": 9150, "historyId": "987654" });
@@ -39,8 +40,9 @@ fn gmail_cases() -> Vec<Case> {
             .returns(json!({ "items": [{ "id": GMAIL_MESSAGE, "threadId": GMAIL_THREAD, "labelIds": [] }, { "id": "18c1a2b3c4d5e6f8", "threadId": GMAIL_THREAD }], "next_cursor": "12345678901" })),
         Case::new("gmail_messages.get", json!({ "message": GMAIL_MESSAGE }), "GET", message.clone())
             .answers(200, gmail_message()).returns(gmail_message_returned()),
-        Case::new("gmail_messages.attachment_get", json!({ "message": GMAIL_MESSAGE, "attachment": GMAIL_ATTACHMENT }), "GET", format!("{message}/attachments/{GMAIL_ATTACHMENT}"))
-            .answers(200, pdf.clone()).returns(pdf),
+        Case::new("gmail_messages.attachment_text", json!({ "message": GMAIL_MESSAGE, "attachment": GMAIL_ATTACHMENT }), "GET", format!("{message}/attachments/{GMAIL_ATTACHMENT}"))
+            .answers(200, json!({ "attachmentId": GMAIL_ATTACHMENT, "size": csv.len(), "data": gmail_data(csv) }))
+            .returns(json!({ "size": csv.len(), "text": csv })),
 
         // messages: sending
         Case::new("gmail_messages.send", json!({ "to": grace.clone(), "subject": "Monday", "text": "See you Monday." }), "POST", format!("{GMAIL_MESSAGES}/send"))
@@ -393,7 +395,7 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         // ── gmail ──
         ("gmail_messages.list", Effect::Read, &[scopes::GMAIL_READONLY]),
         ("gmail_messages.get", Effect::Read, &[scopes::GMAIL_READONLY]),
-        ("gmail_messages.attachment_get", Effect::Read, &[scopes::GMAIL_READONLY]),
+        ("gmail_messages.attachment_text", Effect::Read, &[scopes::GMAIL_READONLY]),
         // Mail that was sent cannot be taken back.
         ("gmail_messages.send", Effect::Destructive, &[scopes::GMAIL_SEND]),
         // A reply reads the message it answers before it sends.

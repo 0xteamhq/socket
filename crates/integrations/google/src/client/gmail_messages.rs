@@ -8,15 +8,20 @@
 //! connected. [`GmailMessages::item`] is the one place that says so.
 
 use serde_json::{Value, json};
-use socketkit_core::{ErrorKind, Page, RawRequest, Result};
+use socketkit_core::{Content, ContentRequest, ErrorKind, Page, RawRequest, Result};
 
 use super::{Api, GMAIL, set, with_query};
 use crate::models::{
-    GmailAttachmentBody, GmailGetMessage, GmailListMessages, GmailMessage, GmailMessageRef, GmailModifyMessage,
-    GmailWireMessage, Paging,
+    Download, GmailAttachmentText, GmailGetMessage, GmailListMessages, GmailMessage, GmailMessageRef,
+    GmailModifyMessage, GmailWireAttachment, GmailWireMessage, Paging, TextLimit,
 };
 
 pub(super) const MESSAGES: &str = "gmail/v1/users/me/messages";
+
+/// The most that Gmail writes around a file when it answers with one: the
+/// names and punctuation of its JSON, and the attachment's id, which can be
+/// a thousand characters long.
+const ATTACHMENT_ENVELOPE: usize = 8 * 1024;
 
 /// The messages of a Gmail mailbox.
 #[derive(Debug, Clone, Copy)]
@@ -47,30 +52,102 @@ impl GmailMessages<'_> {
     }
 
     /// Gets one message, decoded: its headers, its body as plain text and
-    /// as HTML, and what is attached, without the files.
+    /// as HTML, and what is attached, without the files. A file is read
+    /// with [`GmailMessages::attachment_content`], or with
+    /// [`GmailMessages::attachment_text`] when it is text.
     pub async fn get(&self, message: &str, options: GmailGetMessage) -> Result<GmailMessage> {
         let request = with_query(RawRequest::get(self.item(message)?), &options);
         Ok(self.wire(self.0.send(request).await?)?.read())
     }
 
-    /// Gets the content of one attachment, as Gmail sends it: base64 in the
-    /// URL-safe alphabet, with the size of the file it holds.
+    /// The attachment itself: the bytes of the file, unchanged.
     ///
-    /// The transport reads an answer of at most 10 MB, and base64 is a third
-    /// larger than the file, so a file of more than about 7 MB cannot be
-    /// fetched this way yet and fails with `Decode`. Larger files wait for a
-    /// request that returns content as it is (issue #6).
-    pub async fn attachment_get(&self, message: &str, attachment: &str) -> Result<GmailAttachmentBody> {
+    /// Gmail hands a file over inside JSON, in base64, and does not say what
+    /// the file is: `content_type` is always `None`. Its type and its name
+    /// are on the message, in the entry of `attachments` this id was read
+    /// from.
+    ///
+    /// Ten megabytes are accepted unless `limits` says otherwise, and a
+    /// larger file is refused whole with `too_large`, never cut short. The
+    /// limit is on the file. What is fetched is larger, by the third that
+    /// base64 adds and by what Gmail writes around it, and the fetch is
+    /// limited to that, so a file over the limit is not read to its end.
+    ///
+    /// This is a typed method only: an operation called by name never
+    /// returns bytes. [`GmailMessages::attachment_text`] is the one for a
+    /// file that is text.
+    pub async fn attachment_content(&self, message: &str, attachment: &str, limits: Download) -> Result<Content> {
         let attachment = self.0.segment("an attachment id", attachment)?;
         let path = format!("{}/attachments/{attachment}", self.item(message)?);
-        let body = self.0.send(RawRequest::get(path)).await?;
-        // An empty file has a size and no data. An answer with neither is not an attachment.
-        let named = body.get("size").is_some() || body.get("data").is_some();
-        let content: GmailAttachmentBody = self.0.decode(body, "an attachment")?;
-        if !named || (content.data.is_empty() && content.size != 0) {
+        let most = limits.max_bytes.unwrap_or(ContentRequest::DEFAULT_MAX_BYTES);
+        let too_large = || {
+            let said = format!("google has an attachment larger than the limit of {most} bytes set for this request");
+            self.0.error(ErrorKind::TooLarge, said)
+        };
+        // base64 writes four characters for every three bytes, the last
+        // three padded to four.
+        let encoded = most.div_ceil(3).saturating_mul(4);
+        let fetched = Download {
+            max_bytes: Some(encoded.saturating_add(ATTACHMENT_ENVELOPE)),
+            timeout_secs: limits.timeout_secs,
+        };
+        let answer = match self.0.fetch(ContentRequest::get(path), &fetched).await {
+            // The limit the caller set is the one to name, not the one derived from it.
+            Err(refused) if refused.kind() == ErrorKind::TooLarge => return Err(too_large()),
+            answer => answer?,
+        };
+        // Nothing of an answer that cannot be read goes into the error: it
+        // is someone's file. An answer that is not an object is no better
+        // read than one that is not JSON.
+        let unread = || {
+            self.0
+                .error(ErrorKind::Decode, "google sent an attachment that could not be read")
+        };
+        let body: Option<Value> = serde_json::from_slice(&answer.bytes).ok();
+        let body = body.filter(Value::is_object).ok_or_else(unread)?;
+        drop(answer);
+        let found: GmailWireAttachment = self.0.decode(body, "an attachment")?;
+        let Some(bytes) = found.into_bytes() else {
             return Err(self.0.error(ErrorKind::Decode, "google answered without an attachment"));
+        };
+        // The envelope leaves room for a file a little over the limit to
+        // arrive whole. It is refused all the same.
+        if bytes.len() > most {
+            return Err(too_large());
         }
-        Ok(content)
+        Ok(Content {
+            bytes,
+            content_type: None,
+        })
+    }
+
+    /// An attachment that is text, as text: a CSV file, a text file, a
+    /// calendar invitation.
+    ///
+    /// Gmail does not say what a file is, so the file has to be text by its
+    /// own bytes: UTF-8, with no control character but a tab and the ends
+    /// of a line or a page. Anything else, such as a PDF, a picture, a file
+    /// with a NUL or an escape character in it, or text in another
+    /// encoding, is refused with `unsupported`, and nothing of it is
+    /// returned. A byte order mark at the start is left out of the text.
+    ///
+    /// One megabyte is accepted unless `limit` allows more, up to ten, and a
+    /// longer file is refused with `too_large`.
+    pub async fn attachment_text(
+        &self,
+        message: &str,
+        attachment: &str,
+        limit: TextLimit,
+    ) -> Result<GmailAttachmentText> {
+        let limits = self.0.text_limits(&limit)?;
+        let file = self.attachment_content(message, attachment, limits).await?;
+        let size = file.len();
+        GmailAttachmentText::read(file.bytes).ok_or_else(|| {
+            let said = format!(
+                "google returned an attachment of {size} bytes, which is not text; an operation called by name returns text only"
+            );
+            self.0.error(ErrorKind::Unsupported, said)
+        })
     }
 
     /// Adds labels to a message and removes others. Archiving removes

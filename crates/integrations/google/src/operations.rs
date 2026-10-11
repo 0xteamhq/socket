@@ -35,7 +35,7 @@ use crate::models::{
     SharedDrive,
 };
 use crate::models::{
-    GmailAttachmentBody, GmailDraft, GmailDraftRef, GmailGetMessage, GmailGetThread, GmailLabel, GmailListDrafts,
+    GmailAttachmentText, GmailDraft, GmailDraftRef, GmailGetMessage, GmailGetThread, GmailLabel, GmailListDrafts,
     GmailListMessages, GmailListThreads, GmailMessage, GmailMessageRef, GmailModifyMessage, GmailProfile, GmailReply,
     GmailSendMessage, GmailThread,
 };
@@ -248,12 +248,14 @@ input!(GmailThisMessage {
     /// A message id.
     message: String
 });
-input!(GmailOneAttachment {
-    /// A message id.
-    message: String,
-    /// The `attachmentId` of one of its attachments.
-    attachment: String
-});
+input!(
+    GmailAttachmentAsText {
+        /// A message id.
+        message: String,
+        /// The `attachmentId` of one of its attachments.
+        attachment: String
+    } + crate::models::TextLimit
+);
 input!(GmailSendNow {} + GmailSendMessage);
 input!(
     GmailAnswer {
@@ -554,10 +556,10 @@ fn build() -> Vec<Operation> {
         // ── gmail ──
         operation("gmail_messages.list", "List the messages a Gmail search finds. Returns ids only: each message's id and its thread's id. Read one with gmail_messages.get.", Read, &[scopes::GMAIL_READONLY],
             |g: Google, c: Connection, i: GmailMessagesList| async move { g.gmail_messages(&c).list(i.options, Paging { cursor: i.cursor, limit: i.limit }).await as Result<Page<GmailMessageRef>> }),
-        operation("gmail_messages.get", "Get one Gmail message, decoded: its headers, its body as plain text and as HTML, and its attachments without their content.", Read, &[scopes::GMAIL_READONLY],
+        operation("gmail_messages.get", "Get one Gmail message, decoded: its headers, its body as plain text and as HTML, and its attachments without their content. Read an attachment that is text with gmail_messages.attachment_text.", Read, &[scopes::GMAIL_READONLY],
             |g: Google, c: Connection, i: GmailOneMessage| async move { g.gmail_messages(&c).get(&i.message, i.options).await as Result<GmailMessage> }),
-        operation("gmail_messages.attachment_get", "Get the content of one attachment of a Gmail message, in URL-safe base64, with its size. A file over about 7 MB cannot be read yet.", Read, &[scopes::GMAIL_READONLY],
-            |g: Google, c: Connection, i: GmailOneAttachment| async move { g.gmail_messages(&c).attachment_get(&i.message, &i.attachment).await as Result<GmailAttachmentBody> }),
+        operation("gmail_messages.attachment_text", "Read an attachment of a Gmail message that is text, such as a CSV file, a text file or a calendar invitation. One megabyte unless maxBytes allows more, up to ten. A file that is not UTF-8 text, such as a PDF or a picture, is refused, and nothing of it is returned.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, i: GmailAttachmentAsText| async move { g.gmail_messages(&c).attachment_text(&i.message, &i.attachment, i.options).await as Result<GmailAttachmentText> }),
         operation("gmail_messages.send", "Send a message at once from the Gmail account's own address. It cannot be taken back.", Destructive, &[scopes::GMAIL_SEND],
             |g: Google, c: Connection, i: GmailSendNow| async move { g.gmail_messages(&c).send(i.options).await as Result<GmailMessageRef> }),
         operation("gmail_messages.reply", "Answer a Gmail message in its thread and send the answer at once, to the people named in `to` and nobody else. `to` is required: nothing in the message answered decides who a reply goes to, so read its `from` and `replyTo` and name them. It cannot be taken back.", Destructive, &[scopes::GMAIL_READONLY, scopes::GMAIL_SEND],

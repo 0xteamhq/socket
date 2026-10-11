@@ -23,6 +23,7 @@ mod drive_export;
 mod drive_file;
 mod drive_permission;
 mod gmail_address;
+mod gmail_attachment;
 mod gmail_draft;
 mod gmail_label;
 mod gmail_message;
@@ -63,11 +64,12 @@ pub use drive_export::{DriveExport, DriveExportFormat};
 pub use drive_file::{DriveCopyFile, DriveCreateFolder, DriveFile, DriveListFiles, DriveShortcutDetails, DriveUser};
 pub use drive_permission::{DrivePermission, DrivePermissionDetail};
 pub use gmail_address::GmailAddress;
+pub use gmail_attachment::{GmailAttachment, GmailAttachmentText};
 pub use gmail_draft::{GmailDraft, GmailDraftRef, GmailListDrafts};
 pub use gmail_label::{GmailLabel, GmailLabelColor};
 pub use gmail_message::{
-    GmailAttachment, GmailAttachmentBody, GmailFormat, GmailGetMessage, GmailListMessages, GmailMessage,
-    GmailMessageRef, GmailModifyMessage, GmailSendMessage,
+    GmailFormat, GmailGetMessage, GmailListMessages, GmailMessage, GmailMessageRef, GmailModifyMessage,
+    GmailSendMessage,
 };
 pub use gmail_profile::GmailProfile;
 pub use gmail_reply::GmailReply;
@@ -95,6 +97,7 @@ pub use value_range::{
 // What the client reads Google's answers into and writes its requests
 // with, which no caller needs.
 pub(crate) use document_structure::DocumentResource;
+pub(crate) use gmail_attachment::GmailWireAttachment;
 pub(crate) use gmail_draft::GmailWireDraft;
 pub(crate) use gmail_mime::GmailWireMessage;
 pub(crate) use gmail_rfc2822::{GmailThreading, raw as gmail_raw, sendable as gmail_sendable};
