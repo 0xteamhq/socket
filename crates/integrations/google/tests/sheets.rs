@@ -8,8 +8,8 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use socketkit_core::ErrorKind;
 use socketkit_google::models::{
-    SheetsAppendValues, SheetsDateTimeRenderOption, SheetsDimension, SheetsGetValues, SheetsInsertDataOption,
-    SheetsUpdateValues, SheetsValueInputOption, SheetsValueRenderOption,
+    SheetsAppendValues, SheetsDateTimeRenderOption, SheetsDimension, SheetsGetValues, SheetsUpdateValues,
+    SheetsValueInputOption, SheetsValueRenderOption,
 };
 use socketkit_google::{Google, provider};
 use socketkit_testkit::wiremock::matchers::{any, method};
@@ -149,7 +149,7 @@ async fn a_range_is_one_segment_of_the_path_whatever_its_sheet_is_called() {
                     .as_object()
                     .unwrap()
                     .keys()
-                    .filter(|name| *name != "valueInputOption")
+                    .filter(|name| !matches!(name.as_str(), "valueInputOption" | "insertDataOption"))
                     .count(),
                 0,
                 "{name} {range}: nothing of the range became a parameter"
@@ -409,7 +409,12 @@ async fn a_write_has_to_say_how_its_values_are_to_be_taken() {
             let input = json!({ "spreadsheet": SPREADSHEET, "range": "Sheet1!A1", "values": values, "valueInputOption": option });
             invoke(&socket, &key, name, input).await.unwrap();
             let request = only_request(&server).await;
-            assert_eq!(query_of(&request), json!({ "valueInputOption": option }), "{name}");
+            // An append also says, always, that rows are inserted for what it adds.
+            let mut query = json!({ "valueInputOption": option });
+            if name.ends_with("values_append") {
+                query["insertDataOption"] = json!("INSERT_ROWS");
+            }
+            assert_eq!(query_of(&request), query, "{name}");
             // The values go as they were given either way: a `null`, which
             // leaves a cell alone, stays apart from an empty string, which
             // empties it. Nothing but `values` is in the body.
@@ -419,21 +424,11 @@ async fn a_write_has_to_say_how_its_values_are_to_be_taken() {
 }
 
 #[tokio::test]
-async fn an_append_says_where_new_rows_go_only_when_asked_and_values_may_be_columns() {
-    for (options, query, body) in [
+async fn an_append_always_inserts_rows_so_that_nothing_under_the_table_is_written_over() {
+    for (options, body) in [
+        (json!({}), json!({ "values": [["Washers", 12]] })),
         (
-            json!({}),
-            json!({ "valueInputOption": "RAW" }),
-            json!({ "values": [["Washers", 12]] }),
-        ),
-        (
-            json!({ "insertDataOption": "INSERT_ROWS" }),
-            json!({ "valueInputOption": "RAW", "insertDataOption": "INSERT_ROWS" }),
-            json!({ "values": [["Washers", 12]] }),
-        ),
-        (
-            json!({ "insertDataOption": "OVERWRITE", "majorDimension": "COLUMNS" }),
-            json!({ "valueInputOption": "RAW", "insertDataOption": "OVERWRITE" }),
+            json!({ "majorDimension": "COLUMNS" }),
             json!({ "values": [["Washers", 12]], "majorDimension": "COLUMNS" }),
         ),
     ] {
@@ -452,11 +447,26 @@ async fn an_append_says_where_new_rows_go_only_when_asked_and_values_may_be_colu
             request.url.path(),
             format!("/v4/spreadsheets/{SPREADSHEET}/values/Sheet1:append")
         );
-        assert_eq!(query_of(&request), query, "{options}");
+        // Google's own default is OVERWRITE, which writes over what lies under the table.
+        assert_eq!(
+            query_of(&request),
+            json!({ "valueInputOption": "RAW", "insertDataOption": "INSERT_ROWS" }),
+            "{options}"
+        );
         assert_eq!(body_of(&request), body, "{options}");
         assert_eq!(appended["tableRange"], "Sheet1!A1:C4");
         assert_eq!(appended["updates"]["updatedRange"], "Sheet1!A5:C5");
     }
+
+    // Writing over what is there is not something an append can be asked to do.
+    let (server, socket, key) = google().await;
+    let input = json!({ "spreadsheet": SPREADSHEET, "range": "Sheet1", "values": [[1]], "valueInputOption": "RAW", "insertDataOption": "OVERWRITE" });
+    let err = invoke(&socket, &key, "sheets_spreadsheets.values_append", input)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    assert!(err.message().contains("insertDataOption"), "{}", err.message());
+    assert!(server.received_requests().await.unwrap().is_empty());
 
     // An update takes columns too, and has no word to say on inserting.
     let (server, socket, key) = answering(200, values_updated()).await;
@@ -905,10 +915,7 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
     assert_eq!(body_of(&request), json!({ "values": [["Bolts", 38, true]] }));
 
     answers("POST", values_appended()).await;
-    let append = SheetsAppendValues {
-        insert_data_option: Some(SheetsInsertDataOption::InsertRows),
-        ..SheetsAppendValues::user_entered(vec![vec![json!("Washers"), json!("=6*2")]])
-    };
+    let append = SheetsAppendValues::user_entered(vec![vec![json!("Washers"), json!("=6*2")]]);
     assert_eq!(append.value_input_option, SheetsValueInputOption::UserEntered);
     let appended = sheets.values_append(SPREADSHEET, "Sheet1!A:C", append).await.unwrap();
     assert_eq!(appended.table_range.as_deref(), Some("Sheet1!A1:C4"));

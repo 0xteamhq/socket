@@ -282,7 +282,7 @@ fn docs_cases() -> Vec<Case> {
             .body(json!({ "values": [["Bolts", 38, true]] }))
             .answers(200, values_updated())
             .returns(json!({ "spreadsheetId": SPREADSHEET, "updatedRange": "Sheet1!A2:C2", "updatedRows": 1, "updatedColumns": 3, "updatedCells": 3 })),
-        Case::new("sheets_spreadsheets.values_append", json!({ "spreadsheet": SPREADSHEET, "range": "Sheet1!A:C", "values": [["Washers", "=6*2", false]], "valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS" }), "POST", format!("{spreadsheet_path}/values/Sheet1%21A%3AC:append"))
+        Case::new("sheets_spreadsheets.values_append", json!({ "spreadsheet": SPREADSHEET, "range": "Sheet1!A:C", "values": [["Washers", "=6*2", false]], "valueInputOption": "USER_ENTERED" }), "POST", format!("{spreadsheet_path}/values/Sheet1%21A%3AC:append"))
             .query(json!({ "valueInputOption": "USER_ENTERED", "insertDataOption": "INSERT_ROWS" }))
             .body(json!({ "values": [["Washers", "=6*2", false]] }))
             .answers(200, values_appended())
@@ -345,7 +345,8 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("drive_files.copy", Effect::Write, &[scopes::DRIVE_FILE]),
         ("drive_files.move_to", Effect::Write, &[scopes::DRIVE_FILE]),
         ("drive_files.rename", Effect::Write, &[scopes::DRIVE_FILE]),
-        ("drive_files.trash", Effect::Write, &[scopes::DRIVE_FILE]),
+        // Takes the file from everyone who could see it, and Google deletes it for good after 30 days.
+        ("drive_files.trash", Effect::Destructive, &[scopes::DRIVE_FILE]),
         ("drive_shared_drives.list", Effect::Read, &[scopes::DRIVE_READONLY]),
 
         // ── docs and sheets: effects ──

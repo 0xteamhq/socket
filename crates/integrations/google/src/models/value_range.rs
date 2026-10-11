@@ -74,18 +74,6 @@ pub enum SheetsValueInputOption {
     UserEntered,
 }
 
-/// What appending rows does to what lies under the table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum SheetsInsertDataOption {
-    /// The new rows are written into the cells under the table, over
-    /// anything that is already in them.
-    Overwrite,
-    /// New rows are inserted for the data, and what was under the table
-    /// moves down.
-    InsertRows,
-}
-
 /// How to return the values that are read.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -141,7 +129,8 @@ impl SheetsUpdateValues {
     }
 }
 
-/// Rows to add under a table.
+/// Rows to add under a table. New rows are always inserted for them, so
+/// nothing that lies under the table is written over.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SheetsAppendValues {
@@ -153,11 +142,6 @@ pub struct SheetsAppendValues {
     /// a formula, which text taken from someone else must not become, and
     /// `RAW` stores `2026-10-12` and `=SUM(A1:A9)` as the text they are.
     pub value_input_option: SheetsValueInputOption,
-    /// `OVERWRITE` writes the rows into the cells under the table, over
-    /// anything already there. `INSERT_ROWS` inserts new rows for them, so
-    /// nothing under the table is written over. Google overwrites when not
-    /// given.
-    pub insert_data_option: Option<SheetsInsertDataOption>,
     /// `ROWS` when each inner list of `values` is a row, `COLUMNS` when it
     /// is a column. Rows when not given.
     pub major_dimension: Option<SheetsDimension>,
@@ -169,7 +153,6 @@ impl SheetsAppendValues {
         Self {
             values,
             value_input_option: SheetsValueInputOption::Raw,
-            insert_data_option: None,
             major_dimension: None,
         }
     }

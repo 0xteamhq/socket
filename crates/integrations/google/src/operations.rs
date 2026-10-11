@@ -534,7 +534,7 @@ fn build() -> Vec<Operation> {
             |g: Google, c: Connection, i: DriveMoved| async move { g.drive_files(&c).move_to(&i.file, &i.folder).await as Result<DriveFile> }),
         operation("drive_files.rename", "Give a file or folder another name. It stays where it is, under the same id.", Write, &[scopes::DRIVE_FILE],
             |g: Google, c: Connection, i: DriveRenamed| async move { g.drive_files(&c).rename(&i.file, &i.name).await as Result<DriveFile> }),
-        operation("drive_files.trash", "Put a file or folder in the bin, with everything inside a folder. It can be restored from the bin for 30 days. Nothing is deleted for good.", Write, &[scopes::DRIVE_FILE],
+        operation("drive_files.trash", "Put a file or folder in the bin, with everything inside a folder. Everyone who could see it loses it. It can be restored for 30 days, after which Google deletes it for good.", Destructive, &[scopes::DRIVE_FILE],
             |g: Google, c: Connection, i: DriveOneFile| async move { g.drive_files(&c).trash(&i.file).await as Result<DriveFile> }),
         operation("drive_shared_drives.list", "List the shared drives the account is a member of.", Read, &[scopes::DRIVE_READONLY],
             |g: Google, c: Connection, i: DriveListing| async move { g.drive_shared_drives(&c).list(i.options).await as Result<Page<SharedDrive>> }),
@@ -559,7 +559,7 @@ fn build() -> Vec<Operation> {
         // What was in the cells is gone once they are written over.
         operation("sheets_spreadsheets.values_update", "Write values over the cells of a range of a Google Sheet. What was in those cells is replaced.", Destructive, &[scopes::SPREADSHEETS],
             |g: Google, c: Connection, i: SheetsUpdate| async move { g.sheets_spreadsheets(&c).values_update(&i.spreadsheet, &i.range, i.options).await as Result<SheetsUpdatedValues> }),
-        operation("sheets_spreadsheets.values_append", "Add rows under a table in a Google Sheet. Google finds the table in the range and writes after its last row.", Write, &[scopes::SPREADSHEETS],
+        operation("sheets_spreadsheets.values_append", "Add rows under a table in a Google Sheet. Google finds the table in the range and writes after its last row. Rows are inserted for them, so nothing under the table is written over.", Write, &[scopes::SPREADSHEETS],
             |g: Google, c: Connection, i: SheetsAppend| async move { g.sheets_spreadsheets(&c).values_append(&i.spreadsheet, &i.range, i.options).await as Result<SheetsAppendedValues> }),
     ]
 }

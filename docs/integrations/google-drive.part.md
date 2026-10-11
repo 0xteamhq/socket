@@ -39,7 +39,7 @@ drive.move_to(&doc.id, &archive.id).await?;
 | `drive_files` | `copy(file, DriveCopyFile)` | `DriveFile`: the copy | write | `drive.file` |
 | `drive_files` | `move_to(file, folder)` | `DriveFile`, in its new folder | write | `drive.file` |
 | `drive_files` | `rename(file, name)` | `DriveFile`, under its new name | write | `drive.file` |
-| `drive_files` | `trash(file)` | `DriveFile`, in the bin | write | `drive.file` |
+| `drive_files` | `trash(file)` | `DriveFile`, in the bin | destructive | `drive.file` |
 | `drive_shared_drives` | `list(Paging)` | `Page<SharedDrive>`: the shared drives the account is a member of | read | `drive.readonly` |
 
 `drive.readonly` is one of the provider's default scopes. `drive.file` is not: name it in `GoogleOAuth::scopes` to use the writes. It is the narrowest scope Google offers for them, and it reaches only the files the application created or the person opened with it, through Google's file picker for one. A write to any other file is refused with 403, which arrives as `AccessDenied` with Google's words ("The user has not granted the app … access to the file …"). To change every file the account can, ask for the full `https://www.googleapis.com/auth/drive` scope instead; the operations work with it unchanged.

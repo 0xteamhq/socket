@@ -97,6 +97,11 @@ impl SheetsSpreadsheets<'_> {
 
     /// Adds rows under a table. Google looks for the table in `range` and
     /// writes after its last row, starting at its first column.
+    ///
+    /// New rows are inserted for what is added (`insertDataOption=INSERT_ROWS`),
+    /// and whatever lay under the table moves down. Left to its default,
+    /// Google would write over it, and an append would not only add. To
+    /// write over cells, use `values_update`.
     pub async fn values_append(
         &self,
         spreadsheet: &str,
@@ -109,7 +114,7 @@ impl SheetsSpreadsheets<'_> {
         body.insert("values".to_owned(), json!(append.values));
         let request = with_query(
             RawRequest::post(path, Value::Object(body)),
-            &json!({ "valueInputOption": append.value_input_option, "insertDataOption": append.insert_data_option }),
+            &json!({ "valueInputOption": append.value_input_option, "insertDataOption": "INSERT_ROWS" }),
         );
         let appended: SheetsAppendedValues = self.0.decode(self.0.send(request).await?, "what was appended")?;
         if appended.spreadsheet_id.is_empty() {

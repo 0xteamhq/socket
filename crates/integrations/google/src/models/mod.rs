@@ -88,6 +88,6 @@ pub(crate) use document_structure::DocumentResource;
 pub use spreadsheet::{Sheet, SheetGridProperties, SheetProperties, Spreadsheet, SpreadsheetProperties};
 pub use value_range::{
     SheetsAppendValues, SheetsAppendedValues, SheetsDateTimeRenderOption, SheetsDimension, SheetsGetValues,
-    SheetsInsertDataOption, SheetsUpdateValues, SheetsUpdatedValues, SheetsValueInputOption, SheetsValueRanges,
-    SheetsValueRenderOption, ValueRange,
+    SheetsUpdateValues, SheetsUpdatedValues, SheetsValueInputOption, SheetsValueRanges, SheetsValueRenderOption,
+    ValueRange,
 };
