@@ -71,7 +71,12 @@ split the way the provider splits its own API.
 - **Reads go out as GET, writes as POST**, so the transport never repeats a
   write that may have happened.
 - **Every public method is also a named operation** in `operations.rs`, and
-  has a row in that integration's operations test.
+  has a row in that integration's operations test. The one exception is a
+  method that returns bytes (`Content`): an operation called by name returns
+  text or nothing, so such a method is typed only. Where the content can be
+  text, a second method returns it as text (`Content::into_text`, limited to
+  `Content::MAX_INLINE_BYTES` unless the caller asks for more), and that one
+  is the named operation.
 - **When a file passes about 250 lines, split the group** along the
   provider's own sub-groups.
 - **Start this way.** A new integration creates `client/` with its first

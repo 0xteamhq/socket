@@ -22,6 +22,7 @@ impl Integration for Greeter {
             display_name: "Greeter".into(),
             api_base: "https://api.greeter.test/".parse().expect("valid url"),
             allowed_hosts: vec!["api.greeter.test".into()],
+            content_hosts: Vec::new(),
             auth: AuthScheme::ApiKey(ApiKeySpec {
                 placement: KeyPlacement::Header {
                     name: "Authorization".into(),

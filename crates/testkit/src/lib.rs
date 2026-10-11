@@ -1,14 +1,16 @@
 //! Test support for Socket integrations.
 //!
 //! [`point_at`] aims a real provider definition at a local [`wiremock`]
-//! server, [`connect`] builds a `Socket` with one stored connection, and
-//! [`conformance`] holds the checks every integration must pass.
+//! server, [`with_content_host`] adds a second server as a host the provider
+//! keeps content on, [`connect`] builds a `Socket` with one stored
+//! connection, and [`conformance`] holds the checks every integration must pass.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use socketkit_core::{
-    AuthScheme, ConnectionKey, Integration, MemoryTokenStore, ProviderSpec, RetryPolicy, Socket, TokenSet, TokenStore,
+    AuthScheme, ConnectionKey, ContentHost, Integration, MemoryTokenStore, ProviderSpec, RetryPolicy, Socket, TokenSet,
+    TokenStore,
 };
 use url::Url;
 pub use wiremock;
@@ -17,15 +19,23 @@ use wiremock::MockServer;
 /// The tenant every testkit connection is stored under.
 pub const TENANT: &str = "test-tenant";
 
+/// The entry that names `server` in a provider's list of hosts.
+fn host_entry(server: &MockServer) -> (String, u16) {
+    let base = Url::parse(&server.uri()).expect("a mock server has a valid address");
+    let host = base.host_str().expect("a mock server has a host").to_owned();
+    (host, base.port().expect("a mock server has a port"))
+}
+
 /// Rewrites `spec` so its API and OAuth endpoints are on `server`, keeping every path.
+///
+/// The real content hosts are dropped with the real API hosts, so nothing a
+/// test does can reach the provider. Add a local one with [`with_content_host`].
 ///
 /// # Panics
 /// Panics when `server`'s address is not a URL with a host and port, which a
 /// running mock server always has.
 pub fn point_at(mut spec: ProviderSpec, server: &MockServer) -> ProviderSpec {
-    let base = Url::parse(&server.uri()).expect("a mock server has a valid address");
-    let host = base.host_str().expect("a mock server has a host").to_owned();
-    let port = base.port().expect("a mock server has a port");
+    let (host, port) = host_entry(server);
     let moved = |url: &Url| {
         let mut moved = url.clone();
         moved.set_scheme("http").expect("http is a valid scheme");
@@ -39,6 +49,26 @@ pub fn point_at(mut spec: ProviderSpec, server: &MockServer) -> ProviderSpec {
         oauth.token_url = moved(&oauth.token_url);
     }
     spec.allowed_hosts = vec![format!("{host}:{port}")];
+    spec.content_hosts.clear();
+    spec
+}
+
+/// Declares `server` as a host `spec` keeps content on. `credentials` says
+/// whether the connection's token is to go with a request to it: true plays a
+/// host that asks for the token, false one reached by an address already signed.
+///
+/// Mount a redirect on the API's server that points here, and a body on this
+/// one, to play a provider that hands out a download address.
+///
+/// # Panics
+/// Panics when `server`'s address is not a URL with a host and port, which a
+/// running mock server always has.
+pub fn with_content_host(mut spec: ProviderSpec, server: &MockServer, credentials: bool) -> ProviderSpec {
+    let (host, port) = host_entry(server);
+    spec.content_hosts.push(ContentHost {
+        host: format!("{host}:{port}"),
+        credentials,
+    });
     spec
 }
 
@@ -103,7 +133,10 @@ pub mod conformance {
         real.validate().expect("the provider definition is valid");
         assert_eq!(real.api_base.scheme(), "https", "{}: the real API is https", real.id);
         assert!(
-            real.allowed_hosts.iter().all(|h| !h.contains(':')),
+            real.allowed_hosts
+                .iter()
+                .chain(real.content_hosts.iter().map(|content| &content.host))
+                .all(|h| !h.contains(':')),
             "{}: no loopback entries in the real definition",
             real.id
         );

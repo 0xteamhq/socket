@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::auth::OAuthClient;
 use crate::error::{Error, ErrorKind, Result};
-use crate::http::{Classifier, RawRequest, RawResponse, StandardClassifier, Transport};
+use crate::http::{Classifier, Content, ContentRequest, RawRequest, RawResponse, StandardClassifier, Transport};
 use crate::oauth::{OAuthFlow, StandardOAuth};
 use crate::provider::{ProviderId, ProviderSpec};
 use crate::secret::TokenSet;
@@ -202,10 +202,55 @@ impl Connection {
     /// with are renewed: if the store has since been given different ones,
     /// the rejection is reported and the request is not sent again.
     pub async fn request(&self, request: RawRequest) -> Result<RawResponse> {
+        self.renewing(|tokens| {
+            let request = request.clone();
+            async move {
+                self.transport
+                    .send(&self.spec, &tokens, self.classifier.as_ref(), request)
+                    .await
+            }
+        })
+        .await
+    }
+
+    /// Fetches content the provider points to: a file, a recording, an export.
+    ///
+    /// The bytes come back unchanged, with the type the host stated. The
+    /// request goes to the provider's API or to one of the content hosts its
+    /// definition declares, and a redirect is followed only to one of those.
+    /// The credential is sent to the API and to a content host marked to
+    /// receive it, and to no other host. Content over the request's limit is
+    /// an error with the code `too_large`, never a shorter file.
+    ///
+    /// An answer with a successful status is the content, whatever it holds:
+    /// the provider's classifier is asked only about a status that is not a
+    /// success. A provider that reports an error inside a success has to be
+    /// checked by the method that fetches from it.
+    ///
+    /// A rejected access token is renewed once, as for [`Connection::request`].
+    pub async fn fetch(&self, request: ContentRequest) -> Result<Content> {
+        self.renewing(|tokens| {
+            let request = request.clone();
+            async move {
+                self.transport
+                    .fetch(&self.spec, &tokens, self.classifier.as_ref(), request)
+                    .await
+            }
+        })
+        .await
+    }
+
+    /// Runs `send` with this connection's tokens, and once more with renewed
+    /// tokens when the provider rejected the first. See [`Connection::request`].
+    async fn renewing<T, F, Sending>(&self, send: F) -> Result<T>
+    where
+        F: Fn(TokenSet) -> Sending,
+        Sending: Future<Output = Result<T>>,
+    {
         // After a renewal this connection goes on using the renewed tokens,
         // so a connection that is kept does not fail on every later call.
         let tokens = self.renewed().unwrap_or_else(|| self.tokens.clone());
-        let rejected = match self.send(&tokens, request.clone()).await {
+        let rejected = match send(tokens.clone()).await {
             Err(error) if error.kind() == ErrorKind::ReconnectRequired => error,
             outcome => return outcome,
         };
@@ -219,7 +264,7 @@ impl Connection {
             return Err(rejected);
         }
         *self.renewed.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(fresh.clone());
-        self.send(&fresh, request).await
+        send(fresh).await
     }
 
     fn renewed(&self) -> Option<TokenSet> {
@@ -227,12 +272,6 @@ impl Connection {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
-    }
-
-    async fn send(&self, tokens: &TokenSet, request: RawRequest) -> Result<RawResponse> {
-        self.transport
-            .send(&self.spec, tokens, self.classifier.as_ref(), request)
-            .await
     }
 }
 

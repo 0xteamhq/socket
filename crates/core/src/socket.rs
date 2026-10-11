@@ -9,7 +9,9 @@ use serde_json::Value;
 
 use crate::auth::{self, Authorization, OAuthClient, PendingAuthorization};
 use crate::error::{Error, ErrorKind, Result};
-use crate::http::{Classifier, RawRequest, RawResponse, RetryPolicy, StandardClassifier, Transport};
+use crate::http::{
+    Classifier, Content, ContentRequest, RawRequest, RawResponse, RetryPolicy, StandardClassifier, Transport,
+};
 use crate::oauth::{AuthorizationRequest, CodeGrant, OAuthContext, OAuthFlow, StandardOAuth};
 use crate::operation::{Connection, Integration, OperationInfo, Renew};
 use crate::provider::{AuthScheme, OAuth2Spec, ProviderId, ProviderSpec};
@@ -159,6 +161,13 @@ impl Socket {
     /// credentials, retry and error classification applied.
     pub async fn request(&self, key: ConnectionKey, request: RawRequest) -> Result<RawResponse> {
         self.inner.connection(key).await?.request(request).await
+    }
+
+    /// Fetches content a registered provider points to, with the connection's
+    /// credentials sent only where the provider's definition says they go.
+    /// See [`Connection::fetch`].
+    pub async fn fetch(&self, key: ConnectionKey, request: ContentRequest) -> Result<Content> {
+        self.inner.connection(key).await?.fetch(request).await
     }
 
     /// Starts connecting `key`: returns the URL to send the person to and the

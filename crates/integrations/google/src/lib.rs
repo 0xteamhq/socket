@@ -32,6 +32,7 @@ pub fn provider() -> ProviderSpec {
             "docs.googleapis.com".into(),
             "sheets.googleapis.com".into(),
         ],
+        content_hosts: Vec::new(),
         auth: AuthScheme::OAuth2(OAuth2Spec {
             authorize_url: "https://accounts.google.com/o/oauth2/v2/auth"
                 .parse()

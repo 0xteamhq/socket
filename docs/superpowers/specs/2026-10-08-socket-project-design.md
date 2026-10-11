@@ -183,6 +183,7 @@ pub struct ProviderSpec {
     pub display_name: String,          // "Slack"
     pub api_base: Url,                 // overridable for self-hosted instances
     pub allowed_hosts: Vec<String>,    // the only hosts that may receive this provider's credentials
+    pub content_hosts: Vec<ContentHost>, // other hosts it keeps files on, each marked to receive the credential or not
     pub auth: AuthScheme,
 }
 
@@ -281,6 +282,8 @@ One HTTP path for every integration:
 - **Host allowlist.** Credentials are attached only to requests over https, on port 443, whose host is in the provider's `allowed_hosts`. The OAuth token endpoint must be one of those hosts too, because it receives the client secret and refresh tokens. The one exception is plain http to a loopback address listed with its port, for tests and local development. A bug or a malicious change in an integration crate cannot send a token elsewhere.
 - **Nothing a caller supplies can move or replace the credentials.** The HTTP client never follows a redirect on its own. Socket follows one itself only for a read, only to an address that passes the same allowlist, and at most three times; a write is never redirected. A caller cannot set the headers that carry credentials or choose a host outside the provider's `allowed_hosts`, cannot repeat the API key's query parameter under any spelling, and cannot put a username or password in the URL. A provider's error text is shortened and has the credential removed before it reaches an error message.
 - **Bounded waiting and reading.** The default client times out after 30 seconds, and a response larger than 10 MB is refused.
+- **Content is a separate request.** A file, a recording or an export is fetched with `Connection::fetch`, which returns the bytes unchanged and the type the host stated. It is always a read. It may go to the provider's API or to one of the `content_hosts` its definition declares, and nowhere else; a redirect is followed only to one of those, at most three times. Whether the credential goes is decided for each host on the way: it goes to the API and to a content host marked to receive it, and never to one marked not to, which is how an address that is already signed is kept from being given the token as well. A redirect that writes the credential into the address of such a host is not followed, and neither is a redirect from such a host back to one that is given the credential: a host that is not trusted with the token does not get to say where it is sent. Content over the caller's limit, 10 MB by default, is the error `too_large`; it is never cut short. A caller may allow one fetch more time than the client's default.
+- **An operation called by name returns text or nothing.** Bytes are never returned by name, in base64 or otherwise: content that the host did not state to be text, or stated to be in another encoding, or that is not UTF-8, is refused. Text is limited to 1 MB unless the caller asks for more. The typed method is the way to bytes.
 - **Retry** with backoff for retryable failures, honouring `Retry-After`. Non-idempotent requests are retried only when the provider's classifier says the request was not processed.
 - **Pagination** as one model: a call takes an optional cursor and returns a `Page<T>` with the next cursor. A stream adapter sits above that for Rust callers. Each integration maps its vendor's style (cursor, `Link` header, GraphQL `pageInfo`) onto it.
 - GraphQL is a first-class request shape, not an afterthought on a REST helper. Linear is GraphQL-only.
@@ -304,10 +307,11 @@ pub enum ErrorKind {
     NotFound,
     RateLimited,
     InvalidInput,
-    Unsupported,         // this integration does not offer the operation
+    Unsupported,         // no integration offers the operation, or the answer cannot be given in the form asked for
     Config,              // the application set something up wrong
     Transport,
     Decode,
+    TooLarge,            // content over the limit set for the request; none of it is returned
     Unexpected,
 }
 ```

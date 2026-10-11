@@ -27,6 +27,7 @@ fn oauth_spec(server: &MockServer, client_auth: ClientAuth, pkce: bool) -> Provi
         display_name: "Acme".into(),
         api_base: format!("{}/api", server.uri()).parse().unwrap(),
         allowed_hosts: vec![host_entry(server)],
+        content_hosts: Vec::new(),
         auth: AuthScheme::OAuth2(OAuth2Spec {
             authorize_url: format!("{}/authorize", server.uri()).parse().unwrap(),
             token_url: format!("{}/token", server.uri()).parse().unwrap(),
@@ -501,6 +502,7 @@ async fn an_unreachable_provider_is_a_transport_error_that_hides_the_api_key() {
         display_name: "Acme".into(),
         api_base: format!("http://127.0.0.1:{port}/api").parse().unwrap(),
         allowed_hosts: vec![format!("127.0.0.1:{port}")],
+        content_hosts: Vec::new(),
         auth: AuthScheme::ApiKey(ApiKeySpec {
             placement: KeyPlacement::Query { name: "api_key".into() },
         }),

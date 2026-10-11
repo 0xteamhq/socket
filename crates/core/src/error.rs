@@ -18,12 +18,16 @@ pub enum ErrorKind {
     NotFound,
     RateLimited,
     InvalidInput,
-    /// No registered integration offers the operation.
+    /// No registered integration offers the operation, or what was asked
+    /// for cannot be handed over in the form asked for.
     Unsupported,
     /// The application set something up wrong.
     Config,
     Transport,
     Decode,
+    /// The content is larger than the limit set for the request. It was not
+    /// read, and no part of it is returned.
+    TooLarge,
     Unexpected,
 }
 
@@ -40,6 +44,7 @@ impl ErrorKind {
             Self::Config => "config",
             Self::Transport => "transport",
             Self::Decode => "decode",
+            Self::TooLarge => "too_large",
             Self::Unexpected => "unexpected",
         }
     }
@@ -181,12 +186,14 @@ mod tests {
             ErrorKind::Config,
             ErrorKind::Transport,
             ErrorKind::Decode,
+            ErrorKind::TooLarge,
             ErrorKind::Unexpected,
         ];
         let codes: std::collections::HashSet<_> = kinds.iter().map(|k| k.code()).collect();
         assert_eq!(codes.len(), kinds.len());
         assert_eq!(ErrorKind::ReconnectRequired.code(), "reconnect_required");
         assert_eq!(ErrorKind::RateLimited.code(), "rate_limited");
+        assert_eq!(ErrorKind::TooLarge.code(), "too_large");
     }
 
     #[test]

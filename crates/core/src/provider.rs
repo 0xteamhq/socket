@@ -62,7 +62,29 @@ pub struct ProviderSpec {
     pub api_base: Url,
     /// The only hosts that may receive this provider's credentials.
     pub allowed_hosts: Vec<String>,
+    /// Other hosts this provider keeps content on: files, recordings, exports.
+    /// Only a content request goes to them. See [`ContentHost`].
+    #[serde(default)]
+    pub content_hosts: Vec<ContentHost>,
     pub auth: AuthScheme,
+}
+
+/// A host a provider serves content from that is not its API.
+///
+/// A content request may be sent there, and a redirect there is followed.
+/// No other request is: the API's own calls stay on `allowed_hosts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContentHost {
+    /// The host, written and matched as an entry of `allowed_hosts` is:
+    /// the exact name, reached over https on port 443.
+    pub host: String,
+    /// Whether the connection's credential goes with a request to this host.
+    ///
+    /// True for a host that asks for the token, as Slack's file host does.
+    /// False for a host reached by an address that is already signed, which
+    /// must never be given the token as well.
+    pub credentials: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,19 +159,24 @@ impl ProviderSpec {
     /// port, for example `"127.0.0.1:8080"`. Use it only for tests and local
     /// development: a configured HTTP proxy would still receive such a request.
     pub fn allows_host(&self, url: &Url) -> bool {
-        let Some(host) = url.host_str() else {
-            return false;
-        };
-        let listed = |entry: &str| {
-            self.allowed_hosts
-                .iter()
-                .any(|allowed| allowed.eq_ignore_ascii_case(entry))
-        };
-        match (url.scheme(), url.port_or_known_default()) {
-            ("https", Some(443)) => listed(host),
-            ("http", Some(port)) if is_loopback(url) => listed(&format!("{host}:{port}")),
-            _ => false,
+        self.allowed_hosts.iter().any(|allowed| names(allowed, url))
+    }
+
+    /// Whether content may be fetched from `url`, and if it may, whether the
+    /// credential goes with the request.
+    ///
+    /// `Some(true)` for the API's own hosts and for a content host marked to
+    /// receive the credential, `Some(false)` for a content host marked not
+    /// to, and `None` for anywhere else: nothing is sent there at all. A
+    /// content host is matched by the same rule as [`ProviderSpec::allows_host`].
+    pub fn content_credentials(&self, url: &Url) -> Option<bool> {
+        if self.allows_host(url) {
+            return Some(true);
         }
+        self.content_hosts
+            .iter()
+            .find(|content| names(&content.host, url))
+            .map(|content| content.credentials)
     }
 
     /// Checks the rules a spec must meet before it is registered.
@@ -157,6 +184,25 @@ impl ProviderSpec {
         let fail = |message: String| Err(Error::new(ErrorKind::Config, message).with_provider(self.id.clone()));
         if self.allowed_hosts.is_empty() {
             return fail(format!("provider {} has no allowed hosts", self.id));
+        }
+        for (at, content) in self.content_hosts.iter().enumerate() {
+            let host = content.host.as_str();
+            if !is_host_entry(host) {
+                return fail(format!(
+                    "provider {} has a content host that is not a host name: {host:?}",
+                    self.id
+                ));
+            }
+            // Listed twice, a host would be given the credential by one entry
+            // and denied it by the other.
+            let again = self.content_hosts[..at]
+                .iter()
+                .map(|earlier| &earlier.host)
+                .chain(&self.allowed_hosts)
+                .any(|other| other.eq_ignore_ascii_case(host));
+            if again {
+                return fail(format!("provider {} lists the host {host:?} more than once", self.id));
+            }
         }
         let carries_credentials = |url: &Url| !url.username().is_empty() || url.password().is_some();
         let oauth_urls = match &self.auth {
@@ -214,6 +260,27 @@ impl ProviderSpec {
     }
 }
 
+/// True when `entry`, a line of a host list, names the host `url` is on.
+fn names(entry: &str, url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    match (url.scheme(), url.port_or_known_default()) {
+        ("https", Some(443)) => entry.eq_ignore_ascii_case(host),
+        ("http", Some(port)) if is_loopback(url) => entry.eq_ignore_ascii_case(&format!("{host}:{port}")),
+        _ => false,
+    }
+}
+
+/// True when `entry` is written as a host: a name or an address, with a port
+/// for a loopback address. Not a URL, a path or a pattern.
+fn is_host_entry(entry: &str) -> bool {
+    !entry.is_empty()
+        && entry
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']'))
+}
+
 fn is_loopback(url: &Url) -> bool {
     match url.host() {
         Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
@@ -233,6 +300,7 @@ mod tests {
             display_name: "Slack".into(),
             api_base: Url::parse("https://slack.com/api/").unwrap(),
             allowed_hosts: vec!["slack.com".into()],
+            content_hosts: Vec::new(),
             auth: AuthScheme::OAuth2(OAuth2Spec {
                 authorize_url: Url::parse("https://slack.com/oauth/v2/authorize").unwrap(),
                 token_url: Url::parse("https://slack.com/api/oauth.v2.access").unwrap(),
@@ -479,5 +547,87 @@ mod tests {
         let err = http_token_url.validate().unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Config);
         assert_eq!(err.provider().map(ProviderId::as_str), Some("slack"));
+    }
+
+    fn content(host: &str, credentials: bool) -> ContentHost {
+        ContentHost {
+            host: host.into(),
+            credentials,
+        }
+    }
+
+    #[test]
+    fn content_is_fetched_only_from_a_declared_host_and_each_says_whether_it_gets_the_credential() {
+        let mut spec = slack();
+        spec.content_hosts = vec![content("files.slack.com", true), content("Signed.Example.test", false)];
+        spec.validate().unwrap();
+        let credentials = |u: &str| spec.content_credentials(&Url::parse(u).unwrap());
+        assert_eq!(
+            credentials("https://slack.com/api/files.info"),
+            Some(true),
+            "the API itself"
+        );
+        assert_eq!(credentials("https://files.slack.com/files-pri/T1-F1/a.pdf"), Some(true));
+        assert_eq!(credentials("https://signed.example.test/blob?sig=1"), Some(false));
+        for elsewhere in [
+            "https://evil.test/blob",
+            "http://files.slack.com/a.pdf",
+            "https://files.slack.com:8443/a.pdf",
+            "https://cdn.files.slack.com/a.pdf",
+            "https://files.slack.com.evil.test/a.pdf",
+            "https://signed.example.test.evil.test/blob",
+        ] {
+            assert_eq!(credentials(elsewhere), None, "{elsewhere}");
+        }
+        // A content host is not an API host: an ordinary request never goes there.
+        assert!(!spec.allows_host(&Url::parse("https://files.slack.com/a.pdf").unwrap()));
+    }
+
+    #[test]
+    fn a_definition_without_content_hosts_reads_as_one_with_none() {
+        let json = serde_json::to_value(slack()).unwrap();
+        let mut without = json.clone();
+        without.as_object_mut().unwrap().remove("content_hosts");
+        let spec: ProviderSpec = serde_json::from_value(without).unwrap();
+        assert!(spec.content_hosts.is_empty());
+
+        let mut with = json;
+        with["content_hosts"] = serde_json::json!([{ "host": "files.slack.com", "credentials": true }]);
+        let spec: ProviderSpec = serde_json::from_value(with.clone()).unwrap();
+        assert_eq!(spec.content_hosts, vec![content("files.slack.com", true)]);
+        // Whether a host gets the credential is never left to a default.
+        for bad in [
+            serde_json::json!([{ "host": "files.slack.com" }]),
+            serde_json::json!([{ "host": "files.slack.com", "credentials": true, "extra": 1 }]),
+            serde_json::json!(["files.slack.com"]),
+        ] {
+            with["content_hosts"] = bad.clone();
+            assert!(serde_json::from_value::<ProviderSpec>(with.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_content_host_must_be_a_host_and_be_listed_once() {
+        let with = |hosts: Vec<ContentHost>| {
+            let mut spec = slack();
+            spec.content_hosts = hosts;
+            spec.validate()
+        };
+        with(vec![content("files.slack.com", true), content("127.0.0.1:9000", false)]).unwrap();
+        for bad in [
+            vec![content("", false)],
+            vec![content("https://files.slack.com", true)],
+            vec![content("files.slack.com/files", true)],
+            vec![content("*.slack.com", false)],
+            vec![content("user@files.slack.com", true)],
+            vec![content("files slack.com", true)],
+            // Named twice, or named as an API host too, one entry would contradict the other.
+            vec![content("files.slack.com", true), content("FILES.slack.com", false)],
+            vec![content("Slack.com", false)],
+        ] {
+            let err = with(bad.clone()).unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Config, "{bad:?}");
+            assert_eq!(err.provider().map(ProviderId::as_str), Some("slack"));
+        }
     }
 }

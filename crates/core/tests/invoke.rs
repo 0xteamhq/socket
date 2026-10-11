@@ -35,6 +35,7 @@ impl Integration for Echo {
             display_name: self.id.to_uppercase(),
             api_base: format!("https://api.{}.test/", self.id).parse().unwrap(),
             allowed_hosts: vec![format!("api.{}.test", self.id)],
+            content_hosts: Vec::new(),
             auth: AuthScheme::ApiKey(ApiKeySpec {
                 placement: KeyPlacement::Basic {},
             }),
