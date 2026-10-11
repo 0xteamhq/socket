@@ -18,7 +18,8 @@ pub use content::{Content, ContentRequest};
 pub struct RawRequest {
     /// `GET`, `POST` and so on.
     pub method: String,
-    /// A path relative to the provider's `api_base`, or an absolute URL on one of its allowed hosts.
+    /// A path relative to the provider's `api_base` (or to the connection's own, when its
+    /// authorisation named one), or an absolute URL on one of the provider's allowed hosts.
     pub path: String,
     #[serde(default)]
     pub query: Vec<(String, String)>,
@@ -260,7 +261,7 @@ impl Transport {
         request: RawRequest,
     ) -> Result<RawResponse> {
         let invalid = |message: String| Error::new(ErrorKind::InvalidInput, message).with_provider(spec.id.clone());
-        let mut url = resolve_url(spec, &request.path)?;
+        let mut url = resolve_url(spec, tokens, &request.path)?;
         for (name, value) in &request.query {
             url.query_pairs_mut().append_pair(name, value);
         }
@@ -364,7 +365,7 @@ impl Transport {
             builder = builder.body(bytes);
         }
         let response = read(spec, builder, request.text).await?;
-        if let Some(next) = redirect_target(spec, method, &asked, &response) {
+        if let Some(next) = redirect_target(spec, tokens, method, &asked, &response) {
             return Ok(Sent::Moved(next));
         }
         // A provider may echo the request, credential included, in its error text.
@@ -500,16 +501,22 @@ const MAX_REDIRECTS: u32 = 3;
 /// Where a redirect may be followed to, if anywhere.
 ///
 /// Only a read is followed, and only to an address that passes the same
-/// allowlist as any other request: https, port 443, a listed host, no
-/// username or password. Anything else is not followed, and the classifier
-/// reports it as a redirect that was refused, so credentials never follow a
-/// redirect off the provider's own hosts.
-fn redirect_target(spec: &ProviderSpec, method: &reqwest::Method, asked: &Url, response: &RawResponse) -> Option<Url> {
+/// allowlist as any other request: https, port 443, a listed host or the
+/// connection's own, no username or password. Anything else is not followed,
+/// and the classifier reports it as a redirect that was refused, so
+/// credentials never follow a redirect off the provider's own hosts.
+fn redirect_target(
+    spec: &ProviderSpec,
+    tokens: &TokenSet,
+    method: &reqwest::Method,
+    asked: &Url,
+    response: &RawResponse,
+) -> Option<Url> {
     if !matches!(response.status, 301 | 302 | 303 | 307 | 308) || !matches!(method.as_str(), "GET" | "HEAD") {
         return None;
     }
     let mut next = asked.join(response.header("location")?).ok()?;
-    if !spec.allows_host(&next) || !next.username().is_empty() || next.password().is_some() {
+    if !may_receive(spec, tokens, &next) || !next.username().is_empty() || next.password().is_some() {
         return None;
     }
     next.set_fragment(None);
@@ -572,18 +579,55 @@ fn refused(spec: &ProviderSpec, url: &Url) -> Error {
     .with_provider(spec.id.clone())
 }
 
-/// Turns a request path into a URL that may receive `spec`'s credentials.
-fn resolve_url(spec: &ProviderSpec, path: &str) -> Result<Url> {
-    let url = address(spec, path)?;
-    if !spec.allows_host(&url) {
+/// True when `tokens` may be sent to `url`: one of the provider's listed
+/// hosts, or the API host this connection's authorisation named.
+///
+/// The connection's own host is checked against the provider's rules here as
+/// well as when it was stored, so tokens whose address was altered in the
+/// application's store still go nowhere the provider did not declare. And it
+/// is this connection's host only: a rule such as `*.my.salesforce.com` does
+/// not let one customer's token reach another customer's address.
+fn may_receive(spec: &ProviderSpec, tokens: &TokenSet, url: &Url) -> bool {
+    // Scheme, host and port are compared themselves. An origin would also
+    // match a `blob:` address that only names the host inside its path.
+    let same_place = |base: &Url| {
+        base.scheme() == url.scheme()
+            && base.host().is_some()
+            && base.host() == url.host()
+            && base.port_or_known_default() == url.port_or_known_default()
+    };
+    spec.allows_host(url)
+        || tokens
+            .api_base
+            .as_ref()
+            .is_some_and(|base| spec.allows_api_base(base) && same_place(base))
+}
+
+/// Whether content may be fetched from `url` by the connection `tokens` are
+/// for, and if it may, whether the credential goes with the request.
+///
+/// As [`ProviderSpec::content_credentials`], with the connection's own API
+/// host counted among the API's hosts.
+fn content_credentials(spec: &ProviderSpec, tokens: &TokenSet, url: &Url) -> Option<bool> {
+    if may_receive(spec, tokens, url) {
+        return Some(true);
+    }
+    spec.content_credentials(url)
+}
+
+/// Turns a request path into a URL that may receive these credentials.
+fn resolve_url(spec: &ProviderSpec, tokens: &TokenSet, path: &str) -> Result<Url> {
+    let url = address(spec, tokens, path)?;
+    if !may_receive(spec, tokens, &url) {
         return Err(refused(spec, &url));
     }
     Ok(url)
 }
 
-/// Turns a request path into a URL: the path joined to `spec`'s API, or the
-/// address itself when it is one. Which host it is on is for the caller to check.
-fn address(spec: &ProviderSpec, path: &str) -> Result<Url> {
+/// Turns a request path into a URL: the path joined to the API's address
+/// (the connection's own, when its authorisation named one), or the address
+/// itself when it is one. Which host it is on is for the caller to check.
+fn address(spec: &ProviderSpec, tokens: &TokenSet, path: &str) -> Result<Url> {
     let invalid = |message: String| Error::new(ErrorKind::InvalidInput, message).with_provider(spec.id.clone());
     let url = if path.starts_with("https://") || path.starts_with("http://") {
         // The address is not repeated: one that is signed carries its own credential.
@@ -591,7 +635,7 @@ fn address(spec: &ProviderSpec, path: &str) -> Result<Url> {
     } else {
         // `Url::join` drops the last segment of a base without a trailing slash,
         // and a leading slash on the path would discard the base's own path.
-        let mut base = spec.api_base.clone();
+        let mut base = tokens.api_base.clone().unwrap_or_else(|| spec.api_base.clone());
         if !base.path().ends_with('/') {
             base.set_path(&format!("{}/", base.path()));
         }
@@ -844,6 +888,116 @@ mod tests {
             classify(422, &[], json!({ "message": "title is too long" })).kind(),
             ErrorKind::InvalidInput
         );
+    }
+
+    fn per_customer() -> ProviderSpec {
+        serde_json::from_value(json!({
+            "id": "acme",
+            "display_name": "Acme",
+            "api_base": "https://login.acme.example/api/",
+            "allowed_hosts": ["login.acme.example", "*.customers.example"],
+            "auth": { "type": "api_key", "placement": { "in": "header", "name": "Authorization", "prefix": "Bearer " } }
+        }))
+        .unwrap()
+    }
+
+    fn at(base: &str) -> TokenSet {
+        TokenSet::bearer("t").with_api_base(base.parse().unwrap())
+    }
+
+    #[test]
+    fn a_connection_reaches_its_own_host_under_a_rule_and_no_other_customers() {
+        let spec = per_customer();
+        let acme = at("https://acme.customers.example/tenant-api/");
+        let allowed = |tokens: &TokenSet, url: &str| may_receive(&spec, tokens, &Url::parse(url).unwrap());
+
+        assert!(allowed(&acme, "https://acme.customers.example/tenant-api/things"));
+        assert!(allowed(&acme, "https://ACME.customers.example:443/elsewhere"));
+        assert!(allowed(&acme, "https://login.acme.example/userinfo"), "a listed host");
+        for refused in [
+            "https://globex.customers.example/tenant-api/things",
+            "https://customers.example/",
+            "http://acme.customers.example/tenant-api/things",
+            "https://acme.customers.example:8443/tenant-api/things",
+            "https://acme.customers.example./tenant-api/things",
+            "https://*.customers.example/",
+            "blob:https://acme.customers.example/things",
+            "wss://acme.customers.example/things",
+        ] {
+            assert!(!allowed(&acme, refused), "{refused}");
+        }
+
+        // A rule gives nothing to a connection with no address of its own,
+        // nor to one whose address is outside the rule.
+        let bare = TokenSet::bearer("t");
+        assert!(!allowed(&bare, "https://acme.customers.example/tenant-api/things"));
+        assert!(!allowed(&bare, "https://*.customers.example/"));
+        let altered = at("https://elsewhere.example/tenant-api/");
+        assert!(!allowed(&altered, "https://elsewhere.example/tenant-api/things"));
+    }
+
+    #[test]
+    fn content_on_a_connections_own_host_gets_its_token_and_another_customers_host_gets_nothing() {
+        let mut spec = per_customer();
+        spec.content_hosts = vec![crate::provider::ContentHost {
+            host: "signed.acme.example".into(),
+            credentials: false,
+        }];
+        let acme = at("https://acme.customers.example/tenant-api/");
+        let credentials = |tokens: &TokenSet, url: &str| content_credentials(&spec, tokens, &Url::parse(url).unwrap());
+
+        assert_eq!(credentials(&acme, "https://acme.customers.example/files/1"), Some(true));
+        assert_eq!(credentials(&acme, "https://login.acme.example/files/1"), Some(true));
+        assert_eq!(
+            credentials(&acme, "https://signed.acme.example/blob?sig=1"),
+            Some(false),
+            "a signed address is still not given the token"
+        );
+        assert_eq!(credentials(&acme, "https://globex.customers.example/files/1"), None);
+        assert_eq!(
+            credentials(&TokenSet::bearer("t"), "https://acme.customers.example/files/1"),
+            None,
+            "a rule gives nothing to a connection with no address of its own"
+        );
+    }
+
+    #[test]
+    fn a_path_is_resolved_against_the_connections_own_address() {
+        let spec = per_customer();
+        let acme = at("https://acme.customers.example/tenant-api");
+        let resolved = |tokens: &TokenSet, path: &str| resolve_url(&spec, tokens, path).map(String::from);
+
+        assert_eq!(
+            resolved(&acme, "/things/1").unwrap(),
+            "https://acme.customers.example/tenant-api/things/1"
+        );
+        assert_eq!(
+            resolved(&TokenSet::bearer("t"), "things/1").unwrap(),
+            "https://login.acme.example/api/things/1",
+            "a connection with no address of its own uses the provider's"
+        );
+        let other = resolved(&acme, "https://globex.customers.example/tenant-api/things/1").unwrap_err();
+        assert_eq!(other.kind(), ErrorKind::InvalidInput);
+        let altered = resolved(&at("https://elsewhere.example/"), "things/1").unwrap_err();
+        assert_eq!(altered.kind(), ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn a_redirect_is_followed_within_the_connections_own_host_and_not_to_another_customers() {
+        let spec = per_customer();
+        let acme = at("https://acme.customers.example/tenant-api/");
+        let asked = Url::parse("https://acme.customers.example/tenant-api/things").unwrap();
+        let to = |location: &str| {
+            let moved = response(302, &[("location", location)], Value::Null);
+            redirect_target(&spec, &acme, &reqwest::Method::GET, &asked, &moved).map(String::from)
+        };
+        assert_eq!(
+            to("/tenant-api/v2/things").as_deref(),
+            Some("https://acme.customers.example/tenant-api/v2/things")
+        );
+        assert_eq!(to("https://globex.customers.example/tenant-api/things"), None);
+        assert_eq!(to("blob:https://acme.customers.example/things"), None);
+        assert_eq!(to("http://acme.customers.example/tenant-api/things"), None);
     }
 
     #[test]

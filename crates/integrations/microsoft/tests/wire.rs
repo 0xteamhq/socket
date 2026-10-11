@@ -82,6 +82,7 @@ fn tokens(access: &str, refresh: &str, expires_in: i64) -> TokenSet {
         refresh_token: Some(SecretString::new(refresh)),
         expires_at: Some(expires_at),
         scopes: vec!["User.Read".into()],
+        api_base: None,
     }
 }
 

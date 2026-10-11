@@ -1126,14 +1126,34 @@ name = "socketkit"
 version = "0.0.0"
 dependencies = [
  "serde_json",
+ "socketkit-attio",
  "socketkit-core",
  "socketkit-github",
  "socketkit-google",
+ "socketkit-hubspot",
  "socketkit-linear",
  "socketkit-microsoft",
  "socketkit-notion",
+ "socketkit-pipedrive",
+ "socketkit-salesforce",
  "socketkit-slack",
  "socketkit-zoom",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "socketkit-attio"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "httpdate",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "socketkit-core",
+ "socketkit-testkit",
  "tokio",
  "url",
 ]
@@ -1181,6 +1201,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "socketkit-hubspot"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "httpdate",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "socketkit-core",
+ "socketkit-testkit",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "socketkit-linear"
 version = "0.0.0"
 dependencies = [
@@ -1217,6 +1253,36 @@ dependencies = [
  "socketkit-core",
  "socketkit-testkit",
  "tokio",
+]
+
+[[package]]
+name = "socketkit-pipedrive"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "socketkit-core",
+ "socketkit-testkit",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "socketkit-salesforce"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "socketkit-core",
+ "socketkit-testkit",
+ "tokio",
+ "url",
 ]
 
 [[package]]

@@ -12,7 +12,8 @@ use url::Url;
 
 use super::{
     Classifier, MAX_BODY_BYTES, MAX_REDIRECTS, Transport, USER_AGENT, address, answer, authorized, caller_headers,
-    key_parameter, refuse_key_parameter, too_many_redirects, unreached_once, without_key_parameter,
+    content_credentials, key_parameter, refuse_key_parameter, too_many_redirects, unreached_once,
+    without_key_parameter,
 };
 use crate::error::{Error, ErrorKind, Result};
 use crate::provider::{ProviderId, ProviderSpec};
@@ -220,11 +221,11 @@ impl Transport {
         classifier: &dyn Classifier,
         request: ContentRequest,
     ) -> Result<Content> {
-        let mut url = address(spec, &request.path)?;
+        let mut url = address(spec, tokens, &request.path)?;
         for (name, value) in &request.query {
             url.query_pairs_mut().append_pair(name, value);
         }
-        match spec.content_credentials(&url) {
+        match content_credentials(spec, tokens, &url) {
             Some(true) => refuse_key_parameter(spec, &url)?,
             // A signed address is used as it is: nothing is added to it.
             Some(false) => {}
@@ -236,7 +237,7 @@ impl Transport {
         let mut attempt = 1;
         let mut redirects = 0;
         loop {
-            let given = |address: &Url| spec.content_credentials(address) == Some(true);
+            let given = |address: &Url| content_credentials(spec, tokens, address) == Some(true);
             let once = self.fetch_once(spec, tokens, classifier, &url, &headers, limit, request.timeout);
             let error = match once.await {
                 Ok(Fetched::Done(content)) => return Ok(content),
@@ -280,7 +281,7 @@ impl Transport {
         let secret = tokens.access_token.expose();
         // Decided for each address anew: where a redirect leads is another
         // host, with its own answer.
-        let credentials = spec.content_credentials(url).ok_or_else(|| undeclared(spec, url))?;
+        let credentials = content_credentials(spec, tokens, url).ok_or_else(|| undeclared(spec, url))?;
         let mut headers = HeaderMap::new();
         headers.insert(reqwest::header::USER_AGENT, HeaderValue::from_static(USER_AGENT));
         headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("*/*"));
@@ -306,7 +307,7 @@ impl Transport {
 
         if matches!(status, 301 | 302 | 303 | 307 | 308) {
             let location = response.headers().get(reqwest::header::LOCATION);
-            return match redirect_target(spec, url, location, secret) {
+            return match redirect_target(spec, tokens, url, location) {
                 Some(to) => Ok(Fetched::Moved { to, status }),
                 None => Err(not_followed(spec, status)),
             };
@@ -375,13 +376,14 @@ impl Transport {
 /// An address on a host that is not given the credential is not followed
 /// when the address itself carries the credential. The caller refuses one
 /// more: a way back to a host that is given the credential, from one that is not.
-fn redirect_target(spec: &ProviderSpec, asked: &Url, location: Option<&HeaderValue>, secret: &str) -> Option<Url> {
+fn redirect_target(spec: &ProviderSpec, tokens: &TokenSet, asked: &Url, location: Option<&HeaderValue>) -> Option<Url> {
+    let secret = tokens.access_token.expose();
     let mut next = asked.join(location?.to_str().ok()?).ok()?;
     if !next.username().is_empty() || next.password().is_some() {
         return None;
     }
     next.set_fragment(None);
-    if spec.content_credentials(&next)? {
+    if content_credentials(spec, tokens, &next)? {
         without_key_parameter(spec, &mut next);
     } else if carries(&next, secret) {
         return None;

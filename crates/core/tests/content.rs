@@ -838,6 +838,7 @@ async fn a_token_the_provider_rejects_is_renewed_once_for_content_as_for_any_req
         refresh_token: Some(SecretString::new("the-refresh")),
         expires_at: Some(SystemTime::now() + Duration::from_secs(3000)),
         scopes: vec!["read".into()],
+        api_base: None,
     };
     let (socket, store) = connected_with(spec(&api, &[]), tokens).await;
     let content = socket.fetch(key(), ContentRequest::get("files/1")).await.unwrap();
@@ -863,6 +864,7 @@ async fn a_host_that_was_not_given_the_token_cannot_have_it_renewed() {
         refresh_token: Some(SecretString::new("the-refresh")),
         expires_at: Some(SystemTime::now() + Duration::from_secs(3000)),
         scopes: vec!["read".into()],
+        api_base: None,
     };
     let (socket, store) = connected_with(spec(&api, &[(&signed, false)]), tokens).await;
     let err = socket

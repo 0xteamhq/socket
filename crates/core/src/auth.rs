@@ -228,6 +228,7 @@ pub fn standard_token_response(provider: &ProviderId, raw: &Value, now: SystemTi
             .map(SecretString::new),
         expires_at,
         scopes,
+        api_base: None,
     })
 }
 
