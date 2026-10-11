@@ -24,6 +24,7 @@ use socketkit_core::{
 };
 
 // ── gmail: groups ──
+pub use client::{GmailDrafts, GmailLabels, GmailMessages, GmailProfiles, GmailThreads};
 
 // ── calendar: groups ──
 pub use client::{CalendarEvents, CalendarFreebusy, CalendarList};
@@ -364,6 +365,30 @@ impl Google {
     }
 
     // ── gmail: groups ──
+    /// Gmail messages: finding, reading, sending, labelling and binning them.
+    pub fn gmail_messages<'a>(&self, connection: &'a Connection) -> GmailMessages<'a> {
+        GmailMessages(client::Api { connection })
+    }
+
+    /// Gmail threads: conversations, and the messages in one.
+    pub fn gmail_threads<'a>(&self, connection: &'a Connection) -> GmailThreads<'a> {
+        GmailThreads(client::Api { connection })
+    }
+
+    /// Gmail labels: Gmail's own, and the ones a person made.
+    pub fn gmail_labels<'a>(&self, connection: &'a Connection) -> GmailLabels<'a> {
+        GmailLabels(client::Api { connection })
+    }
+
+    /// Gmail drafts: messages that are written and not yet sent.
+    pub fn gmail_drafts<'a>(&self, connection: &'a Connection) -> GmailDrafts<'a> {
+        GmailDrafts(client::Api { connection })
+    }
+
+    /// The Gmail account itself: its address and how much it holds.
+    pub fn gmail_profile<'a>(&self, connection: &'a Connection) -> GmailProfiles<'a> {
+        GmailProfiles(client::Api { connection })
+    }
 
     // ── calendar: groups ──
 

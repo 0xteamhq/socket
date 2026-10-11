@@ -12,6 +12,12 @@
 //! the re-exports. Each group's methods are in the file named after it.
 
 // ── gmail: modules ──
+mod gmail_drafts;
+mod gmail_labels;
+mod gmail_messages;
+mod gmail_messages_send;
+mod gmail_profile;
+mod gmail_threads;
 
 // ── calendar: modules ──
 mod calendar_events;
@@ -44,6 +50,11 @@ use socketkit_core::{Connection, Error, ErrorKind, Page, RawRequest, Result};
 use url::Url;
 
 // ── gmail: groups ──
+pub use gmail_drafts::GmailDrafts;
+pub use gmail_labels::GmailLabels;
+pub use gmail_messages::GmailMessages;
+pub use gmail_profile::GmailProfiles;
+pub use gmail_threads::GmailThreads;
 
 // ── calendar: groups ──
 pub use calendar_events::CalendarEvents;

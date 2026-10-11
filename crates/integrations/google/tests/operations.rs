@@ -12,9 +12,97 @@ use support::{Case, TOKEN, answer, body_of, contains, google, invoke, query_of};
 // that must reach Google, and what the operation returns for Google's answer.
 
 // ── gmail: cases ──
+use support::gmail::{
+    GMAIL_ATTACHMENT, GMAIL_DRAFT, GMAIL_DRAFTS, GMAIL_LABELS, GMAIL_MESSAGE, GMAIL_MESSAGES, GMAIL_PROFILE,
+    GMAIL_THREAD, GMAIL_THREADS, gmail_data, gmail_draft_ref, gmail_label, gmail_message, gmail_message_returned,
+    gmail_metadata, gmail_part, gmail_ref,
+};
 #[rustfmt::skip]
 fn gmail_cases() -> Vec<Case> {
-    vec![]
+    use serde_json::json;
+    let message = format!("{GMAIL_MESSAGES}/{GMAIL_MESSAGE}");
+    let draft = format!("{GMAIL_DRAFTS}/{GMAIL_DRAFT}");
+    let grace = json!([{ "email": "grace@example.test", "name": "Grace Hopper" }]);
+    // What reaches Gmail in `raw` is the whole message, written as mail travels.
+    let monday = gmail_data(&format!("To: Grace Hopper <grace@example.test>\r\nSubject: Monday\r\nMIME-Version: 1.0\r\n{}", gmail_part("text/plain", "See you Monday.")));
+    let answer = gmail_data(&format!(
+        "To: Grace Hopper <grace@example.test>\r\nSubject: Re: Q3 plan\r\nIn-Reply-To: <CAF1plan@mail.example.test>\r\nReferences: <CAF0kickoff@mail.example.test> <CAF1plan@mail.example.test>\r\nMIME-Version: 1.0\r\n{}",
+        gmail_part("text/plain", "Monday works.")));
+    let pdf = json!({ "size": 9, "data": gmail_data("%PDF-1.7\n") });
+    let inbox = json!({ "id": "INBOX", "name": "INBOX", "type": "system", "messageListVisibility": "hide", "labelListVisibility": "labelShow" });
+    let projects = json!({ "id": "Label_12", "name": "Projects/Q3", "type": "user", "messageListVisibility": "show", "labelListVisibility": "labelShow" });
+    let profile = json!({ "emailAddress": "ada@example.test", "messagesTotal": 20481, "threadsTotal": 9150, "historyId": "987654" });
+    vec![
+        // messages: reading
+        Case::new("gmail_messages.list", json!({ "q": "from:grace is:unread", "labelIds": ["INBOX", "UNREAD"], "includeSpamTrash": false, "limit": 2, "cursor": "09876543210" }), "GET", GMAIL_MESSAGES)
+            .query(json!({ "q": "from:grace is:unread", "labelIds": ["INBOX", "UNREAD"], "includeSpamTrash": "false", "maxResults": "2", "pageToken": "09876543210" }))
+            .answers(200, json!({ "messages": [{ "id": GMAIL_MESSAGE, "threadId": GMAIL_THREAD }, { "id": "18c1a2b3c4d5e6f8", "threadId": GMAIL_THREAD }], "nextPageToken": "12345678901", "resultSizeEstimate": 7 }))
+            .returns(json!({ "items": [{ "id": GMAIL_MESSAGE, "threadId": GMAIL_THREAD, "labelIds": [] }, { "id": "18c1a2b3c4d5e6f8", "threadId": GMAIL_THREAD }], "next_cursor": "12345678901" })),
+        Case::new("gmail_messages.get", json!({ "message": GMAIL_MESSAGE }), "GET", message.clone())
+            .answers(200, gmail_message()).returns(gmail_message_returned()),
+        Case::new("gmail_messages.attachment_get", json!({ "message": GMAIL_MESSAGE, "attachment": GMAIL_ATTACHMENT }), "GET", format!("{message}/attachments/{GMAIL_ATTACHMENT}"))
+            .answers(200, pdf.clone()).returns(pdf),
+
+        // messages: sending
+        Case::new("gmail_messages.send", json!({ "to": grace.clone(), "subject": "Monday", "text": "See you Monday." }), "POST", format!("{GMAIL_MESSAGES}/send"))
+            .body(json!({ "raw": monday.clone() }))
+            .answers(200, gmail_ref(&["SENT"])).returns(gmail_ref(&["SENT"])),
+        Case::new("gmail_messages.reply", json!({ "message": GMAIL_MESSAGE, "text": "Monday works." }), "POST", format!("{GMAIL_MESSAGES}/send"))
+            .body(json!({ "raw": answer, "threadId": GMAIL_THREAD }))
+            .also("GET", message.clone(), gmail_metadata())
+            .answers(200, gmail_ref(&["SENT"])).returns(gmail_ref(&["SENT"])),
+        Case::new("gmail_messages.send_draft", json!({ "draft": GMAIL_DRAFT }), "POST", format!("{GMAIL_DRAFTS}/send"))
+            .body(json!({ "id": GMAIL_DRAFT }))
+            .answers(200, gmail_ref(&["SENT"])).returns(gmail_ref(&["SENT"])),
+
+        // messages: labels and the bin
+        Case::new("gmail_messages.modify", json!({ "message": GMAIL_MESSAGE, "addLabelIds": ["STARRED"], "removeLabelIds": ["UNREAD", "INBOX"] }), "POST", format!("{message}/modify"))
+            .body(json!({ "addLabelIds": ["STARRED"], "removeLabelIds": ["UNREAD", "INBOX"] }))
+            .answers(200, gmail_ref(&["IMPORTANT", "STARRED"])).returns(gmail_ref(&["IMPORTANT", "STARRED"])),
+        Case::new("gmail_messages.trash", json!({ "message": GMAIL_MESSAGE }), "POST", format!("{message}/trash"))
+            .body(json!({}))
+            .answers(200, gmail_ref(&["TRASH"])).returns(gmail_ref(&["TRASH"])),
+        Case::new("gmail_messages.untrash", json!({ "message": GMAIL_MESSAGE }), "POST", format!("{message}/untrash"))
+            .body(json!({}))
+            .answers(200, gmail_ref(&["INBOX"])).returns(gmail_ref(&["INBOX"])),
+
+        // threads
+        Case::new("gmail_threads.list", json!({ "q": "subject:plan", "limit": 10 }), "GET", GMAIL_THREADS)
+            .query(json!({ "q": "subject:plan", "maxResults": "10" }))
+            .answers(200, json!({ "threads": [{ "id": GMAIL_THREAD, "snippet": "Attached is the plan for Q3.", "historyId": "987654" }], "resultSizeEstimate": 1 }))
+            .returns(json!({ "items": [{ "id": GMAIL_THREAD, "snippet": "Attached is the plan for Q3.", "historyId": "987654", "messages": [] }], "next_cursor": null })),
+        Case::new("gmail_threads.get", json!({ "thread": GMAIL_THREAD }), "GET", format!("{GMAIL_THREADS}/{GMAIL_THREAD}"))
+            .answers(200, json!({ "id": GMAIL_THREAD, "historyId": "987654", "messages": [gmail_message()] }))
+            .returns(json!({ "id": GMAIL_THREAD, "historyId": "987654", "messages": [gmail_message_returned()] })),
+
+        // labels
+        Case::new("gmail_labels.list", json!({}), "GET", GMAIL_LABELS)
+            .answers(200, json!({ "labels": [inbox.clone(), projects.clone()] }))
+            .returns(json!([inbox, projects])),
+        Case::new("gmail_labels.get", json!({ "label": "Label_12" }), "GET", format!("{GMAIL_LABELS}/Label_12"))
+            .answers(200, gmail_label()).returns(gmail_label()),
+
+        // profile
+        Case::new("gmail_profile.get", json!({}), "GET", GMAIL_PROFILE)
+            .answers(200, profile.clone()).returns(profile),
+
+        // drafts
+        Case::new("gmail_drafts.list", json!({ "q": "to:grace", "includeSpamTrash": true, "limit": 5 }), "GET", GMAIL_DRAFTS)
+            .query(json!({ "q": "to:grace", "includeSpamTrash": "true", "maxResults": "5" }))
+            .answers(200, json!({ "drafts": [{ "id": GMAIL_DRAFT, "message": { "id": "18c9f0e1d2c3b4a6", "threadId": "18c9f0e1d2c3b4a6" } }], "nextPageToken": "55443322110", "resultSizeEstimate": 9 }))
+            .returns(json!({ "items": [{ "id": GMAIL_DRAFT, "message": { "id": "18c9f0e1d2c3b4a6", "threadId": "18c9f0e1d2c3b4a6" } }], "next_cursor": "55443322110" })),
+        Case::new("gmail_drafts.get", json!({ "draft": GMAIL_DRAFT }), "GET", draft.clone())
+            .answers(200, json!({ "id": GMAIL_DRAFT, "message": gmail_message() }))
+            .returns(json!({ "id": GMAIL_DRAFT, "message": gmail_message_returned() })),
+        Case::new("gmail_drafts.create", json!({ "to": grace.clone(), "subject": "Monday", "text": "See you Monday." }), "POST", GMAIL_DRAFTS)
+            .body(json!({ "message": { "raw": monday.clone() } }))
+            .answers(200, gmail_draft_ref()).returns(gmail_draft_ref()),
+        Case::new("gmail_drafts.update", json!({ "draft": GMAIL_DRAFT, "to": grace, "subject": "Monday", "text": "See you Monday." }), "PUT", draft.clone())
+            .body(json!({ "message": { "raw": monday } }))
+            .answers(200, gmail_draft_ref()).returns(gmail_draft_ref()),
+        Case::new("gmail_drafts.delete", json!({ "draft": GMAIL_DRAFT }), "DELETE", draft)
+            .answers(204, json!(null)).returns(json!(null)),
+    ]
 }
 
 // ── calendar: cases ──
@@ -308,6 +396,29 @@ fn every_case() -> Vec<Case> {
 fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
     vec![
         // ── gmail: effects ──
+        ("gmail_messages.list", Effect::Read, &[scopes::GMAIL_READONLY]),
+        ("gmail_messages.get", Effect::Read, &[scopes::GMAIL_READONLY]),
+        ("gmail_messages.attachment_get", Effect::Read, &[scopes::GMAIL_READONLY]),
+        // Mail that was sent cannot be taken back.
+        ("gmail_messages.send", Effect::Destructive, &[scopes::GMAIL_SEND]),
+        // A reply reads the message it answers before it sends.
+        ("gmail_messages.reply", Effect::Destructive, &[scopes::GMAIL_READONLY, scopes::GMAIL_SEND]),
+        // Google sends a draft under the scope for drafts, not the one for sending.
+        ("gmail_messages.send_draft", Effect::Destructive, &[scopes::GMAIL_COMPOSE]),
+        ("gmail_messages.modify", Effect::Write, &[scopes::GMAIL_MODIFY]),
+        ("gmail_messages.trash", Effect::Write, &[scopes::GMAIL_MODIFY]),
+        ("gmail_messages.untrash", Effect::Write, &[scopes::GMAIL_MODIFY]),
+        ("gmail_threads.list", Effect::Read, &[scopes::GMAIL_READONLY]),
+        ("gmail_threads.get", Effect::Read, &[scopes::GMAIL_READONLY]),
+        ("gmail_labels.list", Effect::Read, &[scopes::GMAIL_READONLY]),
+        ("gmail_labels.get", Effect::Read, &[scopes::GMAIL_READONLY]),
+        ("gmail_profile.get", Effect::Read, &[scopes::GMAIL_READONLY]),
+        ("gmail_drafts.list", Effect::Read, &[scopes::GMAIL_READONLY]),
+        ("gmail_drafts.get", Effect::Read, &[scopes::GMAIL_READONLY]),
+        ("gmail_drafts.create", Effect::Write, &[scopes::GMAIL_COMPOSE]),
+        // An update replaces the whole of what the draft said.
+        ("gmail_drafts.update", Effect::Destructive, &[scopes::GMAIL_COMPOSE]),
+        ("gmail_drafts.delete", Effect::Destructive, &[scopes::GMAIL_COMPOSE]),
 
         // ── calendar: effects ──
         ("calendar_list.list", Effect::Read, &[scopes::CALENDAR_READONLY]),

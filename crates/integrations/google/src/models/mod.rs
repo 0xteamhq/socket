@@ -13,6 +13,16 @@ mod paging;
 pub use paging::Paging;
 
 // ── gmail: modules ──
+mod gmail_address;
+mod gmail_draft;
+mod gmail_label;
+mod gmail_message;
+mod gmail_mime;
+mod gmail_profile;
+mod gmail_reply;
+mod gmail_rfc2822;
+mod gmail_thread;
+mod gmail_words;
 
 // ── calendar: modules ──
 mod calendar;
@@ -46,6 +56,20 @@ mod spreadsheet;
 mod value_range;
 
 // ── gmail: types ──
+pub use gmail_address::GmailAddress;
+pub(crate) use gmail_draft::GmailWireDraft;
+pub use gmail_draft::{GmailDraft, GmailDraftRef, GmailListDrafts};
+pub use gmail_label::{GmailLabel, GmailLabelColor};
+pub use gmail_message::{
+    GmailAttachment, GmailAttachmentBody, GmailFormat, GmailGetMessage, GmailListMessages, GmailMessage,
+    GmailMessageRef, GmailModifyMessage, GmailSendMessage,
+};
+pub(crate) use gmail_mime::GmailWireMessage;
+pub use gmail_profile::GmailProfile;
+pub use gmail_reply::GmailReply;
+pub(crate) use gmail_rfc2822::{GmailThreading, raw as gmail_raw, sendable as gmail_sendable};
+pub(crate) use gmail_thread::GmailWireThread;
+pub use gmail_thread::{GmailGetThread, GmailListThreads, GmailThread};
 
 // ── calendar: types ──
 pub use calendar::{CalendarListEntry, CalendarListFilter};

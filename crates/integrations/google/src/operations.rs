@@ -20,6 +20,11 @@ use crate::models::Paging;
 use crate::scopes;
 
 // ── gmail: types ──
+use crate::models::{
+    GmailAttachmentBody, GmailDraft, GmailDraftRef, GmailGetMessage, GmailGetThread, GmailLabel, GmailListDrafts,
+    GmailListMessages, GmailListThreads, GmailMessage, GmailMessageRef, GmailModifyMessage, GmailProfile, GmailReply,
+    GmailSendMessage, GmailThread,
+};
 
 // ── calendar: types ──
 use crate::models::{
@@ -220,6 +225,101 @@ macro_rules! input {
 }
 
 // ── gmail: inputs ──
+input!(
+    GmailMessagesList {
+        /// The `next_cursor` of the page before, unchanged; absent for the first page.
+        cursor: Option<String>,
+        /// The most messages to return in one page, from 1 to 500. Gmail returns 100 when not given.
+        limit: Option<u32>
+    } + GmailListMessages
+);
+input!(
+    GmailOneMessage {
+        /// A message id.
+        message: String
+    } + GmailGetMessage
+);
+input!(GmailThisMessage {
+    /// A message id.
+    message: String
+});
+input!(GmailOneAttachment {
+    /// A message id.
+    message: String,
+    /// The `attachmentId` of one of its attachments.
+    attachment: String
+});
+input!(GmailSendNow {} + GmailSendMessage);
+input!(
+    GmailAnswer {
+        /// The id of the message that is answered.
+        message: String
+    } + GmailReply
+);
+input!(
+    GmailLabelled {
+        /// A message id.
+        message: String
+    } + GmailModifyMessage
+);
+input!(
+    GmailThreadsList {
+        /// The `next_cursor` of the page before, unchanged; absent for the first page.
+        cursor: Option<String>,
+        /// The most threads to return in one page, from 1 to 500. Gmail returns 100 when not given.
+        limit: Option<u32>
+    } + GmailListThreads
+);
+input!(
+    GmailOneThread {
+        /// A thread id: a message's `threadId`.
+        thread: String
+    } + GmailGetThread
+);
+/// The input of an operation that takes nothing. Its schema lists no
+/// fields, where the one derived for an empty struct says nothing of fields
+/// at all, so one given to it is refused like any other that is not known.
+#[derive(Debug, Deserialize)]
+struct GmailNothing {}
+
+impl JsonSchema for GmailNothing {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "GmailNothing".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({ "type": "object", "properties": {} })
+    }
+}
+input!(GmailOneLabel {
+    /// A label id, such as `INBOX` or `Label_12`.
+    label: String
+});
+input!(
+    GmailDraftsList {
+        /// The `next_cursor` of the page before, unchanged; absent for the first page.
+        cursor: Option<String>,
+        /// The most drafts to return in one page, from 1 to 500. Gmail returns 100 when not given.
+        limit: Option<u32>
+    } + GmailListDrafts
+);
+input!(
+    GmailOneDraft {
+        /// A draft id. It is not the id of the message the draft holds.
+        draft: String
+    } + GmailGetMessage
+);
+input!(GmailNewDraft {} + GmailSendMessage);
+input!(
+    GmailChangedDraft {
+        /// A draft id. It is not the id of the message the draft holds.
+        draft: String
+    } + GmailSendMessage
+);
+input!(GmailThisDraft {
+    /// A draft id. It is not the id of the message the draft holds.
+    draft: String
+});
 
 // ── calendar: inputs ──
 input!(
@@ -465,6 +565,48 @@ pub(crate) fn all() -> &'static [Operation] {
 fn build() -> Vec<Operation> {
     vec![
         // ── gmail ──
+        operation("gmail_messages.list", "List the messages a Gmail search finds. Returns ids only: each message's id and its thread's id. Read one with gmail_messages.get.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, i: GmailMessagesList| async move { g.gmail_messages(&c).list(i.options, Paging { cursor: i.cursor, limit: i.limit }).await as Result<Page<GmailMessageRef>> }),
+        operation("gmail_messages.get", "Get one Gmail message, decoded: its headers, its body as plain text and as HTML, and its attachments without their content.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, i: GmailOneMessage| async move { g.gmail_messages(&c).get(&i.message, i.options).await as Result<GmailMessage> }),
+        operation("gmail_messages.attachment_get", "Get the content of one attachment of a Gmail message, in URL-safe base64, with its size. A file over about 7 MB cannot be read yet.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, i: GmailOneAttachment| async move { g.gmail_messages(&c).attachment_get(&i.message, &i.attachment).await as Result<GmailAttachmentBody> }),
+        operation("gmail_messages.send", "Send a message at once from the Gmail account's own address. It cannot be taken back.", Destructive, &[scopes::GMAIL_SEND],
+            |g: Google, c: Connection, i: GmailSendNow| async move { g.gmail_messages(&c).send(i.options).await as Result<GmailMessageRef> }),
+        operation("gmail_messages.reply", "Answer a Gmail message in its thread and send the answer at once, to the address the original asks replies to go to or else its sender. It cannot be taken back.", Destructive, &[scopes::GMAIL_READONLY, scopes::GMAIL_SEND],
+            |g: Google, c: Connection, i: GmailAnswer| async move { g.gmail_messages(&c).reply(&i.message, i.options).await as Result<GmailMessageRef> }),
+        operation("gmail_messages.send_draft", "Send a Gmail draft as it stands. It cannot be taken back, and the draft is gone once it is sent.", Destructive, &[scopes::GMAIL_COMPOSE],
+            |g: Google, c: Connection, i: GmailThisDraft| async move { g.gmail_messages(&c).send_draft(&i.draft).await as Result<GmailMessageRef> }),
+        operation("gmail_messages.modify", "Add labels to a Gmail message and remove others: remove INBOX to archive, remove UNREAD to mark as read, add STARRED to star.", Write, &[scopes::GMAIL_MODIFY],
+            |g: Google, c: Connection, i: GmailLabelled| async move { g.gmail_messages(&c).modify(&i.message, i.options).await as Result<GmailMessageRef> }),
+        operation("gmail_messages.trash", "Move a Gmail message to the bin. It can be brought back with gmail_messages.untrash until Gmail empties the bin.", Write, &[scopes::GMAIL_MODIFY],
+            |g: Google, c: Connection, i: GmailThisMessage| async move { g.gmail_messages(&c).trash(&i.message).await as Result<GmailMessageRef> }),
+        operation("gmail_messages.untrash", "Take a Gmail message out of the bin.", Write, &[scopes::GMAIL_MODIFY],
+            |g: Google, c: Connection, i: GmailThisMessage| async move { g.gmail_messages(&c).untrash(&i.message).await as Result<GmailMessageRef> }),
+
+        operation("gmail_threads.list", "List the Gmail threads a search finds. Each is its id and a snippet, without its messages. Read one with gmail_threads.get.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, i: GmailThreadsList| async move { g.gmail_threads(&c).list(i.options, Paging { cursor: i.cursor, limit: i.limit }).await as Result<Page<GmailThread>> }),
+        operation("gmail_threads.get", "Get one Gmail thread with its messages, each decoded. Ask for the metadata format to leave the bodies out of a long thread.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, i: GmailOneThread| async move { g.gmail_threads(&c).get(&i.thread, i.options).await as Result<GmailThread> }),
+
+        operation("gmail_labels.list", "List every label of the Gmail mailbox, Gmail's own and the person's, without their counts.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, _: GmailNothing| async move { g.gmail_labels(&c).list().await as Result<Vec<GmailLabel>> }),
+        operation("gmail_labels.get", "Get one Gmail label, with how many messages and threads carry it and how many are unread.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, i: GmailOneLabel| async move { g.gmail_labels(&c).get(&i.label).await as Result<GmailLabel> }),
+
+        operation("gmail_profile.get", "Get the Gmail account's address, how many messages and threads it holds, and its current history id.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, _: GmailNothing| async move { g.gmail_profile(&c).get().await as Result<GmailProfile> }),
+
+        operation("gmail_drafts.list", "List the Gmail drafts. Returns ids only: each draft's id and the ids of the message it holds. Read one with gmail_drafts.get.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, i: GmailDraftsList| async move { g.gmail_drafts(&c).list(i.options, Paging { cursor: i.cursor, limit: i.limit }).await as Result<Page<GmailDraftRef>> }),
+        operation("gmail_drafts.get", "Get one Gmail draft, with its message decoded: headers, text, HTML and attachments.", Read, &[scopes::GMAIL_READONLY],
+            |g: Google, c: Connection, i: GmailOneDraft| async move { g.gmail_drafts(&c).get(&i.draft, i.options).await as Result<GmailDraft> }),
+        operation("gmail_drafts.create", "Save a new Gmail draft. Nothing is sent.", Write, &[scopes::GMAIL_COMPOSE],
+            |g: Google, c: Connection, i: GmailNewDraft| async move { g.gmail_drafts(&c).create(i.options).await as Result<GmailDraftRef> }),
+        operation("gmail_drafts.update", "Replace everything a Gmail draft says. What is not given again is gone.", Destructive, &[scopes::GMAIL_COMPOSE],
+            |g: Google, c: Connection, i: GmailChangedDraft| async move { g.gmail_drafts(&c).update(&i.draft, i.options).await as Result<GmailDraftRef> }),
+        operation("gmail_drafts.delete", "Delete a Gmail draft for good. It does not go to the bin.", Destructive, &[scopes::GMAIL_COMPOSE],
+            |g: Google, c: Connection, i: GmailThisDraft| async move { g.gmail_drafts(&c).delete(&i.draft).await as Result<()> }),
 
         // ── calendar ──
         operation("calendar_list.list", "List the calendars on the signed-in person's calendar list.", Read, &[scopes::CALENDAR_READONLY],
