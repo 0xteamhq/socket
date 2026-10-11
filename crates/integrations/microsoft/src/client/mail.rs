@@ -1,7 +1,8 @@
 //! A person's mail: reading it, and marking, moving and deleting what is there.
 //!
-//! Writing and sending are in `mail_compose.rs`; they are methods of the same
-//! group, kept apart only for the length of the file.
+//! Writing and sending are in `mail_compose.rs` and attachments in
+//! `mail_attachments.rs`; they are methods of the same group, kept apart only
+//! for the length of the file.
 //!
 //! Every path here starts at `me`, the signed-in person's own mailbox. A
 //! shared or delegated mailbox would start at `users/{id}` instead, and
@@ -11,11 +12,7 @@ use serde_json::{Value, json};
 use socketkit_core::{ErrorKind, Page, RawRequest, Result};
 
 use super::{Api, with};
-use crate::models::{Attachment, BodyType, GetMessage, ListMessages, Message, Paging, UpdateMessage};
-
-/// What describes an attachment, without the file itself. A list that
-/// carried every file would be as large as all of them together.
-const ATTACHMENT_FIELDS: &str = "id,name,contentType,size,isInline,lastModifiedDateTime";
+use crate::models::{BodyType, GetMessage, ListMessages, Message, Paging, UpdateMessage};
 
 /// Asks Graph for bodies in one format: plain text unless HTML is asked for.
 fn with_body_as(request: RawRequest, body_type: Option<BodyType>) -> RawRequest {
@@ -95,29 +92,6 @@ impl Mail<'_> {
             .with_query("$filter", filter)
             .with_query("$orderby", "receivedDateTime asc");
         self.0.page(request, &paging, "messages").await
-    }
-
-    /// Lists what is attached to a message: names, types and sizes, without
-    /// the files themselves.
-    pub async fn attachments_list(&self, message: &str, paging: Paging) -> Result<Page<Attachment>> {
-        let request =
-            RawRequest::get(format!("{}/attachments", self.item(message)?)).with_query("$select", ATTACHMENT_FIELDS);
-        self.0.page(request, &paging, "attachments").await
-    }
-
-    /// Gets one attachment. A file comes with its content, in base64.
-    pub async fn attachment_get(&self, message: &str, attachment: &str) -> Result<Attachment> {
-        let attachment = self.0.segment("an attachment id", attachment)?;
-        let path = format!("{}/attachments/{attachment}", self.item(message)?);
-        let attachment: Attachment = self
-            .0
-            .decode(self.0.send(RawRequest::get(path)).await?, "an attachment")?;
-        if attachment.id.is_empty() {
-            return Err(self
-                .0
-                .error(ErrorKind::Decode, "microsoft answered without an attachment"));
-        }
-        Ok(attachment)
     }
 
     /// Marks a message: read or unread, its categories, its follow-up flag.

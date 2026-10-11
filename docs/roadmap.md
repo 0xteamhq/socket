@@ -37,7 +37,7 @@ Phase 6 is new in this roadmap: the spec lists bindings under "later", and they 
 
 ## Slack, built out ahead of phase 2
 
-Slack now has 54 typed methods, each also a named operation with generated schemas: chat, conversations, users, reactions, pins, files, search, reminders, bookmarks, user groups, and the workspace (team, emoji, Do Not Disturb). Not covered: uploading a file (it sends raw bytes to a different host, which the transport does not do yet), modals and views, admin and SCIM methods, incoming events, and Socket Mode. None of it has been run against the real Slack; the request and response shapes follow Slack's documentation.
+Slack now has 54 typed methods, each also a named operation with generated schemas: chat, conversations, users, reactions, pins, files, search, reminders, bookmarks, user groups, and the workspace (team, emoji, Do Not Disturb). Not covered: uploading a file (it sends raw bytes to a different host; the transport fetches bytes now, and does not yet send them), modals and views, admin and SCIM methods, incoming events, and Socket Mode. None of it has been run against the real Slack; the request and response shapes follow Slack's documentation.
 
 ## Microsoft, the first provider of wave 2
 
@@ -45,13 +45,19 @@ Slack now has 54 typed methods, each also a named operation with generated schem
 
 The Outlook calendar is the first product on it: 12 typed methods in two groups, `calendars` and `events`, each also a named operation. Events are read between two times with repeating events expanded, with every time in UTC and the event's own zone kept beside it; free and busy times and suggested meeting times are read; events are created (with a Teams link when asked), changed, answered, cancelled and deleted. A list is paged with the query of the address Graph gives for the next page, once that address is seen to be on the API's own host; the request itself always goes to the address the method built. Two things wait on the shared typed-operation work on the `github-full-client` branch: the crate carries its own copy of the operation machinery, as Slack does, and the transport still repeats a DELETE after a server error.
 
-Outlook mail is the second: 18 methods in `mail` and `mail_folders`. Messages are listed by folder, filter, search and sort, read with their body as plain text, and gathered by conversation; attachments are listed without their content and fetched one at a time; drafts, replies and forwards are written without sending; mail is sent, marked, moved and deleted. Sending, changing a draft, moving and deleting are marked destructive. Not covered: shared and delegated mailboxes, adding attachments, and files too large for one answer.
+Outlook mail is the second: 20 methods in `mail` and `mail_folders`. Messages are listed by folder, filter, search and sort, read with their body as plain text, and gathered by conversation; attachments are listed and described without their content, and fetched one at a time as bytes or, by name, as text; drafts, replies and forwards are written without sending; mail is sent, marked, moved and deleted. Sending, changing a draft, moving and deleting are marked destructive. Not covered: shared and delegated mailboxes, and adding attachments.
 
 Teams is the third: 18 methods in `teams`, `channels`, `channel_messages` and `chats`. Teams, channels and their members are listed; a channel's messages and replies and a chat's messages are read, each also as plain text with mentions written as names; a message is posted to a channel or a chat, and a chat is created.
 
-Teams meetings are the fourth: 9 methods in `online_meetings`, `transcripts`, `recordings` and `attendance`. A meeting is found from the join link on a calendar event; its transcripts are read as text and as entries with speaker, start and end; its recordings and its attendance are listed. This needed one change to the core, a request that says its answer is text. Downloading a recording waits for the transport to carry bytes.
+Teams meetings are the fourth: 10 methods in `online_meetings`, `transcripts`, `recordings` and `attendance`. A meeting is found from the join link on a calendar event; its transcripts are read as text and as entries with speaker, start and end; its recordings and its attendance are listed. This needed one change to the core, a request that says its answer is text. A recording's video is fetched as bytes by a typed method, up to a size its caller sets.
 
 Nothing has been run against the real service; [the guide](./integrations/microsoft.md) lists what was confirmed against Microsoft's documentation and what was not.
+
+## Content: files, recordings and exports
+
+The core fetches content as well as JSON. A provider's definition may declare content hosts, each marked to receive the credential or not; `Connection::fetch` returns the bytes unchanged with the type the host stated, follows a redirect only to a declared host, decides for each host whether the credential goes, lets no host that was not given the credential send the reader back to one that is, and refuses content over the caller's limit (ten megabytes by default) with the error `too_large` instead of cutting it short. An operation called by name returns text or nothing: bytes are never handed over by name, and text is limited to a megabyte unless the caller asks for more. Microsoft is the first to use it, for a recording and for a mail attachment.
+
+Not done: sending bytes to an address a provider issues, which Slack's upload needs; a stream, so that a file need not be held in memory; and a content host named by a pattern, which a provider that serves each tenant from its own host name needs (SharePoint, for OneDrive files). No provider declares a content host yet: Slack's and Zoom's file hosts are to be added with the methods that read from them.
 
 ## Carried forward from reviews
 

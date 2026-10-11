@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::nullable::nullable;
 
-/// Something attached to a message.
+/// Something attached to a message: what describes it, without the file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Attachment {
@@ -25,9 +25,14 @@ pub struct Attachment {
     #[serde(deserialize_with = "nullable")]
     pub is_inline: bool,
     pub last_modified_date_time: Option<String>,
-    /// The name the body refers to an inline attachment by.
-    pub content_id: Option<String>,
-    /// The file itself, in base64. Present for a file attachment that was
-    /// asked for by itself, never in a list.
-    pub content_bytes: Option<String>,
+}
+
+/// An attachment that is text, as text.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AttachmentText {
+    /// The media type Graph served it as, such as `text/csv`.
+    pub content_type: Option<String>,
+    /// The attachment, exactly as it was written.
+    pub text: String,
 }

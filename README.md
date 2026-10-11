@@ -4,7 +4,7 @@
 
 Socket gives a product the layers it needs to connect to SaaS APIs: a registry of providers, an OAuth and token-refresh engine, and typed operations for each service. The application owns its OAuth apps and its token storage. Nothing is hosted.
 
-> **Status:** Early. The core, the OAuth flow, token refresh and seven providers are built and tested against local servers (~23k lines of Rust, 366 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
+> **Status:** Early. The core, the OAuth flow, token refresh and seven providers are built and tested against local servers (~26k lines of Rust, 406 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
 
 ## Why
 
@@ -22,7 +22,8 @@ Read [the vision](docs/vision.md) for the full picture.
 - **Retry with backoff** — honours `Retry-After`; non-idempotent requests are retried only when safe
 - **Pagination** — one model for every provider: a cursor in, a page and the next cursor out
 - **Error classification** — `ReconnectRequired`, `RateLimited`, `AccessDenied`, `NotFound` and more, each with a stable code
-- **Call by name** — every typed method is also an operation callable with JSON, with input and output schemas, so one implementation serves backend code, agents, MCP and other languages
+- **Files and recordings** — content is fetched as bytes, unchanged, from the hosts a provider declares; each host is marked to receive the credential or not, a redirect is followed only to a declared host, and content over the caller's limit is the error `too_large`, never a shorter file
+- **Call by name** — a typed method is also an operation callable with JSON, with input and output schemas, so one implementation serves backend code, agents, MCP and other languages. An operation called by name returns text or nothing: bytes are for the typed method
 - **Generic authenticated request** — call any endpoint of a registered provider with auth, retries and error mapping, even without a typed integration
 - **Per-provider hooks** — token-response parsing and response classification for services that break the standard (Slack, Notion, GitHub)
 
@@ -158,7 +159,7 @@ Keep the pending record tied to the session of the person who started the flow, 
 | Notion | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Google | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Zoom | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
-| Microsoft | OAuth 2.0 | 57 typed methods for the Outlook calendar, Outlook mail, Teams and Teams meetings | Wire-tested |
+| Microsoft | OAuth 2.0 | 60 typed methods for the Outlook calendar, Outlook mail, Teams and Teams meetings | Wire-tested |
 
 All seven support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
 

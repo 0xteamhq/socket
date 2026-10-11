@@ -2,7 +2,7 @@
 
 **Status:** built and tested against a local server that answers as Microsoft's documentation says. Not yet run against the real Microsoft Graph.
 
-Socket's Microsoft integration is one provider for everything behind Microsoft Graph: Outlook, Teams, OneDrive, SharePoint and Entra ID share one sign-in. Today it gives a program the Outlook calendar, Outlook mail, Teams and Teams meetings as 57 typed methods, and the same 57 as operations callable by name with JSON, plus identity and lookup of a sharing link. This page shows how to connect, lists everything that is supported, and says what was and was not confirmed against Microsoft's documentation.
+Socket's Microsoft integration is one provider for everything behind Microsoft Graph: Outlook, Teams, OneDrive, SharePoint and Entra ID share one sign-in. Today it gives a program the Outlook calendar, Outlook mail, Teams and Teams meetings as 60 typed methods, and 58 of them as operations callable by name with JSON, plus identity and lookup of a sharing link. The two that are typed only return a file as bytes, which an operation called by name never does. This page shows how to connect, lists everything that is supported, and says what was and was not confirmed against Microsoft's documentation.
 
 ## Connect
 
@@ -191,7 +191,9 @@ let draft = mail.create_reply(&message.id, ReplyContent {
 | `get(message, GetMessage)` | `Message` |
 | `conversation(conversation, Paging)` | `Page<Message>`: every message of one thread, oldest first |
 | `attachments_list(message, Paging)` | `Page<Attachment>`, without the files |
-| `attachment_get(message, attachment)` | `Attachment`, with a file's content in base64 |
+| `attachment_get(message, attachment)` | `Attachment`: its name, type and size, without the file |
+| `attachment_content(message, attachment, Download)` | `Content`: the file as bytes, with its type. Typed only |
+| `attachment_text(message, attachment, TextLimit)` | `AttachmentText`: an attachment that is text, as text |
 | `create_draft(DraftMessage)` | `Message`: the draft |
 | `update_draft(message, DraftMessage)` | `Message` |
 | `create_reply(message, ReplyContent)`, `create_reply_all(…)`, `create_forward(…)` | `Message`: the draft |
@@ -215,7 +217,14 @@ Reading needs `Mail.Read`; drafts and changes need `Mail.ReadWrite`; `send`, `se
 
 **A conversation.** `conversation` takes a message's `conversationId` and returns the whole thread oldest first, from every folder: what was received and what was sent.
 
-**Attachments.** `attachments_list` returns each attachment's `id`, `name`, `contentType`, `size` and `isInline`, and whether it is a file, another item or a link (`@odata.type`), without any file's content. `attachment_get` returns one, and for a file its content in `contentBytes`, in base64. Socket reads an answer of up to 10 MB, so a file of more than about 7 MB cannot be fetched this way yet, and fails with `Decode`.
+**Attachments.** `attachments_list` returns each attachment's `id`, `name`, `contentType`, `size` and `isInline`, and whether it is a file, another item or a link (`@odata.type`), without any file's content. `attachment_get` describes one in the same way. Neither carries a file: the fields are asked for by name, so Graph leaves the content out.
+
+**The file itself** comes two ways.
+
+- `attachment_content` returns the bytes exactly as Graph serves them, with the type Graph states, as a `Content` (`bytes`, `content_type`, `len()`). An attached message, event or contact arrives as Graph writes it out: in MIME, as an iCalendar file, as a vCard. A link to a file kept elsewhere has no content, and Graph refuses it. Ten megabytes are read and thirty seconds allowed unless `Download` says otherwise (`maxBytes`, `timeoutSecs`); a larger file is the error `too_large`, never a shorter file. This is a typed method only.
+- `attachment_text`, which is also the operation `mail.attachment_text`, returns `contentType` and `text` for an attachment Graph serves as text: `text/…`, JSON or XML, in UTF-8. Anything else, text in another encoding included, is the error `unsupported`, whose message gives the size and type and nothing of the content. One megabyte is read unless `maxBytes` asks for more, and it can ask for at most ten.
+
+**An operation called by name returns text or nothing.** This is the rule for every operation: a program that calls by name, an agent above all, is never handed bytes, in base64 or any other form, and never more text than it asked for. Bytes are for a program that calls the typed method and has said how many it will hold.
 
 **Drafts.** `create_draft` saves a message in Drafts; `create_reply`, `create_reply_all` and `create_forward` save an answer to an existing message. None of them sends anything, so a person can read the draft first. `update_draft` replaces the fields you set. A draft can be filled in over several steps, so nothing in `DraftMessage` is required: `subject`, `body`, `toRecipients`, `ccRecipients`, `bccRecipients`, `replyTo`, `importance`.
 
@@ -317,6 +326,7 @@ for entry in &content.entries {
 | `transcripts` | `content(meeting, transcript)` | `TranscriptContent`: the text, and one entry for each thing said |
 | `recordings` | `list(meeting, Paging)` | `Page<Recording>` |
 | `recordings` | `get(meeting, recording)` | `Recording`, with the address its video is at |
+| `recordings` | `content(meeting, recording, Download)` | `Content`: the video as bytes. Typed only |
 | `attendance` | `reports(meeting, Paging)` | `Page<AttendanceReport>`, one for each time the meeting was held |
 | `attendance` | `records(meeting, report, Paging)` | `Page<AttendanceRecord>`: who joined, in what role, when and for how long |
 
@@ -336,7 +346,17 @@ for entry in &content.entries {
 - **An organisation can switch these off.** Graph then answers 403, which arrives as `AccessDenied` with Graph's reason. One such setting withholds who spoke; Microsoft offers a second format without speakers for that case, which Socket does not ask for yet, and a refused transcript says that this may be why.
 - **Permissions.** `OnlineMeetings.Read` for the meeting, `OnlineMeetingTranscript.Read.All` and `OnlineMeetingRecording.Read.All` for transcripts and recordings, both of which need an administrator's consent, and `OnlineMeetingArtifact.Read.All` for attendance.
 
-**Downloading a recording is not built.** `recordings.get` returns `recordingContentUrl`, the address the video is at. The video itself is bytes, which Socket's transport does not carry yet.
+**The recording itself.** `recordings.content` returns the video as the bytes Graph serves, with the type it states (`video/mp4`). A recording is far larger than the ten megabytes and thirty seconds a fetch is given by default, so say what the program is ready for:
+
+```rust
+use socketkit::microsoft::models::Download;
+
+let limits = Download { max_bytes: Some(512 * 1024 * 1024), timeout_secs: Some(600) };
+let video = microsoft.recordings(&connection).content(&meeting.id, &recording.id, limits).await?;
+std::fs::write("review.mp4", &video.bytes)?;
+```
+
+All of it is held in memory before it is returned; a recording over the limit is the error `too_large`, and nothing is returned. Graph gives the video only to the meeting's organiser. There is no operation by this name, because an operation called by name never returns bytes.
 
 ## Page through a list
 
@@ -404,7 +424,8 @@ let output = socket
 | `microsoft.mail.get` | read | Mail.Read | Get one message, with its body as plain text unless HTML is asked for. |
 | `microsoft.mail.conversation` | read | Mail.Read | List every message of one conversation, oldest first. |
 | `microsoft.mail.attachments_list` | read | Mail.Read | List what is attached to a message: names, types and sizes, without the files. |
-| `microsoft.mail.attachment_get` | read | Mail.Read | Get one attachment. A file comes with its content, in base64. |
+| `microsoft.mail.attachment_get` | read | Mail.Read | Describe one attachment: its name, type and size, without the file. |
+| `microsoft.mail.attachment_text` | read | Mail.Read | Read an attachment that is text, such as a CSV file or a calendar invitation. One megabyte unless maxBytes allows more, up to ten. Anything that is not text is refused: bytes are not returned. |
 | `microsoft.mail.create_draft` | write | Mail.ReadWrite | Save a new message in Drafts. Nothing is sent. |
 | `microsoft.mail.update_draft` | destructive | Mail.ReadWrite | Change a draft, replacing the fields given and leaving the rest. |
 | `microsoft.mail.create_reply` | write | Mail.ReadWrite | Save a reply to the sender of a message as a draft. Nothing is sent. |
@@ -498,7 +519,7 @@ Confirmed:
 - `Prefer: outlook.timezone`, that Graph answers in UTC without it, and `originalStartTimeZone` and `originalEndTimeZone`.
 - That an offset in `startDateTime` is honoured and a time without one is UTC; `$top` from 1 to 1000 on a calendar view.
 - The limits of `getSchedule` (20 schedules, under 62 days, an interval of 5 to 1440 minutes), and that it and `findMeetingTimes` do not support personal accounts.
-- Every mail endpoint above, with its verb, body and status: `GET /me/messages`, `/me/mailFolders/{id}/messages` and `/me/messages/{id}`; `GET /me/messages/{id}/attachments` and `/attachments/{id}`; `GET /me/mailFolders`, `/me/mailFolders/{id}` and `/me/mailFolders/{id}/childFolders` with `includeHiddenFolders`; `POST /me/messages`; `PATCH /me/messages/{id}`; `POST /me/messages/{id}/createReply`, `/createReplyAll` and `/createForward`; `POST /me/sendMail`, `/me/messages/{id}/send` and `/me/messages/{id}/reply` (202, no body); `POST /me/messages/{id}/move` with `destinationId`; `DELETE /me/messages/{id}` (204).
+- Every mail endpoint above, with its verb, body and status: `GET /me/messages`, `/me/mailFolders/{id}/messages` and `/me/messages/{id}`; `GET /me/messages/{id}/attachments`, `/attachments/{id}` and `/attachments/{id}/$value`; `GET /me/mailFolders`, `/me/mailFolders/{id}` and `/me/mailFolders/{id}/childFolders` with `includeHiddenFolders`; `POST /me/messages`; `PATCH /me/messages/{id}`; `POST /me/messages/{id}/createReply`, `/createReplyAll` and `/createForward`; `POST /me/sendMail`, `/me/messages/{id}/send` and `/me/messages/{id}/reply` (202, no body); `POST /me/messages/{id}/move` with `destinationId`; `DELETE /me/messages/{id}` (204).
 - The fields of a message, an attachment and a folder, with their spelling, and the seventeen well-known folder names.
 - `Prefer: outlook.body-content-type` with `text` and `html`, and that HTML is the default.
 - `$search` in double quotes, its searchable properties, the cap of 1,000 results and the sort by sent time; `$top` from 1 to 1000 and a page of 10 by default.
@@ -507,14 +528,15 @@ Confirmed:
 - Which fields of a message can be changed only on a draft, and that `isRead`, `categories` and `flag` can be changed on any message.
 - That a moved message is a new copy under a new id.
 - The permissions: `Mail.Read` for attachments, `Mail.ReadWrite` for drafts, changes, moving and deleting, `Mail.Send` to send.
+- That `/attachments/{id}/$value` answers 200 with the attachment itself, a file in its own type and an attached item in MIME, and refuses a link to a file with 405; and that naming the fields with `$select` leaves `contentBytes` out of one attachment.
 - Every Teams endpoint above, with its verb, body and status: `GET /me/joinedTeams`, `/teams/{id}` and `/teams/{id}/members`; `GET /teams/{id}/channels`, `/channels/{id}` and `/channels/{id}/members`; `GET …/channels/{id}/messages`, `/messages/{id}` and `/messages/{id}/replies`; `POST …/messages` and `…/messages/{id}/replies` (201); `GET /me/chats`, `/chats/{id}`, `/chats/{id}/members`, `/chats/{id}/messages` and `/messages/{id}`; `POST /chats/{id}/messages` and `POST /chats` (201).
 - The fields of a team, a channel, a member, a chat and a message, with their spelling; the `<at id>` and `<attachment id>` tags of a body; that a system message has no sender and the body `<systemEventMessage/>`; and that `Prefer: include-unknown-enum-members` is what names it.
 - The page sizes: 50 for channel messages, replies, chats and chat messages, 999 for members; that joined teams, channels and chat members take none.
 - Creating a chat: the body, that every member is named with the caller among them, and that an existing one-to-one chat is returned.
 - Which permissions need an administrator's consent, and the limits of about one request a second for each channel and chat.
-- Every meeting endpoint above: `GET /me/onlineMeetings/{id}` and `?$filter=JoinWebUrl eq '…'` with the link encoded; `…/transcripts`, `/transcripts/{id}` and `/transcripts/{id}/content` with `Accept: text/vtt`; `…/recordings` and `/recordings/{id}`; `…/attendanceReports` and `/attendanceReports/{id}/attendanceRecords`.
+- Every meeting endpoint above: `GET /me/onlineMeetings/{id}` and `?$filter=JoinWebUrl eq '…'` with the link encoded; `…/transcripts`, `/transcripts/{id}` and `/transcripts/{id}/content` with `Accept: text/vtt`; `…/recordings`, `/recordings/{id}` and `/recordings/{id}/content`, which answers with the video itself as `video/mp4`; `…/attendanceReports` and `/attendanceReports/{id}/attendanceRecords`.
 - The WebVTT a transcript is written in, with the speaker in a voice tag at the start of each cue, and that a time can be negative.
-- That transcripts and recordings are not offered for a meeting with no calendar event, a live event or an expired meeting; that attendance is the organiser's alone.
+- That transcripts and recordings are not offered for a meeting with no calendar event, a live event or an expired meeting; that attendance is the organiser's alone, and so is the video of a recording.
 
 Not confirmed:
 
@@ -535,7 +557,8 @@ Not confirmed:
 - **What Graph does with an attendee's `status` in a request.** Socket leaves it out.
 - **The query behind `conversation`.** No page of Microsoft's shows how to read one conversation in order. A filter on `conversationId` sorted by `receivedDateTime` breaks the documented rules, so Socket filters on `receivedDateTime ge 1900-01-01T00:00:00Z and conversationId eq '…'`, which follows them. That it works was not confirmed.
 - **Combining `search` with `filter` or `orderBy`.** Graph's documentation does not say it can be done, and an older one says it cannot, so Socket refuses it. How a search pages, and whether a search works inside one folder, were not confirmed either.
-- **That `$select` leaves the content out of a list of attachments.** Microsoft's example of the list shows the content, and no page says `$select` applies. If it does not, a message with large attachments makes the list too large to read.
+- **That `$select` leaves the content out of a list of attachments.** Microsoft's guide to large attachments shows it for one attachment, which is how `attachment_get` asks; no page shows it for the list. If it does not apply there, a message with large attachments makes the list too large to read.
+- **The type Graph states for an attached message, event or contact.** For a file, Microsoft says the type of `$value` follows the file's own. For an attached item it says only that the content is MIME, so `attachment_text` may refuse one as not text.
 - **Whether a list of messages honours the text preference.** One page says a list returns HTML only, and lists the header all the same. `body.contentType` says what came back.
 - **Where a deleted message goes.** The page for deleting does not say. To be sure it lands in Deleted Items, use `move_to` with `deleteditems`.
 - **The body of `send_draft`.** Microsoft asks for an empty request with `Content-Length: 0`. Socket's transport sends no length for a request with no body, which a server may refuse, so Socket sends an empty JSON object instead. That Graph accepts it was not confirmed.
@@ -546,7 +569,8 @@ Not confirmed:
 - **That `+` is not read as a space in a query.** Graph's examples write `%20`, and so does Socket, for every query it sends.
 - **Whether `find_by_join_url` finds a channel meeting**, and whether transcripts can be read for a meeting in a private channel. One Microsoft page says channel meetings are covered, another that they are in beta only.
 - **That a transcript exists only when transcription was on.** Microsoft does not state it as a rule; it is what an empty list means.
-- **How large a recording or a transcript can be.** A transcript over 10 MB cannot be read.
+- **How large a recording or a transcript can be.** A transcript over 10 MB cannot be read. A recording is read up to the limit its caller sets.
+- **That a recording is always served by Graph itself.** Microsoft's example shows the bytes in Graph's own answer. Were Graph to send a reader to another host, the fetch would stop with "redirected … to an address Socket does not follow" until that host is declared as a content host of the provider.
 - **What a mention must carry to notify someone.** Socket sends `mentions` as given; Microsoft's example includes `userIdentityType`.
 
 ## Not supported yet
@@ -555,12 +579,12 @@ Not confirmed:
 - **The national clouds** (US Government, China), which use other hosts.
 - **Certificates** in place of a client secret.
 - **Files**: OneDrive and SharePoint beyond looking up a sharing link.
-- **Downloading a recording**, and the transcript format without speakers.
+- **A recording as a stream.** The whole video is held in memory. And the transcript format without speakers.
 - **Editing and deleting a Teams message, reactions, tabs and apps**, and **change notifications**.
 - **Attaching a file to a Teams message.**
 - **A date range for chat messages.** Graph takes one only with a matching sort; Socket lists the most recently changed first.
 - **Shared and delegated mailboxes** (`/users/{id}/…`, `Mail.Read.Shared`).
-- **Adding an attachment** to a draft, and **attachments too large to read in one answer**.
+- **Adding an attachment** to a draft.
 - **`replyAll` and `forward` sent at once.** Make the draft with `create_reply_all` or `create_forward`, then `send_draft`.
 - **Ids that survive a move** (`Prefer: IdType="ImmutableId"`), **MIME content**, **message rules**, **focused inbox overrides**, and **creating or deleting folders**.
 - **Other people's calendars** (`/users/{id}/…`) and **calendar groups**. Everything here is the signed-in account's.
