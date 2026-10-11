@@ -1,0 +1,23 @@
+docs/integrations/google.md
+  s_8c98d26ded7b36::t_04ecebb7650d19 208,212
+crates/integrations/google/src/models/gmail_mime.rs
+  s_8c98d26ded7b36::t_3d4d4b2e5db862 155-160,164,341-345,349-350,353-371
+crates/integrations/google/src/models/gmail_words.rs
+  s_8c98d26ded7b36::t_3d4d4b2e5db862 225,229-248,419-432
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7c473b380bde6f18a6d9378ca3ac17fe18014b4b",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
