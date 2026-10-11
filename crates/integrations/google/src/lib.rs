@@ -3,9 +3,14 @@
 //! One provider covers Google's products, because they share one OAuth
 //! provider. Offers the provider definition, `google.identity.get`,
 //! `google.resource.resolve` (a Drive file or folder, which includes Docs and
-//! Sheets), and typed methods grouped the way Google groups its own APIs.
-//! Every typed method is also a named operation. See
-//! `docs/integrations/google.md`.
+//! Sheets), and typed methods grouped the way Google groups its own APIs:
+//! Gmail (`gmail_messages`, `gmail_threads`, `gmail_labels`, `gmail_drafts`,
+//! `gmail_profile`), Calendar (`calendar_list`, `calendar_events`,
+//! `calendar_freebusy`), Meet (`meet_conference_records`,
+//! `meet_participants`, `meet_transcripts`, `meet_recordings`,
+//! `meet_spaces`), Drive (`drive_files`, `drive_shared_drives`), Docs
+//! (`docs_documents`) and Sheets (`sheets_spreadsheets`). Every typed method
+//! is also a named operation. See `docs/integrations/google.md`.
 
 mod client;
 pub mod models;
@@ -23,20 +28,11 @@ use socketkit_core::{
     to_output,
 };
 
-// ── gmail: groups ──
-pub use client::{GmailDrafts, GmailLabels, GmailMessages, GmailProfiles, GmailThreads};
-
-// ── calendar: groups ──
-pub use client::{CalendarEvents, CalendarFreebusy, CalendarList};
-
-// ── meet: groups ──
-pub use client::{MeetConferenceRecords, MeetParticipants, MeetRecordings, MeetSpaces, MeetTranscripts};
-
-// ── drive: groups ──
-pub use client::{DriveFiles, DriveSharedDrives};
-
-// ── docs and sheets: groups ──
-pub use client::{DocsDocuments, SheetsSpreadsheets};
+pub use client::{
+    CalendarEvents, CalendarFreebusy, CalendarList, DocsDocuments, DriveFiles, DriveSharedDrives, GmailDrafts,
+    GmailLabels, GmailMessages, GmailProfiles, GmailThreads, MeetConferenceRecords, MeetParticipants, MeetRecordings,
+    MeetSpaces, MeetTranscripts, SheetsSpreadsheets,
+};
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "google";
@@ -364,7 +360,6 @@ impl Google {
         self
     }
 
-    // ── gmail: groups ──
     /// Gmail messages: finding, reading, sending, labelling and binning them.
     pub fn gmail_messages<'a>(&self, connection: &'a Connection) -> GmailMessages<'a> {
         GmailMessages(client::Api { connection })
@@ -390,8 +385,6 @@ impl Google {
         GmailProfiles(client::Api { connection })
     }
 
-    // ── calendar: groups ──
-
     /// The calendars on the signed-in person's calendar list.
     pub fn calendar_list<'a>(&self, connection: &'a Connection) -> CalendarList<'a> {
         CalendarList(client::Api { connection })
@@ -407,7 +400,6 @@ impl Google {
         CalendarFreebusy(client::Api { connection })
     }
 
-    // ── meet: groups ──
     /// The meetings that were held in Meet: one conference record for each.
     pub fn meet_conference_records<'a>(&self, connection: &'a Connection) -> MeetConferenceRecords<'a> {
         MeetConferenceRecords(client::Api { connection })
@@ -433,7 +425,6 @@ impl Google {
         MeetSpaces(client::Api { connection })
     }
 
-    // ── drive: groups ──
     /// The files and folders of Drive: finding them, reading what describes
     /// one, exporting a Google document as text, and filing them.
     pub fn drive_files<'a>(&self, connection: &'a Connection) -> DriveFiles<'a> {
@@ -445,7 +436,6 @@ impl Google {
         DriveSharedDrives(client::Api { connection })
     }
 
-    // ── docs and sheets: groups ──
     /// Google Docs: a document's tabs, its text, and adding to it.
     pub fn docs_documents<'a>(&self, connection: &'a Connection) -> DocsDocuments<'a> {
         DocsDocuments(client::Api { connection })
@@ -570,9 +560,19 @@ impl Integration for Google {
     }
 
     fn operations(&self) -> Vec<OperationInfo> {
+        // The two every integration offers say which scope they need, so
+        // that what to ask for at sign-in can be read from the catalogue.
+        // Both read Drive: the account from its `about`, and a file.
+        let needing = |operation: OperationInfo| OperationInfo {
+            required_scopes: vec![scopes::DRIVE_READONLY.to_owned()],
+            ..operation
+        };
         let mut operations = vec![
-            identity_operation(&self.spec.id),
-            resolve_operation(&self.spec.id, "a Google Drive, Docs or Sheets URL, or a file id"),
+            needing(identity_operation(&self.spec.id)),
+            needing(resolve_operation(
+                &self.spec.id,
+                "a Google Drive, Docs or Sheets URL, or a file id",
+            )),
         ];
         operations.extend(operations::all().iter().map(|operation| operation.info.clone()));
         operations

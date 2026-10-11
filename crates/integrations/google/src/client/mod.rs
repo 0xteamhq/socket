@@ -9,38 +9,33 @@
 //! transport stops repeating anything but a read.
 //!
 //! This file holds only what every group shares: the access to the APIs, and
-//! the re-exports. Each group's methods are in the file named after it.
+//! the re-exports. Each group's methods are in the file named after it; a
+//! group too long for one file continues in a second (`gmail_messages_send`,
+//! `calendar_events_write`, `drive_files_change`). Two files are not groups:
+//! `calendar_time` and `meet` hold what the groups of one product share and
+//! no other product needs.
 
-// ── gmail: modules ──
+mod calendar_events;
+mod calendar_events_write;
+mod calendar_freebusy;
+mod calendar_list;
+mod calendar_time;
+mod docs_documents;
+mod drive_files;
+mod drive_files_change;
+mod drive_shared_drives;
 mod gmail_drafts;
 mod gmail_labels;
 mod gmail_messages;
 mod gmail_messages_send;
 mod gmail_profile;
 mod gmail_threads;
-
-// ── calendar: modules ──
-mod calendar_events;
-mod calendar_events_write;
-mod calendar_freebusy;
-mod calendar_list;
-mod calendar_time;
-
-// ── meet: modules ──
 mod meet;
 mod meet_conference_records;
 mod meet_participants;
 mod meet_recordings;
 mod meet_spaces;
 mod meet_transcripts;
-
-// ── drive: modules ──
-mod drive_files;
-mod drive_files_change;
-mod drive_shared_drives;
-
-// ── docs and sheets: modules ──
-mod docs_documents;
 mod sheets_spreadsheets;
 
 use serde::Serialize;
@@ -49,31 +44,22 @@ use serde_json::{Map, Value};
 use socketkit_core::{Connection, Error, ErrorKind, Page, RawRequest, Result};
 use url::Url;
 
-// ── gmail: groups ──
+pub use calendar_events::CalendarEvents;
+pub use calendar_freebusy::CalendarFreebusy;
+pub use calendar_list::CalendarList;
+pub use docs_documents::DocsDocuments;
+pub use drive_files::DriveFiles;
+pub use drive_shared_drives::DriveSharedDrives;
 pub use gmail_drafts::GmailDrafts;
 pub use gmail_labels::GmailLabels;
 pub use gmail_messages::GmailMessages;
 pub use gmail_profile::GmailProfiles;
 pub use gmail_threads::GmailThreads;
-
-// ── calendar: groups ──
-pub use calendar_events::CalendarEvents;
-pub use calendar_freebusy::CalendarFreebusy;
-pub use calendar_list::CalendarList;
-
-// ── meet: groups ──
 pub use meet_conference_records::MeetConferenceRecords;
 pub use meet_participants::MeetParticipants;
 pub use meet_recordings::MeetRecordings;
 pub use meet_spaces::MeetSpaces;
 pub use meet_transcripts::MeetTranscripts;
-
-// ── drive: groups ──
-pub use drive_files::DriveFiles;
-pub use drive_shared_drives::DriveSharedDrives;
-
-// ── docs and sheets: groups ──
-pub use docs_documents::DocsDocuments;
 pub use sheets_spreadsheets::SheetsSpreadsheets;
 
 use crate::models::Paging;
