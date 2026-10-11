@@ -172,3 +172,84 @@ fn text_that_is_not_a_transcript_is_an_error_not_a_meeting_where_nothing_was_sai
         }
     }
 }
+
+#[test]
+fn a_cue_that_follows_the_header_with_no_empty_line_is_still_read() {
+    // Microsoft writes its other transcript format this way. A header block
+    // that was skipped whole would take the first thing said with it.
+    for vtt in [
+        "WEBVTT\n00:00:16.246 --> 00:00:17.726\n<v Ada>First.</v>\n\n00:00:18.000 --> 00:00:19.000\n<v Grace>Second.</v>\n",
+        "WEBVTT - meeting 42\nKind: captions\n00:00:16.246 --> 00:00:17.726\n<v Ada>First.</v>\n\n00:00:18.000 --> 00:00:19.000\n<v Grace>Second.</v>\n",
+    ] {
+        assert_eq!(
+            entries(vtt),
+            [
+                entry(Some("Ada"), 16_246, 17_726, "First."),
+                entry(Some("Grace"), 18_000, 19_000, "Second."),
+            ],
+            "{vtt:?}"
+        );
+    }
+}
+
+#[test]
+fn a_cue_whose_identifier_begins_like_a_note_is_a_cue_and_not_a_note() {
+    for identifier in ["NOTEWORTHY-1", "NOTE", "STYLE guide", "REGION-2", "WEBVTT-ish"] {
+        let vtt = format!("WEBVTT\n\n{identifier}\n00:00:01.000 --> 00:00:02.000\n<v Ada>Said.</v>\n");
+        assert_eq!(
+            entries(&vtt),
+            [entry(Some("Ada"), 1_000, 2_000, "Said.")],
+            "{identifier}"
+        );
+    }
+}
+
+#[test]
+fn words_before_a_cues_timing_are_an_error_and_not_dropped() {
+    // One line before the timing is the cue's identifier. More than one is
+    // text that belongs to no cue.
+    let vtt = "WEBVTT\n\nstray secret words\nmore of them\n00:00:01.000 --> 00:00:02.000\n<v Ada>Said.</v>\n";
+    let err = TranscriptContent::from_vtt(vtt).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Decode);
+    assert!(!err.message().contains("secret"), "{}", err.message());
+}
+
+#[test]
+fn each_speaker_in_one_cue_gets_their_own_entry() {
+    // One voice for a cue is what Teams writes. If a cue ever holds two, the
+    // second person's words are not given to the first.
+    let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nWell. <v Ada>Yes.</v> <v Grace>No,</v> not yet. <v Grace>Later.</v>\n";
+    assert_eq!(
+        entries(vtt),
+        [
+            entry(None, 1_000, 4_000, "Well."),
+            entry(Some("Ada"), 1_000, 4_000, "Yes."),
+            entry(Some("Grace"), 1_000, 4_000, "No, not yet. Later."),
+        ]
+    );
+    // A cue with nothing in it is still a cue.
+    assert_eq!(
+        entries("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n\n"),
+        [entry(None, 1_000, 2_000, "")]
+    );
+}
+
+#[test]
+fn a_transcript_made_to_be_slow_to_read_is_read_in_one_pass() {
+    // Each `<` is looked at once: the search for a tag's end stops at the
+    // next `<`. Looking to the end of the cue each time would take hours here.
+    let started = std::time::Instant::now();
+    let open = "<".repeat(400_000);
+    let vtt = format!("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n<v Ada>{open} far away >\n");
+    let read = entries(&vtt);
+    assert_eq!(read.len(), 1);
+    assert!(read[0].text.starts_with("<<<<"));
+    // And many short lines, cues and empty blocks.
+    let many = "00:00:01.000 --> 00:00:02.000\n<v A>x</v>\n\n\n\n".repeat(100_000);
+    assert_eq!(entries(&format!("WEBVTT\n\n{many}")).len(), 100_000);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+}
