@@ -170,9 +170,9 @@ pub(super) fn decoded(value: &str) -> String {
 /// hyphen, a zero-width space, a mark that turns the direction of writing
 /// around, a tag), or a separator of lines.
 ///
-/// The two joiners (U+200C and U+200D) are kept. Persian and the scripts of
-/// India are written with them, and so is an emoji made of several; they
-/// change how letters join and neither hide nor reorder anything.
+/// The two joiners (U+200C and U+200D) are judged by where they stand, in
+/// [`readable`]: Persian and the scripts of India are written with them, and
+/// so is an emoji made of several, and there they are kept.
 ///
 /// Someone else's text can use these to hide what it says from a person and
 /// not from a program, or to show an address written backwards.
@@ -197,11 +197,33 @@ fn unseen(character: char) -> bool {
 /// space where it held a character that is not seen. Whatever it hides in
 /// an encoded word, no such character comes out of it.
 pub(super) fn readable(value: &str) -> String {
-    let read: String = decoded(value)
-        .chars()
-        .map(|character| if unseen(character) { ' ' } else { character })
+    let written: Vec<char> = decoded(value).chars().collect();
+    let read: String = written
+        .iter()
+        .enumerate()
+        .map(|(at, character)| {
+            let before = at.checked_sub(1).and_then(|before| written.get(before));
+            let hidden = unseen(*character) || (joiner(*character) && !joins(before, written.get(at + 1)));
+            if hidden { ' ' } else { *character }
+        })
         .collect();
     read.trim().to_owned()
+}
+
+/// The two characters that change how the letters beside them join, and
+/// show as nothing themselves (U+200C and U+200D).
+fn joiner(character: char) -> bool {
+    matches!(character, '\u{200c}' | '\u{200d}')
+}
+
+/// Whether a joiner between these two is doing what it is for: joining, or
+/// keeping apart, letters of a script that is written with it, or the parts
+/// of an emoji. That is never so beside a letter, a digit or a mark of
+/// ASCII, where it could only make two words that read alike differ: a name
+/// or an address that a person takes for one they know, and a program does not.
+fn joins(before: Option<&char>, after: Option<&char>) -> bool {
+    let beside = |neighbour: Option<&char>| neighbour.is_some_and(|c| !c.is_ascii() && !unseen(*c) && !joiner(*c));
+    beside(before) && beside(after)
 }
 
 /// `text` as encoded words in UTF-8, to be written with a space or a line
@@ -366,6 +388,14 @@ mod tests {
         for written in ["می\u{200c}خواهم", "👨\u{200d}👩\u{200d}👧"] {
             assert_eq!(readable(written), written);
         }
+        // Beside the letters of an address or an English word a joiner joins
+        // nothing. It only makes a word a person reads as one they know into
+        // one a program does not.
+        assert_eq!(readable("pay\u{200d}pal"), "pay pal");
+        assert_eq!(readable("boss\u{200c}@example.test"), "boss @example.test");
+        assert_eq!(readable("\u{200d}می"), "می", "at an end it joins nothing");
+        assert_eq!(readable("می\u{200c}\u{200c}خواهم"), "می  خواهم", "nor beside another");
+        assert_eq!(readable("a\u{200d}👩"), "a 👩");
     }
 
     #[test]

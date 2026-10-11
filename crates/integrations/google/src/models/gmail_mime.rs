@@ -152,13 +152,28 @@ impl Part {
             .unwrap_or_default()
             .trim()
             .to_ascii_lowercase();
-        let mut found = Found::default();
         // A part that was attached is a file, whatever it is made of: what
         // is inside it is the file's, and no part of what the message says.
+        // It is listed among the attachments, so nothing is left out unseen.
         if kind.starts_with("multipart/") && self.attached() {
+            let mut found = Found::default();
             self.leaf(&kind, &mut found);
             return found;
         }
+        self.contents()
+    }
+
+    /// Reads what this part holds, whatever it says of itself. The message
+    /// as a whole is read this way: a message is never a file attached to
+    /// itself, and one marked so would otherwise read as saying nothing.
+    fn contents(&self) -> Found {
+        let kind = self
+            .mime_type
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase();
+        let mut found = Found::default();
         if kind == "multipart/alternative" {
             // The same content in several forms, the plainest first. The
             // last form that has text is the text, and likewise for HTML.
@@ -267,7 +282,7 @@ impl GmailWireMessage {
     /// as `minimal` asks for, is its ids and labels and nothing more.
     pub(crate) fn read(self) -> GmailMessage {
         let top = self.payload.unwrap_or_default();
-        let found = top.found();
+        let found = top.contents();
         GmailMessage {
             id: self.id,
             thread_id: self.thread_id,
@@ -340,6 +355,25 @@ mod tests {
         assert_eq!(message.attachments.len(), 1);
         assert_eq!(message.attachments[0].filename, "forwarded.eml");
         assert_eq!(message.attachments[0].mime_type.as_deref(), Some("multipart/mixed"));
+    }
+
+    #[test]
+    fn a_message_marked_as_a_file_itself_still_says_what_it_says() {
+        // A sender can mark the whole message as an attachment. Every mail
+        // program shows its body all the same, so it is read all the same.
+        let mut whole = multipart(
+            "alternative",
+            json!([
+                part("text/plain", "Wire the money today."),
+                part("text/html", "<p>Wire the money today.</p>")
+            ]),
+        );
+        whole["filename"] = json!("message.eml");
+        whole["headers"] = json!([{ "name": "Content-Disposition", "value": "attachment" }]);
+        let message = read(whole);
+        assert_eq!(message.text.as_deref(), Some("Wire the money today."));
+        assert_eq!(message.html.as_deref(), Some("<p>Wire the money today.</p>"));
+        assert!(message.attachments.is_empty());
     }
 
     #[test]
