@@ -26,7 +26,16 @@ impl CalendarEvents<'_> {
     }
 
     /// Changes an event. Only what is set in `changes` is touched; a guest
-    /// list, when given, replaces the one the event had.
+    /// list, when given, replaces the one the event had: anyone left out is
+    /// uninvited.
+    ///
+    /// With a guest list the event is read first, which is one more request.
+    /// A guest who stays goes back as Google has them, with the answer they
+    /// gave, their note and whoever they are bringing, changed only by what
+    /// `changes` says of them. And the change names the version that was
+    /// read, so that Google refuses it if the event has changed since: a
+    /// guest someone added in between is not uninvited by a list written
+    /// before they were on it.
     pub async fn patch(&self, calendar: &str, event: &str, changes: EventPatch) -> Result<CalendarEvent> {
         let path = self.one(calendar, event)?;
         for (name, time) in [("start", &changes.start), ("end", &changes.end)] {
@@ -35,7 +44,7 @@ impl CalendarEvents<'_> {
             }
         }
         self.invitees(changes.attendees.as_deref())?;
-        let (request, mut content) = self.split(RawRequest::new("PATCH", path), set(&changes))?;
+        let (request, mut content) = self.split(RawRequest::new("PATCH", path.as_str()), set(&changes))?;
         if content.is_empty() {
             return Err(self
                 .0
@@ -51,7 +60,56 @@ impl CalendarEvents<'_> {
                 }
             }
         }
+        let request = match &changes.attendees {
+            Some(invitees) => {
+                let (guests, version) = self.guests(&path, invitees).await?;
+                content.insert("attendees".into(), Value::Array(guests));
+                request.with_header("If-Match", version)
+            }
+            None => request,
+        };
         self.event(self.0.send(request.with_body(Value::Object(content))).await?)
+    }
+
+    /// The guest list a patch sends for `invitees`, and the version of the
+    /// event it was made from.
+    ///
+    /// Google replaces the whole list with the one it is sent. So each guest
+    /// who is on the event already is sent as Google has them, with only
+    /// what the caller set laid over it; someone new is sent as given.
+    async fn guests(&self, path: &str, invitees: &[EventInvitee]) -> Result<(Vec<Value>, String)> {
+        let current = self.0.send(RawRequest::get(path)).await?;
+        self.0.kind(&current, "calendar#event", "an event")?;
+        // A list of which only part was shown cannot be told from the whole
+        // of it, and replacing it would uninvite everyone who was not shown.
+        if current["attendeesOmitted"] == true || current["guestsCanSeeOtherGuests"] == false {
+            return Err(self.0.error(
+                ErrorKind::InvalidInput,
+                "this event's guest list is not shown in full on this calendar, so it cannot be replaced from it",
+            ));
+        }
+        let Some(version) = current["etag"].as_str().filter(|etag| !etag.is_empty()) else {
+            return Err(self.0.error(
+                ErrorKind::Decode,
+                "google returned the event without its version, so a guest list could overwrite a change",
+            ));
+        };
+        let on_it = current["attendees"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let guests = invitees
+            .iter()
+            .map(|invitee| {
+                let email = invitee.email.trim();
+                let mut guest = on_it
+                    .iter()
+                    .find(|guest| guest["email"].as_str().is_some_and(|on| on.eq_ignore_ascii_case(email)))
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+                guest.extend(set(invitee));
+                Value::Object(guest)
+            })
+            .collect();
+        Ok((guests, version.to_owned()))
     }
 
     /// Answers an invitation on a calendar. On `primary` that is the

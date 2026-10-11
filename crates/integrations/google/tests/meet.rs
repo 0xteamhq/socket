@@ -890,6 +890,23 @@ async fn reading_ends_even_when_google_never_stops_offering_another_page() {
 }
 
 #[tokio::test]
+async fn something_still_being_said_ends_where_it_began_and_a_finer_time_is_read() {
+    // An entry of a transcript that is still being written has no end yet,
+    // and a time may be written finer than a thousandth of a second.
+    let mut unfinished = entry("e-1", ADA, "2026-10-12T16:00:37.2501234567Z", "", "Shall we begin?");
+    unfinished.as_object_mut().unwrap().remove("endTime");
+    let (server, socket, key) = google().await;
+    serve(&server, TRANSCRIPT_PATH, transcript()).await;
+    serve(&server, &entries_path(), json!({ "transcriptEntries": [unfinished] })).await;
+    serve(&server, &participants_path(), json!({ "participants": [ada()] })).await;
+    let content = read(&socket, &key, json!({})).await.unwrap();
+    let said = &content["entries"][0];
+    assert_eq!(said["startMs"], said["endMs"]);
+    assert_eq!(said["startMs"].as_i64().unwrap() % 1000, 250);
+    assert_eq!(said["endTime"], Value::Null);
+}
+
+#[tokio::test]
 async fn a_time_that_cannot_be_read_is_an_error_that_does_not_repeat_what_was_said() {
     let good = entry(
         "e-1",
@@ -899,8 +916,6 @@ async fn a_time_that_cannot_be_read_is_an_error_that_does_not_repeat_what_was_sa
         "Shall we begin?",
     );
     let secret = "The password is hunter2.";
-    let mut no_end = entry("e-2", ADA, "2026-10-12T16:00:37Z", "", secret);
-    no_end.as_object_mut().unwrap().remove("endTime");
     for (transcript, second, names) in [
         (
             transcript(),
@@ -912,7 +927,6 @@ async fn a_time_that_cannot_be_read_is_an_error_that_does_not_repeat_what_was_sa
             entry("e-2", ADA, "2026-10-12T16:00:37Z", "2026-10-12T16:00:61Z", secret),
             ["`endTime`", "transcriptEntries[1]"],
         ),
-        (transcript(), no_end, ["`endTime`", "transcriptEntries[1]"]),
         // Without the transcript's own start there is nothing to count from.
         (
             json!({ "name": TRANSCRIPT, "startTime": "12 October, late" }),

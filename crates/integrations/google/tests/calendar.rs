@@ -855,8 +855,8 @@ async fn a_patch_sends_only_what_was_set_and_refuses_to_send_nothing() {
     patch(json!({ "start": { "date": "2026-10-12" }, "end": { "date": "2026-10-13" } }))
         .await
         .unwrap();
-    // Replacing the guests and adding a Meet link to a meeting that had none.
-    patch(json!({ "attendees": [{ "email": "grace@example.test", "responseStatus": "accepted" }, { "email": "alan@example.test" }], "createMeetLink": true, "sendUpdates": "externalOnly" }))
+    // Adding a Meet link to a meeting that had none.
+    patch(json!({ "createMeetLink": true, "sendUpdates": "externalOnly" }))
         .await
         .unwrap();
 
@@ -874,17 +874,12 @@ async fn a_patch_sends_only_what_was_set_and_refuses_to_send_nothing() {
         query_of(&received[2]),
         json!({ "sendUpdates": "externalOnly", "conferenceDataVersion": "1" })
     );
-    let mut third = body_of(&received[2]);
+    let third = body_of(&received[2]);
     assert_eq!(
         third["conferenceData"]["createRequest"]["conferenceSolutionKey"]["type"],
         "hangoutsMeet"
     );
-    third.as_object_mut().unwrap().remove("conferenceData");
-    assert_eq!(
-        third,
-        json!({ "attendees": [{ "email": "grace@example.test", "responseStatus": "accepted" }, { "email": "alan@example.test" }] }),
-        "a guest who stays is sent with the answer they gave"
-    );
+    assert_eq!(third.as_object().unwrap().len(), 1, "and nothing else");
 
     for bad in [
         json!({ "start": { "timeZone": "Europe/Zurich" } }),
@@ -895,6 +890,111 @@ async fn a_patch_sends_only_what_was_set_and_refuses_to_send_nothing() {
         assert_eq!(err.kind(), ErrorKind::InvalidInput, "{bad}");
     }
     assert_eq!(server.received_requests().await.unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn a_new_guest_list_keeps_everyone_who_stays_as_they_were_and_is_not_written_over_a_change() {
+    let (server, socket, key) = google().await;
+    mount(&server, "GET", CALENDAR_EVENT_PATH, 200, calendar_invitation()).await;
+    mount(&server, "PATCH", CALENDAR_EVENT_PATH, 200, calendar_invitation()).await;
+    // Grace stays, named in another case and with nothing said of her answer;
+    // Ada, the organiser, is made optional; Alan is new.
+    let guests = json!([{ "email": "GRACE@example.test" }, { "email": "ada@example.test", "optional": true }, { "email": "alan@example.test" }]);
+    invoke(
+        &socket,
+        &key,
+        "calendar_events.patch",
+        on_the_event(json!({ "attendees": guests, "location": "Room 5" })),
+    )
+    .await
+    .unwrap();
+
+    let received = server.received_requests().await.unwrap();
+    assert_eq!(received.len(), 2, "the event is read, then changed");
+    assert_eq!(received[0].method.as_str(), "GET");
+    let write = &received[1];
+    // Google replaces the list with what it is sent. A guest sent bare would
+    // lose their answer and whoever they were bringing.
+    assert_eq!(
+        body_of(write),
+        json!({
+            "location": "Room 5",
+            "attendees": [
+                { "email": "GRACE@example.test", "self": true, "responseStatus": "needsAction", "additionalGuests": 1, "futureField": "kept" },
+                { "email": "ada@example.test", "organizer": true, "responseStatus": "accepted", "optional": true },
+                { "email": "alan@example.test" }
+            ]
+        })
+    );
+    // Someone added between the read and the write is not uninvited by a
+    // list written before they were on it: Google refuses the stale version.
+    assert_eq!(write.headers.get("if-match").unwrap(), "\"111\"");
+
+    // A change that names no guests reads nothing and names no version.
+    let (server, socket, key) = google().await;
+    mount(&server, "PATCH", CALENDAR_EVENT_PATH, 200, calendar_event()).await;
+    invoke(
+        &socket,
+        &key,
+        "calendar_events.patch",
+        on_the_event(json!({ "location": "Room 5" })),
+    )
+    .await
+    .unwrap();
+    let only = only_request(&server).await;
+    assert!(only.headers.get("if-match").is_none());
+}
+
+#[tokio::test]
+async fn a_guest_list_is_not_replaced_when_it_cannot_be_read_whole_or_has_changed() {
+    // Only part of the list is shown on this calendar. Sent back, a new list
+    // would uninvite everyone who was not shown.
+    let mut cut_short = calendar_invitation();
+    cut_short["attendeesOmitted"] = json!(true);
+    let mut unversioned = calendar_invitation();
+    unversioned.as_object_mut().unwrap().remove("etag");
+    for (read, kind) in [
+        (calendar_hidden_invitation(), ErrorKind::InvalidInput),
+        (cut_short, ErrorKind::InvalidInput),
+        (unversioned, ErrorKind::Decode),
+    ] {
+        let (server, socket, key) = google().await;
+        mount(&server, "GET", CALENDAR_EVENT_PATH, 200, read).await;
+        let err = invoke(
+            &socket,
+            &key,
+            "calendar_events.patch",
+            on_the_event(json!({ "attendees": [{ "email": "alan@example.test" }] })),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.kind(), kind, "{err}");
+        assert!(!err.message().contains("grace"), "{err}");
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            1,
+            "read, and not written"
+        );
+    }
+
+    // The event changed after it was read: Google answers 412, and the list is not sent again.
+    let (server, socket, key) = google().await;
+    mount(&server, "GET", CALENDAR_EVENT_PATH, 200, calendar_invitation()).await;
+    Mock::given(method("PATCH"))
+        .respond_with(google_error(412, "conditionNotMet", "Precondition Failed"))
+        .mount(&server)
+        .await;
+    let err = invoke(
+        &socket,
+        &key,
+        "calendar_events.patch",
+        on_the_event(json!({ "attendees": [{ "email": "alan@example.test" }] })),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    assert!(err.message().contains("changed first"), "{err}");
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
 }
 
 // ── Answering an invitation ──────────────────────────────────────────────────
@@ -924,9 +1024,14 @@ async fn answering_an_invitation_changes_only_the_signed_in_attendee() {
     // they came, including what these types do not describe.
     let mut expected = calendar_invitation()["attendees"].clone();
     expected[1]["responseStatus"] = json!("declined");
-    assert_eq!(body_of(write), json!({ "attendees": expected }));
-    assert_eq!(expected[1]["futureField"], "kept");
-    assert_eq!(expected[0], calendar_invitation()["attendees"][0], "Ada is as she was");
+    let sent = body_of(write);
+    assert_eq!(sent, json!({ "attendees": expected }));
+    assert_eq!(sent["attendees"][1]["futureField"], "kept");
+    assert_eq!(
+        sent["attendees"][0],
+        calendar_invitation()["attendees"][0],
+        "Ada is as she was"
+    );
     // If the guest list changed between the read and the write, Google refuses
     // the write instead of silently dropping the newcomer.
     assert_eq!(write.headers.get("if-match").unwrap(), "\"111\"");

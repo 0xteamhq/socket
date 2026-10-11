@@ -24,9 +24,11 @@ pub struct MeetTranscriptContent {
     /// The same transcript, one entry for each thing someone said, in the
     /// order Meet returns them: by when they began.
     pub entries: Vec<MeetTranscriptContentEntry>,
-    /// True when the transcript has more entries than were asked for, and
-    /// `text` and `entries` stop early. Ask again with a larger `maxEntries`,
-    /// or page through `meet_transcripts.entries`.
+    /// True when `text` and `entries` stop at the number of entries that was
+    /// asked for and Meet says more may follow. Ask again with a larger
+    /// `maxEntries`, or page through `meet_transcripts.entries`. A transcript
+    /// of exactly that many entries can be marked so too, when Meet offers a
+    /// further page that turns out to be empty.
     pub truncated: bool,
     /// The transcript itself: when it began, and the Google Doc it was saved to.
     pub transcript: MeetTranscript,
@@ -109,7 +111,11 @@ impl MeetTranscriptContent {
                     })
             };
             let start_ms = offset(&entry.start_time, "startTime")?;
-            let end_ms = offset(&entry.end_time, "endTime")?;
+            // Something still being said has no end yet. It ends where it began.
+            let end_ms = match entry.end_time {
+                None => start_ms,
+                Some(_) => offset(&entry.end_time, "endTime")?,
+            };
             let speaker = entry
                 .participant
                 .as_deref()

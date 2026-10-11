@@ -21,14 +21,17 @@ pub(super) fn instant(api: &Api<'_>, name: &str, time: &str) -> Result<()> {
 }
 
 /// Whether `time` is a date and a time that ends in an offset from UTC: `Z`,
-/// or hours and minutes after a sign. RFC 3339 lets a space stand between
-/// the date and the time, so that is not what is judged here.
+/// or hours and minutes after a sign.
+///
+/// The time is sent as it was given, so it is judged as it was given: space
+/// around it, or in place of the `T`, is not something Google is known to
+/// read, and is refused here where the reason can be said.
 pub(super) fn has_offset(time: &str) -> bool {
-    let time = time.trim();
-    let Some((date, clock)) = time.split_once(['T', 't', ' ']) else {
+    let Some((date, clock)) = time.split_once(['T', 't']) else {
         return false;
     };
-    if date.is_empty() || !clock.is_ascii() {
+    let spaced = |part: &str| part.chars().any(char::is_whitespace);
+    if date.is_empty() || !clock.is_ascii() || spaced(date) || spaced(clock) {
         return false;
     }
     if let Some(clock) = clock.strip_suffix(['Z', 'z']) {
@@ -58,8 +61,6 @@ mod tests {
             "2026-10-12T09:00:00-07:00",
             "2026-10-12T09:00:00+05:30",
             "2026-10-12T09:00:00.123456+00:00",
-            " 2026-10-12T09:00:00Z ",
-            "2026-10-12 09:00:00Z",
         ] {
             assert!(has_offset(time), "{time}");
         }
@@ -76,6 +77,12 @@ mod tests {
             "2026-10-12T09:00:00.000",
             "2026-10-12T09:00",
             "2026-10-12 09:00:00",
+            // Sent as it is given, so it has to be right as it is given.
+            " 2026-10-12T09:00:00Z",
+            "2026-10-12T09:00:00Z ",
+            "2026-10-12T09:00:00Z\n",
+            "2026-10-12 09:00:00Z",
+            "2026-10-12T09:00:00 +02:00",
             "2026-10-12T",
             "2026-10-12TZ",
             "T09:00:00Z",

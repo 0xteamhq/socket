@@ -36,8 +36,9 @@ pub struct EventInvitee {
     pub display_name: Option<String>,
     /// True when their attendance is optional.
     pub optional: Option<bool>,
-    /// The answer they have already given, for a guest who stays on a list
-    /// that is being replaced. Leave unset for someone new.
+    /// Their answer, to set it. Leave unset: someone new has not answered,
+    /// and a guest who stays on a list that is being replaced keeps the
+    /// answer they gave.
     pub response_status: Option<String>,
 }
 

@@ -36,7 +36,8 @@ pub(crate) fn millis(text: &str) -> Option<i64> {
         return None;
     }
 
-    // The fraction, when there is one: up to nine digits.
+    // The fraction, when there is one, however fine: what is finer than a
+    // thousandth is left off.
     let mut at = 19;
     let mut thousandths = 0;
     if is(at, b".") {
@@ -45,7 +46,7 @@ pub(crate) fn millis(text: &str) -> Option<i64> {
             .take_while(|byte| byte.is_ascii_digit())
             .map(|byte| i64::from(byte - b'0'))
             .collect();
-        if !(1..=9).contains(&digits.len()) {
+        if digits.is_empty() {
             return None;
         }
         // `.5` is 500 thousandths, `.250999` is 250.
@@ -108,6 +109,8 @@ mod tests {
         assert_eq!(millis("2026-10-12T16:00:04.5Z"), Some(1_791_820_804_500));
         assert_eq!(millis("2026-10-12T16:00:04.250999Z"), Some(1_791_820_804_250));
         assert_eq!(millis("2026-10-12T16:00:04.000000001Z"), Some(1_791_820_804_000));
+        // Finer than Google is known to write. What is past a thousandth is left off.
+        assert_eq!(millis("2026-10-12T16:00:04.2501234567Z"), Some(1_791_820_804_250));
         assert_eq!(millis("2026-10-12t16:00:00z"), Some(1_791_820_800_000));
     }
 
@@ -149,7 +152,6 @@ mod tests {
             "2026-10-12T16:60:00Z",
             "2026-10-12T16:00:60Z",
             "2026-10-12T16:00:00.Z",
-            "2026-10-12T16:00:00.1234567890Z",
             "2026-10-12T16:00:00+0530",
             "2026-10-12T16:00:00+24:00",
             "2026-10-12T16:00:00Zjunk",
