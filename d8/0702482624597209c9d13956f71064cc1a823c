@@ -1,0 +1,68 @@
+crates/integrations/microsoft/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 316
+crates/core/src/provider.rs
+  s_bcb90e4e44ba65::t_b8b6c09dc5ad32 155-156,160,628-630,635-638,682-692
+  s_bcb90e4e44ba65::t_05d541e6d40474 191-193,598-627,631-634,639-681,693-776
+  s_bcb90e4e44ba65::t_55286c4f98ad30 64-69,74-78,170-190,194-232,239-263,320-350
+  s_bcb90e4e44ba65::t_ee17c6eb5e325d 79,351,777
+crates/core/src/socket.rs
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 383-385,555-556,564-570,621-631,648-651,794-801
+  s_bcb90e4e44ba65::t_b8b6c09dc5ad32 460,552-554,632-647
+  s_bcb90e4e44ba65::t_db870b32fcfc36 802
+crates/core/src/auth.rs
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 231
+crates/core/src/lib.rs
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 24-26
+crates/core/src/secret.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 116,131
+  s_bcb90e4e44ba65::t_55286c4f98ad30 5,42-50,61,65-68
+  s_bcb90e4e44ba65::t_05d541e6d40474 69,144-158
+  s_bcb90e4e44ba65::t_a7bde085a7d778 70,143
+crates/core/tests/wire.rs
+  s_bcb90e4e44ba65::t_05d541e6d40474 2782-3038,3040,3045-3048,3073-3144
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 97,2118
+  s_bcb90e4e44ba65::t_b8b6c09dc5ad32 3039,3041-3044,3049-3072
+crates/integrations/github/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 160
+crates/core/src/http.rs
+  s_bcb90e4e44ba65::t_b8b6c09dc5ad32 558-565,570,807-890
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 17-18,260,389,455-465,470,549-557,566-569,571-574,581,593
+  s_bcb90e4e44ba65::t_3938c0f1a3b2fb 891
+crates/testkit/src/lib.rs
+  s_bcb90e4e44ba65::t_271d4a98e22607 273,275,279,281
+  s_bcb90e4e44ba65::t_56f275876b1359 79-83,86,185-272,274,276-278,280,282-310
+  s_bcb90e4e44ba65::t_5ddb1771e9a50f 311-312
+crates/integrations/zoom/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 162
+crates/integrations/slack/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 240
+crates/core/src/oauth.rs
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 194,224-228
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_bcb90e4e44ba65::t_feee72fe5eb9a1 185-186,201-202,284
+crates/core/src/operation.rs
+  s_bcb90e4e44ba65::t_e00b6efe43d1cf 9,190-194
+  s_bcb90e4e44ba65::t_b0879fa9b770b4 195-196
+crates/integrations/notion/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 172
+crates/integrations/google/src/lib.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 255
+crates/integrations/microsoft/tests/wire.rs
+  s_bcb90e4e44ba65::t_c88a9b6877bec8 85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d80702482624597209c9d13956f71064cc1a823c",
+  "prompts": {},
+  "sessions": {
+    "s_bcb90e4e44ba65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9b1631a4-f411-425a-a51b-2099dc11635a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
