@@ -165,7 +165,7 @@ fn mail_cases() -> Vec<Case> {
     let text = json!({ "contentType": "text", "content": "See you Monday." });
     let draft = json!({ "id": "msg-9", "isDraft": true, "subject": "Re: Q3 plan", "toRecipients": to("grace@contoso.example") });
     let folder = json!({ "id": "folder-inbox", "displayName": "Inbox", "parentFolderId": "folder-root", "childFolderCount": 2, "unreadItemCount": 5, "totalItemCount": 120, "isHidden": false });
-    let attachment = json!({ "@odata.type": "#microsoft.graph.fileAttachment", "id": "att-1", "name": "plan.pdf", "contentType": "application/pdf", "size": 2048, "isInline": false, "lastModifiedDateTime": "2026-10-09T08:14:00Z", "contentId": null });
+    let attachment = json!({ "@odata.type": "#microsoft.graph.fileAttachment", "id": "att-1", "name": "plan.pdf", "contentType": "application/pdf", "size": 2048, "isInline": false, "lastModifiedDateTime": "2026-10-09T08:14:00Z" });
     vec![
         // mail: reading
         case("mail.list", json!({ "folder": "inbox", "filter": "receivedDateTime ge 2026-10-01T00:00:00Z", "orderBy": "receivedDateTime desc", "limit": 5 }), "GET", "/me/mailFolders/inbox/messages",
@@ -180,10 +180,14 @@ fn mail_cases() -> Vec<Case> {
         // The list asks for what describes an attachment and not for its content.
         case("mail.attachments_list", json!({ "message": "msg-1" }), "GET", "/me/messages/msg-1/attachments",
             json!({ "$select": "id,name,contentType,size,isInline,lastModifiedDateTime" }), json!(null), None, 200,
-            json!({ "value": [attachment.clone()] }), json!({ "items": [{ "@odata.type": "#microsoft.graph.fileAttachment", "id": "att-1", "name": "plan.pdf", "contentType": "application/pdf", "size": 2048, "isInline": false, "contentBytes": null }], "next_cursor": null })),
-        case("mail.attachment_get", json!({ "message": "msg-1", "attachment": "att-1" }), "GET", "/me/messages/msg-1/attachments/att-1", json!({}), json!(null), None, 200,
-            json!({ "@odata.type": "#microsoft.graph.fileAttachment", "id": "att-1", "name": "plan.pdf", "contentType": "application/pdf", "size": 5, "isInline": false, "contentBytes": "aGVsbG8=" }),
-            json!({ "id": "att-1", "name": "plan.pdf", "size": 5, "contentBytes": "aGVsbG8=" })),
+            json!({ "value": [attachment.clone()] }), json!({ "items": [{ "@odata.type": "#microsoft.graph.fileAttachment", "id": "att-1", "name": "plan.pdf", "contentType": "application/pdf", "size": 2048, "isInline": false }], "next_cursor": null })),
+        // One attachment is described the same way: the file is not part of the answer.
+        case("mail.attachment_get", json!({ "message": "msg-1", "attachment": "att-1" }), "GET", "/me/messages/msg-1/attachments/att-1",
+            json!({ "$select": "id,name,contentType,size,isInline,lastModifiedDateTime" }), json!(null), None, 200,
+            attachment.clone(), json!({ "@odata.type": "#microsoft.graph.fileAttachment", "id": "att-1", "name": "plan.pdf", "contentType": "application/pdf", "size": 2048 })),
+        // The file itself is asked for as it is, in whatever format it has.
+        Case { accept: "*/*", ..case("mail.attachment_text", json!({ "message": "msg-1", "attachment": "att-1" }), "GET", "/me/messages/msg-1/attachments/att-1/$value", json!({}), json!(null), None, 200,
+            json!("name,owner\nQ3 plan,Grace\n"), json!({ "contentType": "text/csv", "text": "name,owner\nQ3 plan,Grace\n" })) },
 
         // mail folders
         case("mail_folders.list", json!({ "limit": 50 }), "GET", "/me/mailFolders", json!({ "$top": "50" }), json!(null), None, 200,
@@ -347,16 +351,18 @@ async fn the_table_below_covers_every_operation_microsoft_offers() {
         tested.len(),
         "a test case names an operation that does not exist"
     );
-    assert_eq!(listed.len(), 59);
+    assert_eq!(listed.len(), 60);
 }
 
 #[tokio::test]
 async fn every_operation_sends_the_right_request_and_returns_what_graph_sent() {
     for case in every_case() {
         let (server, socket, key) = microsoft().await;
-        // An answer that is not JSON is sent as the text it is.
+        // An answer that is not JSON is sent as the text it is, in the format
+        // that was asked for, or as a CSV file where any format was.
+        let served = if case.accept == "*/*" { "text/csv" } else { case.accept };
         let answered = match case.response.as_str().filter(|_| case.accept != "application/json") {
-            Some(text) => ResponseTemplate::new(case.status).set_body_raw(text, case.accept),
+            Some(text) => ResponseTemplate::new(case.status).set_body_raw(text, served),
             None => answer(case.status, &case.response),
         };
         Mock::given(method(case.verb))
@@ -447,6 +453,7 @@ async fn every_operation_describes_its_input_and_marks_what_it_changes() {
         ("mail.conversation", Effect::Read, "Mail.Read"),
         ("mail.attachments_list", Effect::Read, "Mail.Read"),
         ("mail.attachment_get", Effect::Read, "Mail.Read"),
+        ("mail.attachment_text", Effect::Read, "Mail.Read"),
         ("mail_folders.list", Effect::Read, "Mail.Read"),
         ("mail_folders.get", Effect::Read, "Mail.Read"),
         // A draft is the person's own until it is sent, and can be thrown away.

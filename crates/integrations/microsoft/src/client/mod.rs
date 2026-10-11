@@ -17,6 +17,7 @@ mod channels;
 mod chats;
 mod events;
 mod mail;
+mod mail_attachments;
 mod mail_compose;
 mod mail_folders;
 mod online_meetings;
@@ -27,7 +28,7 @@ mod transcripts;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
-use socketkit_core::{Connection, Error, ErrorKind, Page, RawRequest, Result};
+use socketkit_core::{Connection, Content, ContentRequest, Error, ErrorKind, Page, RawRequest, Result};
 use url::Url;
 
 pub use attendance::Attendance;
@@ -43,7 +44,7 @@ pub use recordings::Recordings;
 pub use teams::Teams;
 pub use transcripts::Transcripts;
 
-use crate::models::{ChatMessage, ItemBody, Paging, Recipient, SendChatMessage};
+use crate::models::{ChatMessage, Download, ItemBody, Paging, Recipient, SendChatMessage};
 
 /// One connection's access to Microsoft Graph.
 #[derive(Debug, Clone, Copy)]
@@ -72,6 +73,19 @@ impl Api<'_> {
             request.path = format!("{}?{}", request.path, written.join("&"));
         }
         Ok(self.connection.request(request).await?.body)
+    }
+
+    /// Fetches what is at `path` as it is served: a recording, an attachment.
+    /// The bytes are not read as anything. `limits` are the caller's own.
+    pub(super) async fn fetch(&self, path: String, limits: &Download) -> Result<Content> {
+        let mut request = ContentRequest::get(path);
+        if let Some(most) = limits.max_bytes {
+            request = request.with_max_bytes(most);
+        }
+        if let Some(secs) = limits.timeout_secs {
+            request = request.with_timeout(std::time::Duration::from_secs(secs));
+        }
+        self.connection.fetch(request).await
     }
 
     /// Reads a response as `T`. `what` names it in the error: "an event".

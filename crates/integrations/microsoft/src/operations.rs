@@ -17,11 +17,13 @@ use socketkit_core::{Connection, Effect, Error, ErrorKind, OperationInfo, Page, 
 
 use crate::Microsoft;
 use crate::models::{
-    Attachment, Calendar, CancelEvent, CreateEvent, DraftMessage, Event, EventResponse, FindMeetingTimes, GetMessage,
-    GetSchedule, ListFolders, ListMessages, MailFolder, MeetingTimeSuggestions, Message, Paging, ReplyContent,
-    RespondToEvent, ScheduleInformation, SendMail, UpdateEvent, UpdateMessage,
+    Attachment, AttachmentText, Calendar, CancelEvent, CreateEvent, DraftMessage, Event, EventResponse,
+    FindMeetingTimes, GetMessage, GetSchedule, ListFolders, ListMessages, MailFolder, MeetingTimeSuggestions, Message,
+    Paging, ReplyContent, RespondToEvent, ScheduleInformation, SendMail, UpdateEvent, UpdateMessage,
 };
-use crate::models::{AttendanceRecord, AttendanceReport, OnlineMeeting, Recording, Transcript, TranscriptContent};
+use crate::models::{
+    AttendanceRecord, AttendanceReport, OnlineMeeting, Recording, TextLimit, Transcript, TranscriptContent,
+};
 use crate::models::{Channel, Chat, ChatMessage, ConversationMember, CreateChat, Cursor, SendChatMessage, Team};
 
 type Running = std::pin::Pin<Box<dyn Future<Output = Result<Value>> + Send>>;
@@ -280,6 +282,14 @@ input!(OneAttachment {
     /// The id of one of its attachments.
     attachment: String
 });
+input!(
+    AttachmentAsText {
+        /// A message id.
+        message: String,
+        /// The id of one of its attachments.
+        attachment: String
+    } + TextLimit
+);
 input!(Folders {} + ListFolders);
 input!(OneFolder {
     /// A folder id, or a well-known name such as `inbox`.
@@ -502,8 +512,10 @@ fn build() -> Vec<Operation> {
             |m: Microsoft, c: Connection, i: Conversation| async move { m.mail(&c).conversation(&i.conversation, i.options).await as Result<Page<Message>> }),
         operation("mail.attachments_list", "List what is attached to a message: names, types and sizes, without the files.", Read, &["Mail.Read"],
             |m: Microsoft, c: Connection, i: MessageAttachments| async move { m.mail(&c).attachments_list(&i.message, i.options).await as Result<Page<Attachment>> }),
-        operation("mail.attachment_get", "Get one attachment. A file comes with its content, in base64.", Read, &["Mail.Read"],
+        operation("mail.attachment_get", "Describe one attachment: its name, type and size, without the file.", Read, &["Mail.Read"],
             |m: Microsoft, c: Connection, i: OneAttachment| async move { m.mail(&c).attachment_get(&i.message, &i.attachment).await as Result<Attachment> }),
+        operation("mail.attachment_text", "Read an attachment that is text, such as a CSV file or a calendar invitation. One megabyte unless maxBytes allows more, up to ten. Anything that is not text is refused: bytes are not returned.", Read, &["Mail.Read"],
+            |m: Microsoft, c: Connection, i: AttachmentAsText| async move { m.mail(&c).attachment_text(&i.message, &i.attachment, i.options).await as Result<AttachmentText> }),
         // A draft is the person's own until it is sent, and can be thrown away.
         operation("mail.create_draft", "Save a new message in Drafts. Nothing is sent.", Write, &["Mail.ReadWrite"],
             |m: Microsoft, c: Connection, i: NewDraft| async move { m.mail(&c).create_draft(i.options).await as Result<Message> }),

@@ -249,7 +249,10 @@ async fn what_graph_leaves_empty_does_not_stop_mail_from_being_read() {
         .unwrap();
     assert_eq!(page["items"][0]["@odata.type"], "#microsoft.graph.itemAttachment");
     assert_eq!(page["items"][1]["name"], "");
-    assert_eq!(page["items"][1]["contentBytes"], json!(null));
+    assert!(
+        page["items"][1].get("contentBytes").is_none(),
+        "a file is never part of a description"
+    );
 }
 
 #[tokio::test]

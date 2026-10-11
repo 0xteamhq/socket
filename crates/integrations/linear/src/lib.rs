@@ -33,6 +33,7 @@ pub fn provider() -> ProviderSpec {
         display_name: "Linear".into(),
         api_base: "https://api.linear.app/".parse().expect("a valid URL"),
         allowed_hosts: vec!["api.linear.app".into()],
+        content_hosts: Vec::new(),
         auth: AuthScheme::OAuth2(OAuth2Spec {
             authorize_url: "https://linear.app/oauth/authorize".parse().expect("a valid URL"),
             token_url: "https://api.linear.app/oauth/token".parse().expect("a valid URL"),

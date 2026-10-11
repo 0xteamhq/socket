@@ -61,6 +61,7 @@ pub fn provider() -> ProviderSpec {
         api_base: "https://graph.microsoft.com/v1.0/".parse().expect("a valid URL"),
         // login.microsoftonline.com serves the token endpoint.
         allowed_hosts: vec!["graph.microsoft.com".into(), "login.microsoftonline.com".into()],
+        content_hosts: Vec::new(),
         auth: AuthScheme::OAuth2(OAuth2Spec {
             authorize_url: sign_in("authorize"),
             token_url: sign_in("token"),

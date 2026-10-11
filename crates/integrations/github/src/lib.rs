@@ -25,6 +25,7 @@ pub fn provider() -> ProviderSpec {
         api_base: "https://api.github.com/".parse().expect("a valid URL"),
         // github.com serves the OAuth token endpoint.
         allowed_hosts: vec!["api.github.com".into(), "github.com".into()],
+        content_hosts: Vec::new(),
         auth: AuthScheme::OAuth2(OAuth2Spec {
             authorize_url: "https://github.com/login/oauth/authorize".parse().expect("a valid URL"),
             token_url: "https://github.com/login/oauth/access_token"

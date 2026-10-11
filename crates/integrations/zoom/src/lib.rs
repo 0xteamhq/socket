@@ -27,6 +27,7 @@ pub fn provider() -> ProviderSpec {
         api_base: "https://api.zoom.us/v2/".parse().expect("a valid URL"),
         // zoom.us serves the OAuth token endpoint.
         allowed_hosts: vec!["api.zoom.us".into(), "zoom.us".into()],
+        content_hosts: Vec::new(),
         auth: AuthScheme::OAuth2(OAuth2Spec {
             authorize_url: "https://zoom.us/oauth/authorize".parse().expect("a valid URL"),
             token_url: "https://zoom.us/oauth/token".parse().expect("a valid URL"),

@@ -9,6 +9,10 @@ use crate::error::{Error, ErrorKind, Result, Retry};
 use crate::provider::{ApiKeySpec, AuthScheme, KeyPlacement, ProviderId, ProviderSpec};
 use crate::secret::TokenSet;
 
+mod content;
+
+pub use content::{Content, ContentRequest};
+
 /// A request described as plain data. The transport adds the credentials.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RawRequest {
@@ -263,21 +267,7 @@ impl Transport {
         let method = reqwest::Method::from_bytes(request.method.to_ascii_uppercase().as_bytes())
             .map_err(|_| invalid(format!("{:?} is not an HTTP method", request.method)))?;
         let idempotent = matches!(method.as_str(), "GET" | "HEAD" | "PUT" | "DELETE" | "OPTIONS");
-        if let AuthScheme::ApiKey(ApiKeySpec {
-            placement: KeyPlacement::Query { name },
-        }) = &spec.auth
-        {
-            // A second value under the key's own name could be read in place of the real one.
-            // Servers differ on case and stray whitespace, so any spelling of the name is refused.
-            if url
-                .query_pairs()
-                .any(|(given, _)| given.trim().eq_ignore_ascii_case(name.trim()))
-            {
-                return Err(invalid(format!(
-                    "the query parameter {name:?} carries the credentials and cannot be set"
-                )));
-            }
-        }
+        refuse_key_parameter(spec, &url)?;
         let headers = caller_headers(spec, &request.headers)?;
 
         let mut attempt = 1;
@@ -296,30 +286,32 @@ impl Transport {
                     url = next;
                     continue;
                 }
-                Ok(Sent::Moved(_)) => {
-                    return Err(Error::new(
-                        ErrorKind::Unexpected,
-                        format!("{} redirected the request too many times", spec.id),
-                    )
-                    .with_provider(spec.id.clone()));
-                }
+                Ok(Sent::Moved(_)) => return Err(too_many_redirects(spec)),
                 Err(error) => error,
             };
             // A throttled request was not processed, so any method may be retried.
             // Anything else is retried only when repeating it cannot do harm.
             let may_retry = error.kind() == ErrorKind::RateLimited || idempotent;
-            let wait = match error.retry() {
-                Retry::Never => None,
-                Retry::After(wait) => (wait <= self.retry.max_delay).then_some(wait),
-                Retry::Later => Some(self.backoff(attempt)),
-            };
-            match wait {
-                Some(wait) if may_retry && attempt < self.retry.max_attempts => {
+            match self.wait(&error, attempt) {
+                Some(wait) if may_retry => {
                     tokio::time::sleep(wait).await;
                     attempt += 1;
                 }
                 _ => return Err(error),
             }
+        }
+    }
+
+    /// How long to wait before trying again after `error` on try number
+    /// `attempt`, or `None` when the request is not to be tried again.
+    fn wait(&self, error: &Error, attempt: u32) -> Option<Duration> {
+        if attempt >= self.retry.max_attempts {
+            return None;
+        }
+        match error.retry() {
+            Retry::Never => None,
+            Retry::After(wait) => (wait <= self.retry.max_delay).then_some(wait),
+            Retry::Later => Some(self.backoff(attempt)),
         }
     }
 
@@ -341,10 +333,7 @@ impl Transport {
     ) -> Result<Sent> {
         let secret = tokens.access_token.expose();
         let asked = url.clone();
-        if let AuthScheme::ApiKey(ApiKeySpec {
-            placement: KeyPlacement::Query { name },
-        }) = &spec.auth
-        {
+        if let Some(name) = key_parameter(spec) {
             url.query_pairs_mut().append_pair(name, secret);
         }
         // One map, filled in order: defaults, then the caller's headers, which
@@ -370,17 +359,7 @@ impl Transport {
             }
             None => None,
         };
-        let mut builder = self.client.request(method.clone(), url).headers(headers);
-        builder = match &spec.auth {
-            AuthScheme::OAuth2(_) => builder.bearer_auth(secret),
-            AuthScheme::ApiKey(ApiKeySpec { placement }) => match placement {
-                KeyPlacement::Header { name, prefix } => {
-                    builder.header(name.as_str(), format!("{}{secret}", prefix.as_deref().unwrap_or("")))
-                }
-                KeyPlacement::Basic {} => builder.basic_auth(secret, None::<&str>),
-                KeyPlacement::Query { .. } => builder,
-            },
-        };
+        let mut builder = authorized(spec, self.client.request(method.clone(), url).headers(headers), secret);
         if let Some(bytes) = body {
             builder = builder.body(bytes);
         }
@@ -437,6 +416,76 @@ impl Transport {
     }
 }
 
+/// Puts the credential on a request, where the provider's scheme carries it
+/// in a header. A key that goes in the query is written into the address.
+fn authorized(spec: &ProviderSpec, builder: reqwest::RequestBuilder, secret: &str) -> reqwest::RequestBuilder {
+    match &spec.auth {
+        AuthScheme::OAuth2(_) => builder.bearer_auth(secret),
+        AuthScheme::ApiKey(ApiKeySpec { placement }) => match placement {
+            KeyPlacement::Header { name, prefix } => {
+                builder.header(name.as_str(), format!("{}{secret}", prefix.as_deref().unwrap_or("")))
+            }
+            KeyPlacement::Basic {} => builder.basic_auth(secret, None::<&str>),
+            KeyPlacement::Query { .. } => builder,
+        },
+    }
+}
+
+/// The query parameter that carries the API key, for a provider that puts it there.
+fn key_parameter(spec: &ProviderSpec) -> Option<&str> {
+    match &spec.auth {
+        AuthScheme::ApiKey(ApiKeySpec {
+            placement: KeyPlacement::Query { name },
+        }) => Some(name),
+        _ => None,
+    }
+}
+
+/// True when `given` is the key's own parameter. Servers differ on case and
+/// stray whitespace, so any spelling of the name counts.
+fn is_key_parameter(given: &str, name: &str) -> bool {
+    given.trim().eq_ignore_ascii_case(name.trim())
+}
+
+/// Refuses an address that already has a value under the API key's own name,
+/// which a server could read in place of the real one.
+fn refuse_key_parameter(spec: &ProviderSpec, url: &Url) -> Result<()> {
+    match key_parameter(spec) {
+        Some(name) if url.query_pairs().any(|(given, _)| is_key_parameter(&given, name)) => Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("the query parameter {name:?} carries the credentials and cannot be set"),
+        )
+        .with_provider(spec.id.clone())),
+        _ => Ok(()),
+    }
+}
+
+/// Drops a copy of the API key that the provider echoed into `url`: the key
+/// is added again on each attempt.
+fn without_key_parameter(spec: &ProviderSpec, url: &mut Url) {
+    let Some(name) = key_parameter(spec) else {
+        return;
+    };
+    let kept: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(given, _)| !is_key_parameter(given, name))
+        .map(|(n, v)| (n.into_owned(), v.into_owned()))
+        .collect();
+    if kept.is_empty() {
+        url.set_query(None);
+    } else {
+        url.query_pairs_mut().clear().extend_pairs(kept);
+    }
+}
+
+fn too_many_redirects(spec: &ProviderSpec) -> Error {
+    Error::new(
+        ErrorKind::Unexpected,
+        format!("{} redirected the request too many times", spec.id),
+    )
+    .with_provider(spec.id.clone())
+}
+
 /// What one attempt produced.
 enum Sent {
     Done(RawResponse),
@@ -464,23 +513,7 @@ fn redirect_target(spec: &ProviderSpec, method: &reqwest::Method, asked: &Url, r
         return None;
     }
     next.set_fragment(None);
-    // An API key in the query is added again on each attempt; a copy the
-    // provider echoed into the new address is dropped.
-    if let AuthScheme::ApiKey(ApiKeySpec {
-        placement: KeyPlacement::Query { name },
-    }) = &spec.auth
-    {
-        let kept: Vec<(String, String)> = next
-            .query_pairs()
-            .filter(|(given, _)| !given.trim().eq_ignore_ascii_case(name.trim()))
-            .map(|(n, v)| (n.into_owned(), v.into_owned()))
-            .collect();
-        if kept.is_empty() {
-            next.set_query(None);
-        } else {
-            next.query_pairs_mut().clear().extend_pairs(kept);
-        }
-    }
+    without_key_parameter(spec, &mut next);
     Some(next)
 }
 
@@ -541,9 +574,20 @@ fn refused(spec: &ProviderSpec, url: &Url) -> Error {
 
 /// Turns a request path into a URL that may receive `spec`'s credentials.
 fn resolve_url(spec: &ProviderSpec, path: &str) -> Result<Url> {
+    let url = address(spec, path)?;
+    if !spec.allows_host(&url) {
+        return Err(refused(spec, &url));
+    }
+    Ok(url)
+}
+
+/// Turns a request path into a URL: the path joined to `spec`'s API, or the
+/// address itself when it is one. Which host it is on is for the caller to check.
+fn address(spec: &ProviderSpec, path: &str) -> Result<Url> {
     let invalid = |message: String| Error::new(ErrorKind::InvalidInput, message).with_provider(spec.id.clone());
     let url = if path.starts_with("https://") || path.starts_with("http://") {
-        Url::parse(path).map_err(|_| invalid(format!("{path:?} is not a URL")))?
+        // The address is not repeated: one that is signed carries its own credential.
+        Url::parse(path).map_err(|_| invalid("the address of the request is not a URL".into()))?
     } else {
         // `Url::join` drops the last segment of a base without a trailing slash,
         // and a leading slash on the path would discard the base's own path.
@@ -552,15 +596,12 @@ fn resolve_url(spec: &ProviderSpec, path: &str) -> Result<Url> {
             base.set_path(&format!("{}/", base.path()));
         }
         base.join(path.trim_start_matches('/'))
-            .map_err(|_| invalid(format!("{path:?} is not a valid path")))?
+            .map_err(|_| invalid("the path of the request is not valid".into()))?
     };
     // An HTTP client turns `user:password@host` into a Basic `Authorization`
     // header, which would travel beside or in place of the stored credentials.
     if !url.username().is_empty() || url.password().is_some() {
         return Err(invalid("a request URL must not carry a username or password".into()));
-    }
-    if !spec.allows_host(&url) {
-        return Err(refused(spec, &url));
     }
     Ok(url)
 }
@@ -571,25 +612,57 @@ fn resolve_url(spec: &ProviderSpec, path: &str) -> Result<Url> {
 /// `text` is true when the caller asked for text: a successful body is then
 /// kept as a string and not parsed.
 async fn read(spec: &ProviderSpec, builder: reqwest::RequestBuilder, text: bool) -> Result<RawResponse> {
-    let transport = |what: &str, e: reqwest::Error| {
-        Error::new(ErrorKind::Transport, format!("could not {what} {}", spec.id))
-            .with_provider(spec.id.clone())
-            .with_retry(Retry::Later)
-            .with_source(e.without_url())
-    };
-    let mut response = builder.send().await.map_err(|e| transport("reach", e))?;
-    let status = response.status().as_u16();
-    let headers = response
-        .headers()
+    let response = builder.send().await.map_err(|e| unreached(spec, "reach", e))?;
+    answer(spec, response, text, unreached).await
+}
+
+/// A request that got no answer, or whose answer broke off. Worth trying again.
+fn unreached(spec: &ProviderSpec, what: &str, e: reqwest::Error) -> Error {
+    Error::new(ErrorKind::Transport, format!("could not {what} {}", spec.id))
+        .with_provider(spec.id.clone())
+        .with_retry(Retry::Later)
+        .with_source(e.without_url())
+}
+
+/// As [`unreached`], for a request that is given its time once. What did not
+/// arrive in the time allowed will not arrive in it the next time either, so
+/// running out of time is not worth trying again: the caller allows more.
+fn unreached_once(spec: &ProviderSpec, what: &str, e: reqwest::Error) -> Error {
+    let out_of_time = e.is_timeout();
+    let error = unreached(spec, what, e);
+    if out_of_time {
+        error
+            .map_message(|m| format!("{m} in the time allowed"))
+            .with_retry(Retry::Never)
+    } else {
+        error
+    }
+}
+
+/// The headers of a response as data. One that is not text is left out.
+fn header_pairs(headers: &HeaderMap) -> Vec<(String, String)> {
+    headers
         .iter()
         .filter_map(|(name, value)| Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned())))
-        .collect();
+        .collect()
+}
+
+/// Reads a response that has arrived as data: see [`read`]. `broken` makes
+/// the error for an answer that breaks off.
+async fn answer(
+    spec: &ProviderSpec,
+    mut response: reqwest::Response,
+    text: bool,
+    broken: fn(&ProviderSpec, &str, reqwest::Error) -> Error,
+) -> Result<RawResponse> {
+    let status = response.status().as_u16();
+    let headers = header_pairs(response.headers());
     // Read in pieces so a broken or hostile provider cannot fill memory.
     let mut bytes = Vec::new();
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|e| transport("read the response from", e))?
+        .map_err(|e| broken(spec, "read the response from", e))?
     {
         if bytes.len() + chunk.len() > MAX_BODY_BYTES {
             // An oversized error page still has a status and headers worth

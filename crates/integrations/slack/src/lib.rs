@@ -42,6 +42,7 @@ pub fn provider() -> ProviderSpec {
         display_name: "Slack".into(),
         api_base: "https://slack.com/api/".parse().expect("a valid URL"),
         allowed_hosts: vec!["slack.com".into()],
+        content_hosts: Vec::new(),
         auth: AuthScheme::OAuth2(OAuth2Spec {
             authorize_url: "https://slack.com/oauth/v2/authorize".parse().expect("a valid URL"),
             token_url: "https://slack.com/api/oauth.v2.access".parse().expect("a valid URL"),

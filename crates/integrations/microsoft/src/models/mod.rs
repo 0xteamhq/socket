@@ -17,6 +17,7 @@ mod channel;
 mod chat;
 mod chat_message;
 mod date_time;
+mod download;
 mod email_address;
 mod event;
 mod folder;
@@ -34,7 +35,7 @@ mod team;
 mod transcript;
 mod webvtt;
 
-pub use attachment::Attachment;
+pub use attachment::{Attachment, AttachmentText};
 pub use attendance::{AttendanceInterval, AttendanceRecord, AttendanceReport};
 pub use availability::{
     AttendeeAvailability, FindMeetingTimes, GetSchedule, MeetingTimeSuggestion, MeetingTimeSuggestions, ScheduleError,
@@ -48,6 +49,7 @@ pub use chat_message::{
     SendChatMessage, SenderIdentity,
 };
 pub use date_time::{DateTimeTimeZone, TimeSlot};
+pub use download::{Download, TextLimit};
 pub use email_address::{EmailAddress, Recipient};
 pub use event::{
     Attendee, CancelEvent, CreateEvent, Event, EventResponse, Location, OnlineMeetingInfo, RespondToEvent,

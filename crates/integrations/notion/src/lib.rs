@@ -27,6 +27,7 @@ pub fn provider() -> ProviderSpec {
         display_name: "Notion".into(),
         api_base: "https://api.notion.com/v1/".parse().expect("a valid URL"),
         allowed_hosts: vec!["api.notion.com".into()],
+        content_hosts: Vec::new(),
         auth: AuthScheme::OAuth2(OAuth2Spec {
             authorize_url: "https://api.notion.com/v1/oauth/authorize"
                 .parse()
