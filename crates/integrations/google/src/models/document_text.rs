@@ -199,7 +199,13 @@ impl<'a> Reader<'a> {
         let cells: Vec<String> = row
             .table_cells
             .iter()
-            .map(|cell| on_one_line(&self.blocks(&cell.content)).replace('|', "\\|"))
+            // A backslash is escaped before the bar is, so that one written
+            // before a bar in the cell itself cannot undo the bar's escape.
+            .map(|cell| {
+                on_one_line(&self.blocks(&cell.content))
+                    .replace('\\', "\\\\")
+                    .replace('|', "\\|")
+            })
             .collect();
         format!("| {} |", cells.join(" | "))
     }
@@ -304,7 +310,19 @@ fn linked(words: &str, address: &str) -> String {
     }
     let start = words.len() - words.trim_start().len();
     let end = start + shown.len();
-    format!("{}[{shown}]({address}){}", &words[..start], &words[end..])
+    // Words and addresses are the writer's own. Neither may end the link
+    // early, or the words would seem to lead somewhere they do not.
+    let label = shown.replace('\\', "\\\\").replace('[', "\\[").replace(']', "\\]");
+    let target: String = address
+        .chars()
+        .map(|c| match c {
+            '(' => "%28".to_owned(),
+            ')' => "%29".to_owned(),
+            c if c.is_whitespace() || c.is_control() => "%20".to_owned(),
+            c => c.to_string(),
+        })
+        .collect();
+    format!("{}[{label}]({target}){}", &words[..start], &words[end..])
 }
 
 /// Lines as one line, for a cell of a table or a footnote.
@@ -642,9 +660,32 @@ mod tests {
             text_of(content),
             "Owners:\n| Area | Owner |\n| Billing and tax | Ada \\| Grace |\n|  | \\| x \\| y \\| |\nEnd."
         );
+        // A cell that already holds a backslash before a bar, and a table
+        // inside a cell whose own cell holds a bar: neither makes a cell more.
+        let nested = table(vec![vec![vec![paragraph("a|b")]]]);
+        assert_eq!(
+            text_of(vec![table(vec![vec![vec![paragraph("Ada \\| Grace")], vec![nested]]])]),
+            "| Ada \\\\\\| Grace | \\| a\\\\\\|b \\| |"
+        );
         // A table Google sent no rows for, and a row with no cells.
         assert_eq!(text_of(vec![json!({ "table": { "rows": 0, "columns": 0 } })]), "");
         assert_eq!(text_of(vec![json!({ "table": { "tableRows": [{}] } })]), "|  |");
+    }
+
+    #[test]
+    fn linked_words_cannot_end_their_link_and_seem_to_lead_elsewhere() {
+        // Words written to look like a link of their own, to a place they do not lead.
+        assert_eq!(
+            linked(
+                "Sign in](https://accounts.example.test) [here",
+                "https://elsewhere.test/a b)c"
+            ),
+            "[Sign in\\](https://accounts.example.test) \\[here](https://elsewhere.test/a%20b%29c)"
+        );
+        assert_eq!(
+            linked(" plan\n", "https://example.test/plan"),
+            " [plan](https://example.test/plan)\n"
+        );
     }
 
     #[test]

@@ -63,6 +63,10 @@ impl DriveFiles<'_> {
     pub async fn move_to(&self, file: &str, folder: &str) -> Result<DriveFile> {
         let path = self.item(file)?;
         self.0.required("a folder", folder)?;
+        // Google reads a comma here as the start of a second folder.
+        if folder.contains(',') {
+            return Err(self.0.error(ErrorKind::InvalidInput, "a folder is one id"));
+        }
         if folder.trim() == file.trim() {
             return Err(self
                 .0

@@ -305,8 +305,8 @@ fn drive_cases() -> Vec<Case> {
 // ── docs and sheets: cases ──
 use support::docs::{
     DOCUMENT, DOCUMENT_FIELDS, PLAN_TEXT, REVISION, SPREADSHEET, SPREADSHEET_FIELDS, created_document, document,
-    document_text, document_updated, document_with_content, spreadsheet, unformatted_values, value_ranges,
-    values_appended, values_updated,
+    document_updated, document_with_content, spreadsheet, unformatted_values, value_ranges, values_appended,
+    values_updated,
 };
 #[rustfmt::skip]
 fn docs_cases() -> Vec<Case> {
@@ -327,7 +327,7 @@ fn docs_cases() -> Vec<Case> {
         Case::new("docs_documents.read", json!({ "document": DOCUMENT }), "GET", document_path.clone())
             .query(json!({ "includeTabsContent": "true", "suggestionsViewMode": "PREVIEW_WITHOUT_SUGGESTIONS" }))
             .answers(200, document_with_content())
-            .returns(json!({ "documentId": DOCUMENT, "title": "Q3 plan", "revisionId": REVISION, "text": document_text(), "tabs": [
+            .returns(json!({ "documentId": DOCUMENT, "title": "Q3 plan", "revisionId": REVISION, "tabs": [
                 { "tabId": "t.0", "title": "Plan", "text": PLAN_TEXT },
                 { "tabId": "t.8f2k", "title": "Budget", "parentTabId": "t.0", "nestingLevel": 1, "text": "Rent is the largest cost." },
                 { "tabId": "t.x1n4", "title": "Notes", "text": "" }
@@ -455,7 +455,8 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("drive_files.permissions", Effect::Read, &[scopes::DRIVE_READONLY]),
         ("drive_files.create_folder", Effect::Write, &[scopes::DRIVE_FILE]),
         ("drive_files.copy", Effect::Write, &[scopes::DRIVE_FILE]),
-        ("drive_files.move_to", Effect::Write, &[scopes::DRIVE_FILE]),
+        // Who can see a file follows its folder, and a shared drive keeps what is moved into it.
+        ("drive_files.move_to", Effect::Destructive, &[scopes::DRIVE_FILE]),
         ("drive_files.rename", Effect::Write, &[scopes::DRIVE_FILE]),
         // Takes the file from everyone who could see it, and Google deletes it for good after 30 days.
         ("drive_files.trash", Effect::Destructive, &[scopes::DRIVE_FILE]),
@@ -639,6 +640,43 @@ async fn a_field_an_operation_does_not_know_is_refused_by_every_one_of_them_befo
             case.name,
             err.message()
         );
+    }
+    // The two every integration has take nothing else either.
+    for (name, input) in [
+        ("identity.get", serde_json::json!({ "notAField": "x" })),
+        (
+            "resource.resolve",
+            serde_json::json!({ "input": "1AbC_dEf-GhIjKlMnOpQrStUvWxYz012345", "notAField": "x" }),
+        ),
+    ] {
+        let err = invoke(&socket, &key, name, input).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{name}: {err}");
+    }
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "nothing reached Google"
+    );
+}
+
+#[tokio::test]
+async fn input_that_is_not_an_object_is_refused_and_never_read_by_position() {
+    // A list would otherwise be taken as the arguments in their order: a
+    // file and a folder, with nothing to say which was which.
+    let (server, socket, key) = google().await;
+    for case in every_case() {
+        let values: Vec<serde_json::Value> = case
+            .input
+            .as_object()
+            .map(|fields| fields.values().cloned().collect())
+            .unwrap_or_default();
+        for input in [
+            serde_json::Value::Array(values),
+            serde_json::json!("x"),
+            serde_json::json!(7),
+        ] {
+            let err = invoke(&socket, &key, case.name, input).await.unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::InvalidInput, "{}: {err}", case.name);
+        }
     }
     assert!(
         server.received_requests().await.unwrap().is_empty(),

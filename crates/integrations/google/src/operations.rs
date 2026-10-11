@@ -180,6 +180,12 @@ where
     let schema = info.input_schema.clone();
     let run = move |google: Google, connection: Connection, input: Value| -> Running {
         let provider = connection.provider().id.clone();
+        // A list would be read by position, as the arguments in their
+        // order, and nothing would say which value was which.
+        if !input.is_object() {
+            let refused = invalid("the input is a JSON object, with each argument under its name".to_owned());
+            return Box::pin(std::future::ready(Err(refused.with_provider(provider))));
+        }
         if let Some(found) = unknown_field(&schema, &schema, &input) {
             return Box::pin(std::future::ready(Err(not_a_field(found).with_provider(provider))));
         }
@@ -666,10 +672,12 @@ fn build() -> Vec<Operation> {
             |g: Google, c: Connection, i: DriveNewFolder| async move { g.drive_files(&c).create_folder(i.options).await as Result<DriveFile> }),
         operation("drive_files.copy", "Make a copy of a file, beside it or in another folder, under a new name if one is given. A folder cannot be copied.", Write, &[scopes::DRIVE_FILE],
             |g: Google, c: Connection, i: DriveCopied| async move { g.drive_files(&c).copy(&i.file, i.options).await as Result<DriveFile> }),
-        // These three change one thing about a file, and each can be set back:
-        // moved again, renamed again, taken out of the bin.
-        operation("drive_files.move_to", "Move a file or folder into another folder, out of the one it is in. It keeps its id and can be moved back.", Write, &[scopes::DRIVE_FILE],
+        // A file is seen by whoever can see its folder. Moved, it is shown to
+        // the people of the new folder and taken from those of the old one,
+        // and a file moved into a shared drive becomes the drive's.
+        operation("drive_files.move_to", "Move a file or folder into another folder, out of the one it is in. Who can see it changes with it: the people the new folder is shared with gain it, those who had it through the old folder lose it, and a file moved into a shared drive belongs to that drive.", Destructive, &[scopes::DRIVE_FILE],
             |g: Google, c: Connection, i: DriveMoved| async move { g.drive_files(&c).move_to(&i.file, &i.folder).await as Result<DriveFile> }),
+        // A name is one small thing that the caller can read first and put back.
         operation("drive_files.rename", "Give a file or folder another name. It stays where it is, under the same id.", Write, &[scopes::DRIVE_FILE],
             |g: Google, c: Connection, i: DriveRenamed| async move { g.drive_files(&c).rename(&i.file, &i.name).await as Result<DriveFile> }),
         operation("drive_files.trash", "Put a file or folder in the bin, with everything inside a folder. Everyone who could see it loses it. It can be restored for 30 days, after which Google deletes it for good.", Destructive, &[scopes::DRIVE_FILE],

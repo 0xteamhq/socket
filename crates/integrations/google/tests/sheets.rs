@@ -492,13 +492,15 @@ async fn an_append_always_inserts_rows_so_that_nothing_under_the_table_is_writte
 #[tokio::test]
 async fn a_write_with_nothing_to_write_or_to_nowhere_is_refused_before_google_is_called() {
     let (server, socket, key) = google().await;
-    let no_cell = "`values` needs at least one cell";
+    let no_cell = "`values` needs at least one cell that is not null";
     let not_a_cell = "a cell of `values` is a string, a number, a boolean or null";
     for name in ["sheets_spreadsheets.values_update", "sheets_spreadsheets.values_append"] {
         for (range, values, says) in [
             ("Sheet1!A1", json!([]), no_cell),
             ("Sheet1!A1", json!([[]]), no_cell),
             ("Sheet1!A1", json!([[], []]), no_cell),
+            // `null` leaves a cell as it is, so these would write nothing too.
+            ("Sheet1!A1", json!([[null, null], [null]]), no_cell),
             // A cell holds one value. A list or an object in one is a mistake Google would refuse.
             ("Sheet1!A1", json!([["ok", ["CONFIDENTIAL"]]]), not_a_cell),
             ("Sheet1!A1", json!([[{ "formula": "CONFIDENTIAL" }]]), not_a_cell),

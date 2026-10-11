@@ -460,6 +460,24 @@ impl Google {
         Error::new(kind, message).with_provider(self.spec.id.clone())
     }
 
+    /// Refuses input with a field other than those in `fields`, for the two
+    /// operations every integration has. Their schemas allow no other, and
+    /// one that was dropped in silence would take what it said with it.
+    fn takes(&self, input: &Value, fields: &[&str]) -> Result<()> {
+        let given = match input {
+            Value::Object(given) => given,
+            Value::Null => return Ok(()),
+            _ => return Err(self.error(ErrorKind::InvalidInput, "the input is a JSON object")),
+        };
+        if given.keys().all(|name| fields.contains(&name.as_str())) {
+            return Ok(());
+        }
+        Err(self.error(
+            ErrorKind::InvalidInput,
+            "the input has a field this operation does not know",
+        ))
+    }
+
     /// The account the connection is authorised as.
     ///
     /// Read from Drive's `about` resource, which the Drive scopes cover. When a
@@ -563,8 +581,14 @@ impl Integration for Google {
     async fn invoke(&self, connection: Connection, operation: String, input: Value) -> Result<Value> {
         let id = &self.spec.id;
         match operation.strip_prefix(&format!("{id}.")) {
-            Some("identity.get") => to_output(id, &self.identity(&connection).await?),
-            Some("resource.resolve") => to_output(id, &self.resolve(&connection, &resolve_input(id, &input)?).await?),
+            Some("identity.get") => {
+                self.takes(&input, &[])?;
+                to_output(id, &self.identity(&connection).await?)
+            }
+            Some("resource.resolve") => {
+                self.takes(&input, &["input"])?;
+                to_output(id, &self.resolve(&connection, &resolve_input(id, &input)?).await?)
+            }
             _ => match operations::all().iter().find(|known| known.info.name == operation) {
                 Some(known) => known.run(self.clone(), connection, input).await,
                 None => Err(self.error(ErrorKind::Unsupported, format!("google has no operation {operation:?}"))),

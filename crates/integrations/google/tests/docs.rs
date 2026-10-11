@@ -92,7 +92,9 @@ async fn a_document_is_read_whole_as_it_stands_without_what_is_only_suggested() 
         query_of(&only_request(&server).await),
         json!({ "includeTabsContent": "true", "suggestionsViewMode": "PREVIEW_WITHOUT_SUGGESTIONS" })
     );
-    assert_eq!(read["text"], document_text());
+    // Each tab's text is returned once. The whole document joined as one
+    // text is for a caller in Rust, and would only repeat it here.
+    assert_eq!(read.get("text"), None);
     let tabs: Vec<_> = read["tabs"]
         .as_array()
         .unwrap()
@@ -132,18 +134,15 @@ async fn a_document_of_one_tab_reads_as_that_tab_and_a_blank_one_as_no_text() {
     let read = invoke(&socket, &key, "docs_documents.read", json!({ "document": DOCUMENT }))
         .await
         .unwrap();
-    assert_eq!(
-        read["text"], "## Minutes\nWe agreed to ship.",
-        "no line that names the only tab"
-    );
-    assert_eq!(read["tabs"][0]["text"], read["text"]);
+    assert_eq!(read["tabs"][0]["text"], "## Minutes\nWe agreed to ship.");
+    assert_eq!(read["tabs"].as_array().unwrap().len(), 1);
 
     // What `documents.create` leaves behind: one paragraph that is only its own end.
     let (_server, socket, key) = answering(200, one(vec![paragraph("", "NORMAL_TEXT")])).await;
     let blank = invoke(&socket, &key, "docs_documents.read", json!({ "document": DOCUMENT }))
         .await
         .unwrap();
-    assert_eq!(blank["text"], "");
+    assert_eq!(blank["tabs"][0]["text"], "");
     assert_eq!(blank["tabs"].as_array().unwrap().len(), 1);
 
     // An answer in the shape Google used before tabs: the body at the top.
@@ -154,7 +153,6 @@ async fn a_document_of_one_tab_reads_as_that_tab_and_a_blank_one_as_no_text() {
     let old = invoke(&socket, &key, "docs_documents.read", json!({ "document": DOCUMENT }))
         .await
         .unwrap();
-    assert_eq!(old["text"], "Written before tabs.");
     assert_eq!(
         old["tabs"],
         json!([{ "tabId": "", "title": "", "parentTabId": null, "index": 0, "nestingLevel": 0, "iconEmoji": null, "text": "Written before tabs." }])

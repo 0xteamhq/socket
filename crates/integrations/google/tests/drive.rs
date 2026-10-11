@@ -1263,3 +1263,22 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
     );
     assert_eq!(query_of(received.last().unwrap())["fields"], DRIVES_FIELDS);
 }
+
+#[tokio::test]
+async fn a_move_goes_to_one_folder_and_never_to_a_list_of_them() {
+    // Google reads a comma in the folder it is given as the start of another.
+    let (server, socket, key) = google().await;
+    for folder in ["ARCHIVE,OTHER", "PLANS,", ","] {
+        let err = invoke(
+            &socket,
+            &key,
+            "drive_files.move_to",
+            json!({ "file": DOC, "folder": folder }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{folder}");
+        assert_eq!(err.message(), "a folder is one id", "{folder}");
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+}

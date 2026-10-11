@@ -45,9 +45,16 @@ pub struct DocumentText {
     pub document_id: String,
     pub title: String,
     pub revision_id: Option<String>,
-    /// The whole document. With one tab it is that tab's text. With more,
-    /// each tab's text follows a line that names it, `[tab: Plan > Budget]`
-    /// for a tab called Budget inside one called Plan.
+    /// The whole document as one text, for a caller in Rust. With one tab
+    /// it is that tab's text. With more, each tab's text follows a line that
+    /// names it, `[tab: Plan > Budget]` for a tab called Budget inside one
+    /// called Plan.
+    ///
+    /// It is not written in JSON, where it would only repeat what `tabs`
+    /// holds: a named operation returns each tab's text once, and nothing
+    /// written in a tab can pass for the line that names another.
+    #[serde(skip_serializing)]
+    #[schemars(skip)]
     pub text: String,
     /// Every tab with its own text, in the order a person sees them, a child
     /// tab after the tab it is inside.

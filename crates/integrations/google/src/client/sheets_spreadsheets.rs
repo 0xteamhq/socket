@@ -137,10 +137,13 @@ impl SheetsSpreadsheets<'_> {
 
     /// Refuses values Google could only refuse, or would write nothing for.
     fn cells(&self, values: &[Vec<Value>]) -> Result<()> {
-        if values.iter().all(Vec::is_empty) {
-            return Err(self
-                .0
-                .error(ErrorKind::InvalidInput, "`values` needs at least one cell"));
+        // `null` leaves a cell as it is, so values that are all `null` write
+        // nothing, as values with no cell at all do.
+        if values.iter().flatten().all(Value::is_null) {
+            return Err(self.0.error(
+                ErrorKind::InvalidInput,
+                "`values` needs at least one cell that is not null",
+            ));
         }
         if values.iter().flatten().any(|cell| cell.is_array() || cell.is_object()) {
             return Err(self.0.error(
