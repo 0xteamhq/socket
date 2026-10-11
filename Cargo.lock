@@ -1213,7 +1213,10 @@ name = "socketkit-notion"
 version = "0.0.0"
 dependencies = [
  "async-trait",
+ "schemars",
+ "serde",
  "serde_json",
+ "serde_path_to_error",
  "socketkit-core",
  "socketkit-testkit",
  "tokio",

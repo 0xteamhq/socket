@@ -53,11 +53,16 @@ Teams meetings are the fourth: 9 methods in `online_meetings`, `transcripts`, `r
 
 Nothing has been run against the real service; [the guide](./integrations/microsoft.md) lists what was confirmed against Microsoft's documentation and what was not.
 
+## Notion, built out ahead of phase 2
+
+Notion has 19 typed methods in six groups, `search`, `pages`, `blocks`, `databases`, `users` and `comments`, each also a named operation. Pages and data sources are found by title; a page's properties are read, one of them in full when the page cuts it short; a page's whole content is read as Markdown by walking its tree of blocks, with a limit on depth and on requests that is reported when it cuts the page short; blocks are listed, added, changed and trashed; a database's data sources are named, a data source's schema is read and its rows are queried with filters and sorts; users are listed; comments are listed and added. It targets Notion's API version `2026-03-11`, where a database's rows belong to its data sources. Trashing a page or a block is marked destructive. Like Slack and Microsoft, the crate carries its own copy of the operation machinery until the shared one on the `github-full-client` branch lands, and the transport still repeats a DELETE after a server error.
+
+A `404` is reported as "not found, or not shared with this integration", since Notion gives one answer for both. Not covered: Notion's own endpoint for a page as Markdown, which appeared after this was asked for, creating and changing databases, file uploads, and webhooks. Nothing has been run against the real service; [the guide](./integrations/notion.md) lists what was confirmed against Notion's documentation and what was not.
+
 ## Carried forward from reviews
 
 - Decide before the first release whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.
 - Retrying is decided by HTTP method. The spec says the provider's classifier should decide; Slack accepts GET for some writes, so this matters before Slack gets write operations in phase 2.
-- Notion treats any 400 on a lookup as "not found", including a 400 that means something else. (Zoom now reads its own error code.)
 - Slack channel lookup by name reports "not found" after 20 pages even if the workspace has more.
 - A request path may climb out of `api_base` with `..` to another path on the same allowed host.
 - An application-supplied HTTP client builder is trusted apart from redirects: a shared cookie store or default headers would apply to every tenant.

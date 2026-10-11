@@ -52,7 +52,7 @@ socket/
 | --- | --- |
 | `socketkit` | What an application depends on. One feature per provider: `github`, `google`, `linear`, `microsoft`, `notion`, `slack`, `zoom`. |
 | `socketkit-core` | Providers, the token store interface, the HTTP transport, OAuth, refresh, and call-by-name. |
-| `socketkit-<provider>` | The provider's definition, plus operations (`identity.get`, `resource.resolve`, and typed methods where they are built: all of Slack, and Microsoft's Outlook calendar, mail, Teams and Teams meetings). |
+| `socketkit-<provider>` | The provider's definition, plus operations (`identity.get`, `resource.resolve`, and typed methods where they are built: all of Slack, Microsoft's Outlook calendar, mail, Teams and Teams meetings, and Notion's search, pages, blocks, databases, users and comments). |
 | `socketkit-testkit` | A local test server and the conformance checks every provider must pass. |
 
 ## Quick start
@@ -155,7 +155,7 @@ Keep the pending record tied to the session of the person who started the flow, 
 | GitHub | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Slack | OAuth 2.0 | 54 typed methods across 11 API groups | Wire-tested |
 | Linear | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
-| Notion | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
+| Notion | OAuth 2.0 | 19 typed methods for search, pages, blocks, databases, users and comments | Wire-tested |
 | Google | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Zoom | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Microsoft | OAuth 2.0 | 57 typed methods for the Outlook calendar, Outlook mail, Teams and Teams meetings | Wire-tested |
