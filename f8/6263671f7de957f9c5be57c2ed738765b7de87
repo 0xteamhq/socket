@@ -1,0 +1,21 @@
+crates/integrations/microsoft/src/models/transcript.rs
+  s_dbbe1dc13eabf1::t_83bc2ab2f1ddf7 56-58,60-69,71,73,76,81-160,201,203-209,215-222,225,227-229,232-242,246-250
+crates/integrations/microsoft/tests/webvtt.rs
+  s_dbbe1dc13eabf1::t_a91136dd4b812d 175-255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f86263671f7de957f9c5be57c2ed738765b7de87",
+  "prompts": {},
+  "sessions": {
+    "s_dbbe1dc13eabf1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a613a42-f563-420a-9c41-cee8bd04b5b1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
