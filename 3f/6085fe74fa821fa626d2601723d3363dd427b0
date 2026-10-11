@@ -1,0 +1,56 @@
+docs/integrations/google.md
+  s_8c98d26ded7b36::t_3d54a97f18a341 157
+  s_8c98d26ded7b36::t_aab6d841270dfe 102
+  s_8c98d26ded7b36::t_12f9b25c311d8f 214-219
+  s_8c98d26ded7b36::t_2a2b8306f5d769 807-809
+  s_8c98d26ded7b36::t_0b93f8b68a1a1f 138-139
+  s_8c98d26ded7b36::t_cd4a2fa588163f 689-690
+  s_8c98d26ded7b36::t_2c3c40aecc3f26 782
+  s_8c98d26ded7b36::t_947a420f90b763 969-971
+crates/integrations/google/src/models/gmail_attachment.rs
+  s_8c98d26ded7b36::t_297762311d1f90 152-156,169-175
+  s_8c98d26ded7b36::t_c61eca092c3eab 1-151,157-168,176-179
+crates/integrations/google/src/models/mod.rs
+  s_8c98d26ded7b36::t_5496549acdd89f 100
+  s_8c98d26ded7b36::t_ad2f64339e01a0 26
+  s_8c98d26ded7b36::t_856ee355320377 67,71-72
+crates/integrations/google/src/operations.rs
+  s_8c98d26ded7b36::t_0356a34d7eb239 561-562
+  s_8c98d26ded7b36::t_8a71ca91851900 38
+  s_8c98d26ded7b36::t_6acd026586ba20 251-258
+  s_8c98d26ded7b36::t_793c8e99b0bf52 559
+crates/integrations/google/tests/gmail_attachments.rs
+  s_8c98d26ded7b36::t_297762311d1f90 1-406
+crates/integrations/google/src/models/gmail_message.rs
+  s_8c98d26ded7b36::t_9e24c76b5232f6 7
+crates/integrations/google/src/client/gmail_messages.rs
+  s_8c98d26ded7b36::t_20d93b176d42a5 99-102,106-107
+  s_8c98d26ded7b36::t_f23142e527fc5e 11,15-16,21-25,55-57,63-74,76-79,82-98,103-105,108-110,112-116,118-150
+crates/integrations/google/tests/operations.rs
+  s_8c98d26ded7b36::t_cd38cb4ffbfdeb 43-45
+  s_8c98d26ded7b36::t_8cf88d6a5a1b6f 398
+  s_8c98d26ded7b36::t_1602b38d5605b8 30-31
+crates/integrations/google/tests/gmail.rs
+  s_8c98d26ded7b36::t_20ddbbeee87571 765-767,824-836,928-929,935
+  s_8c98d26ded7b36::t_b1038433fea6fa 13-14,294,299,433,563,616,621,627
+  s_8c98d26ded7b36::t_297762311d1f90 5-6,905-914
+  s_8c98d26ded7b36::t_40a6e65bb22f6f 763-764,837
+crates/integrations/google/src/models/gmail_mime.rs
+  s_8c98d26ded7b36::t_9e24c76b5232f6 56-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3f6085fe74fa821fa626d2601723d3363dd427b0",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
