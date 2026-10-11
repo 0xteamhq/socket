@@ -41,7 +41,7 @@ mod sheets_spreadsheets;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
-use socketkit_core::{Connection, Error, ErrorKind, Page, RawRequest, Result};
+use socketkit_core::{Connection, Content, ContentRequest, Error, ErrorKind, Page, RawRequest, Result};
 use url::Url;
 
 pub use calendar_events::CalendarEvents;
@@ -62,7 +62,7 @@ pub use meet_spaces::MeetSpaces;
 pub use meet_transcripts::MeetTranscripts;
 pub use sheets_spreadsheets::SheetsSpreadsheets;
 
-use crate::models::Paging;
+use crate::models::{Download, Paging, TextLimit};
 
 /// The host Calendar and Drive are served from. It is the provider's API
 /// base, so their paths are written relative to it: `calendar/v3/…`.
@@ -99,6 +99,39 @@ impl Api<'_> {
     /// answers with no content, as a delete does, returns `null`.
     pub(super) async fn send(&self, request: RawRequest) -> Result<Value> {
         Ok(self.connection.request(request).await?.body)
+    }
+
+    /// Fetches what `request` asks for as it is served: a file, an export.
+    /// The bytes are not read as anything. `limits` are the caller's own.
+    pub(super) async fn fetch(&self, mut request: ContentRequest, limits: &Download) -> Result<Content> {
+        if let Some(most) = limits.max_bytes {
+            request = request.with_max_bytes(most);
+        }
+        if let Some(secs) = limits.timeout_secs {
+            request = request.with_timeout(std::time::Duration::from_secs(secs));
+        }
+        self.connection.fetch(request).await
+    }
+
+    /// The limits of a fetch whose content goes back as text, to an
+    /// operation called by name: one megabyte unless `limit` allows more,
+    /// and never more than ten. An agent is not handed more text than it
+    /// asked for.
+    pub(super) fn text_limits(&self, limit: &TextLimit) -> Result<Download> {
+        let most = limit.max_bytes.unwrap_or(Content::MAX_INLINE_BYTES);
+        if most > ContentRequest::DEFAULT_MAX_BYTES {
+            return Err(self.error(
+                ErrorKind::InvalidInput,
+                format!(
+                    "`maxBytes` can be at most {} for text",
+                    ContentRequest::DEFAULT_MAX_BYTES
+                ),
+            ));
+        }
+        Ok(Download {
+            max_bytes: Some(most),
+            timeout_secs: None,
+        })
     }
 
     /// Reads a response as `T`. `what` names it in the error: "an event".

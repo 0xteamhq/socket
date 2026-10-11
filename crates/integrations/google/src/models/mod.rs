@@ -18,6 +18,7 @@ mod calendar_freebusy;
 mod document;
 mod document_structure;
 mod document_text;
+mod download;
 mod drive_export;
 mod drive_file;
 mod drive_permission;
@@ -57,6 +58,7 @@ pub use document::{
     DocsAppendText, DocsCreateDocument, Document, DocumentTab, DocumentTabText, DocumentText, DocumentUpdate,
     DocumentWriteControl,
 };
+pub use download::{Download, TextLimit};
 pub use drive_export::{DriveExport, DriveExportFormat};
 pub use drive_file::{DriveCopyFile, DriveCreateFolder, DriveFile, DriveListFiles, DriveShortcutDetails, DriveUser};
 pub use drive_permission::{DrivePermission, DrivePermissionDetail};
