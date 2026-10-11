@@ -113,6 +113,12 @@ impl Classifier for GoogleClassifier {
                 ErrorKind::InvalidInput,
                 "this file is too large to export: the limit is 10 MB of exported content".to_owned(),
             )),
+            // A Google document has no content of its own, and Drive says so
+            // with a 403 as well.
+            403 if because(&["fileNotDownloadable"]) => Err(error(
+                ErrorKind::InvalidInput,
+                "this file has no content of its own to download: a Google Doc, Sheet or Slides presentation is read with `export`".to_owned(),
+            )),
             // Not something that is gone: a list was asked for changes since
             // a time, or a point, that Google no longer keeps.
             410 if because(&["updatedMinTooLongAgo", "fullSyncRequired"]) => Err(error(
@@ -426,7 +432,8 @@ impl Google {
     }
 
     /// The files and folders of Drive: finding them, reading what describes
-    /// one, exporting a Google document as text, and filing them.
+    /// one, exporting a Google document as text, downloading any other file,
+    /// and filing them.
     pub fn drive_files<'a>(&self, connection: &'a Connection) -> DriveFiles<'a> {
         DriveFiles(client::Api { connection })
     }

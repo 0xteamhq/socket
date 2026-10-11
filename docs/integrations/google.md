@@ -2,7 +2,7 @@
 
 **Status:** built and tested against a local server that answers as Google's documentation says. Not yet run against the real Google. [What was confirmed against that documentation and what was not](#confirmed-against-googles-documentation-and-not) is listed below.
 
-One provider covers Google's products, because they share one sign-in. Today Socket's Google integration gives a program identity, Drive file lookup, and 60 typed methods: Gmail (19), Calendar (10), Meet (12), Drive (12, of which 11 are operations), and Docs and Sheets (9). Each is also an operation callable by name with JSON, except a method that returns a file's bytes, which is typed only. This page shows how to connect, lists everything that is supported, and says what is not.
+One provider covers Google's products, because they share one sign-in. Today Socket's Google integration gives a program identity, Drive file lookup, and 63 typed methods: Gmail (20), Calendar (10), Meet (12), Drive (12), and Docs and Sheets (9). Each is also an operation callable by name with JSON, except the two that return a file's bytes, `gmail_messages.attachment_content` and `drive_files.download`: an operation called by name returns text, never bytes, so those are typed only and each has a named counterpart that reads text. This page shows how to connect, lists everything that is supported, and says what is not.
 
 ## Connect
 
@@ -703,7 +703,7 @@ let created = socket.invoke(
 
 A field an operation does not know is refused and named, not dropped, and input that is not a JSON object is refused: a list is never read as the arguments in their order. `socket.operations()` returns each operation's input and output JSON Schema, its effect and its scopes.
 
-**The effect is what a host goes by.** A `read` changes nothing and can run unasked. A `write` creates something, or makes a change that can be set back. A `destructive` one deletes, overwrites what was there, or cannot be taken back: mail that was sent, an answer to an invitation, a file taken from everyone who could see it. A host should ask a person before either of the last two, and show them the input. Of the 62 operations, 40 are `read`, 10 `write` and 12 `destructive`.
+**The effect is what a host goes by.** A `read` changes nothing and can run unasked. A `write` creates something, or makes a change that can be set back. A `destructive` one deletes, overwrites what was there, or cannot be taken back: mail that was sent, an answer to an invitation, a file taken from everyone who could see it. A host should ask a person before either of the last two, and show them the input. Of the 63 operations, 41 are `read`, 10 `write` and 12 `destructive`.
 
 | Operation | Effect | Scopes | What it does |
 | --- | --- | --- | --- |
@@ -1058,7 +1058,7 @@ Across all of Google: incoming events (push notifications and watch channels), i
 - **Adding a tab, renaming one or deleting one.**
 - **Comments and suggestions** in a document. Suggested text is not marked; it is left out.
 - **A document's headers and footers**, and the tick of a checklist item.
-- **Reading a document in a format other than text.** Drive's export gives Markdown, HTML and PDF; see `drive_files.export`.
+- **Reading a document in a format other than text.** `drive_files.export` gives a Doc as Markdown; HTML, PDF and Word are not offered yet.
 - **Reading part of a document.** `read` always returns every tab, and a document whose structure is over 10 MB cannot be read.
 - **Creating a spreadsheet, and adding, renaming or deleting a sheet.**
 - **Clearing a range** (`values.clear`), **writing several ranges at once** (`values.batchUpdate`), and returning the written values (`includeValuesInResponse`).

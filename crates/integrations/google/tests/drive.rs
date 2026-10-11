@@ -862,6 +862,14 @@ async fn a_google_document_has_nothing_to_download_and_the_error_points_to_expor
     assert_eq!(err.kind(), ErrorKind::InvalidInput, "{err}");
     assert_eq!(err.message(), says);
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
+
+    // The reason says it, however Google words the message.
+    let reworded = google_error(403, "fileNotDownloadable", "This file cannot be downloaded.");
+    let (_server, socket, key) = google_answering(reworded).await;
+    let err = invoke(&socket, &key, "drive_files.download_text", json!({ "file": DOC }))
+        .await
+        .unwrap_err();
+    assert_eq!((err.kind(), err.message()), (ErrorKind::InvalidInput, says));
 }
 
 /// A server that answers every request with `response`.

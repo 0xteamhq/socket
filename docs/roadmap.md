@@ -61,9 +61,9 @@ Not done: sending bytes to an address a provider issues, which Slack's upload ne
 
 ## Google, built out on the provider that was there
 
-`socketkit-google` was one file with identity and Drive lookup. It now has 60 typed methods, each also a named operation, on five of Google's products. The crate carries its own copy of the operation machinery, as Slack and Microsoft do.
+`socketkit-google` was one file with identity and Drive lookup. It now has 63 typed methods on five of Google's products, 61 of them also named operations: the two that return a file's bytes are typed only, since an operation called by name returns text and never bytes. The crate carries its own copy of the operation machinery, as Slack and Microsoft do.
 
-Gmail is 19 methods in `gmail_messages`, `gmail_threads`, `gmail_labels`, `gmail_drafts` and `gmail_profile`. A list returns ids only; a message is read decoded, with its headers, its text, its HTML and what is attached; mail is written from structured content and sent, drafted, and answered in its thread; labels are changed and a message is binned and brought back. A reply goes to the people its caller names and to nobody else: nothing in the message it answers decides who receives it. Not covered: attachments on what is sent, a draft that is a reply, reply-all and forward, creating labels, history and push.
+Gmail is 20 methods in `gmail_messages`, `gmail_threads`, `gmail_labels`, `gmail_drafts` and `gmail_profile`. A list returns ids only; a message is read decoded, with its headers, its text, its HTML and what is attached; mail is written from structured content and sent, drafted, and answered in its thread; labels are changed and a message is binned and brought back. A reply goes to the people its caller names and to nobody else: nothing in the message it answers decides who receives it. Not covered: attachments on what is sent, a draft that is a reply, reply-all and forward, creating labels, history and push.
 
 Calendar is 10 methods in `calendar_list`, `calendar_events` and `calendar_freebusy`: events in a window with recurring ones expanded, free and busy times, creating an event with a Meet link, changing, answering and deleting one. An answer changes only the calendar owner's own entry, and names the version it read so that a change made in between is not lost.
 

@@ -157,7 +157,7 @@ Keep the pending record tied to the session of the person who started the flow, 
 | Slack | OAuth 2.0 | 54 typed methods across 11 API groups | Wire-tested |
 | Linear | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Notion | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
-| Google | OAuth 2.0 | 60 typed methods for Gmail, Calendar, Meet, Drive, Docs and Sheets | Wire-tested |
+| Google | OAuth 2.0 | 63 typed methods for Gmail, Calendar, Meet, Drive, Docs and Sheets | Wire-tested |
 | Zoom | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Microsoft | OAuth 2.0 | 60 typed methods for the Outlook calendar, Outlook mail, Teams and Teams meetings | Wire-tested |
 
