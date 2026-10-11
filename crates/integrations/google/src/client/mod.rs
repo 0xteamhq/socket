@@ -29,6 +29,9 @@ mod meet_spaces;
 mod meet_transcripts;
 
 // ── drive: modules ──
+mod drive_files;
+mod drive_files_change;
+mod drive_shared_drives;
 
 // ── docs and sheets: modules ──
 
@@ -53,6 +56,8 @@ pub use meet_spaces::MeetSpaces;
 pub use meet_transcripts::MeetTranscripts;
 
 // ── drive: groups ──
+pub use drive_files::DriveFiles;
+pub use drive_shared_drives::DriveSharedDrives;
 
 // ── docs and sheets: groups ──
 

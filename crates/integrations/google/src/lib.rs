@@ -32,6 +32,7 @@ pub use client::{CalendarEvents, CalendarFreebusy, CalendarList};
 pub use client::{MeetConferenceRecords, MeetParticipants, MeetRecordings, MeetSpaces, MeetTranscripts};
 
 // ── drive: groups ──
+pub use client::{DriveFiles, DriveSharedDrives};
 
 // ── docs and sheets: groups ──
 
@@ -401,6 +402,16 @@ impl Google {
     }
 
     // ── drive: groups ──
+    /// The files and folders of Drive: finding them, reading what describes
+    /// one, exporting a Google document as text, and filing them.
+    pub fn drive_files<'a>(&self, connection: &'a Connection) -> DriveFiles<'a> {
+        DriveFiles(client::Api { connection })
+    }
+
+    /// The shared drives the account is a member of.
+    pub fn drive_shared_drives<'a>(&self, connection: &'a Connection) -> DriveSharedDrives<'a> {
+        DriveSharedDrives(client::Api { connection })
+    }
 
     // ── docs and sheets: groups ──
 

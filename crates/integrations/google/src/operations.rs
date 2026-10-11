@@ -34,6 +34,10 @@ use crate::models::{
 };
 
 // ── drive: types ──
+use crate::models::{
+    DriveCopyFile, DriveCreateFolder, DriveExport, DriveExportFormat, DriveFile, DriveListFiles, DrivePermission,
+    SharedDrive,
+};
 
 // ── docs and sheets: types ──
 
@@ -347,6 +351,44 @@ input!(MeetOneSpace {
 });
 
 // ── drive: inputs ──
+input!(DriveFilesListed {} + DriveListFiles);
+input!(DriveOneFile {
+    /// A file or folder id. `google.resource.resolve` reads one from a pasted link.
+    file: String
+});
+input!(DriveExported {
+    /// The id of a Google Doc, Sheet or Slides presentation.
+    file: String,
+    /// The format of the text: `text/plain` or `text/markdown` for a Doc, `text/csv` for a Sheet.
+    #[serde(rename = "mimeType")]
+    mime_type: DriveExportFormat
+});
+input!(
+    DrivePermissionsOf {
+        /// A file or folder id.
+        file: String
+    } + Paging
+);
+input!(DriveListing {} + Paging);
+input!(DriveNewFolder {} + DriveCreateFolder);
+input!(
+    DriveCopied {
+        /// The id of the file to copy.
+        file: String
+    } + DriveCopyFile
+);
+input!(DriveMoved {
+    /// The id of the file or folder to move.
+    file: String,
+    /// Where it goes: a folder id, or `root` for the top of the account's My Drive.
+    folder: String
+});
+input!(DriveRenamed {
+    /// The id of the file or folder to rename.
+    file: String,
+    /// Its new name.
+    name: String
+});
 
 // ── docs and sheets: inputs ──
 
@@ -418,6 +460,28 @@ fn build() -> Vec<Operation> {
             |g: Google, c: Connection, i: MeetOneSpace| async move { g.meet_spaces(&c).get(&i.space).await as Result<MeetSpace> }),
 
         // ── drive ──
+        operation("drive_files.list", "List the files and folders that match a search in Drive's query language (name, full text, type, parent folder, modified time), or everything the account can see. What is in shared drives is included.", Read, &[scopes::DRIVE_READONLY],
+            |g: Google, c: Connection, i: DriveFilesListed| async move { g.drive_files(&c).list(i.options).await as Result<Page<DriveFile>> }),
+        operation("drive_files.get", "Get what describes one file or folder: its name, type, folder, owners, size and link. Not its content.", Read, &[scopes::DRIVE_READONLY],
+            |g: Google, c: Connection, i: DriveOneFile| async move { g.drive_files(&c).get(&i.file).await as Result<DriveFile> }),
+        operation("drive_files.export", "Return a Google document as text: a Doc as plain text or Markdown, a Sheet as CSV (its first sheet only). At most 10 MB; a file that is not a Google document cannot be exported.", Read, &[scopes::DRIVE_READONLY],
+            |g: Google, c: Connection, i: DriveExported| async move { g.drive_files(&c).export(&i.file, i.mime_type).await as Result<DriveExport> }),
+        operation("drive_files.permissions", "List who can see a file or folder and in what role: people, groups, whole domains, and anyone with the link.", Read, &[scopes::DRIVE_READONLY],
+            |g: Google, c: Connection, i: DrivePermissionsOf| async move { g.drive_files(&c).permissions(&i.file, i.options).await as Result<Page<DrivePermission>> }),
+        operation("drive_files.create_folder", "Create a folder, at the top of the account's My Drive or inside another folder.", Write, &[scopes::DRIVE_FILE],
+            |g: Google, c: Connection, i: DriveNewFolder| async move { g.drive_files(&c).create_folder(i.options).await as Result<DriveFile> }),
+        operation("drive_files.copy", "Make a copy of a file, beside it or in another folder, under a new name if one is given. A folder cannot be copied.", Write, &[scopes::DRIVE_FILE],
+            |g: Google, c: Connection, i: DriveCopied| async move { g.drive_files(&c).copy(&i.file, i.options).await as Result<DriveFile> }),
+        // These three change one thing about a file, and each can be set back:
+        // moved again, renamed again, taken out of the bin.
+        operation("drive_files.move_to", "Move a file or folder into another folder, out of the one it is in. It keeps its id and can be moved back.", Write, &[scopes::DRIVE_FILE],
+            |g: Google, c: Connection, i: DriveMoved| async move { g.drive_files(&c).move_to(&i.file, &i.folder).await as Result<DriveFile> }),
+        operation("drive_files.rename", "Give a file or folder another name. It stays where it is, under the same id.", Write, &[scopes::DRIVE_FILE],
+            |g: Google, c: Connection, i: DriveRenamed| async move { g.drive_files(&c).rename(&i.file, &i.name).await as Result<DriveFile> }),
+        operation("drive_files.trash", "Put a file or folder in the bin, with everything inside a folder. It can be restored from the bin for 30 days. Nothing is deleted for good.", Write, &[scopes::DRIVE_FILE],
+            |g: Google, c: Connection, i: DriveOneFile| async move { g.drive_files(&c).trash(&i.file).await as Result<DriveFile> }),
+        operation("drive_shared_drives.list", "List the shared drives the account is a member of.", Read, &[scopes::DRIVE_READONLY],
+            |g: Google, c: Connection, i: DriveListing| async move { g.drive_shared_drives(&c).list(i.options).await as Result<Page<SharedDrive>> }),
 
         // ── docs and sheets ──
     ]

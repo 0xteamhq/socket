@@ -154,7 +154,64 @@ fn meet_cases() -> Vec<Case> {
 // ── drive: cases ──
 #[rustfmt::skip]
 fn drive_cases() -> Vec<Case> {
-    vec![]
+    // Named here and not at the top of the file, where five products' fixtures meet.
+    use serde_json::json;
+    use support::drive::{
+        ARCHIVE, DOC, DRIVES_FIELDS, FILES_FIELDS, PERMISSIONS_FIELDS, PLANS, doc, doc_with, domain_reader, drives,
+        folder, of_file, permissions, shared_drive, shared_sheet, writer,
+    };
+    let budget = "name contains 'budget' and trashed = false";
+    let markdown = "# Q4 plan\n\nShip the **importer** by November.\n";
+    vec![
+        Case::new("drive_files.list", json!({ "q": budget, "orderBy": "modifiedTime desc", "limit": 50 }), "GET", "/drive/v3/files")
+            .query(json!({ "fields": FILES_FIELDS, "supportsAllDrives": "true", "includeItemsFromAllDrives": "true", "q": budget, "orderBy": "modifiedTime desc", "pageSize": "50" }))
+            .answers(200, json!({ "kind": "drive#fileList", "nextPageToken": "~!!~AI9FV7Q", "files": [shared_sheet(), doc()] }))
+            .returns(json!({ "items": [shared_sheet(), doc()], "next_cursor": "~!!~AI9FV7Q" })),
+        Case::new("drive_files.get", json!({ "file": DOC }), "GET", format!("/drive/v3/files/{DOC}"))
+            .query(of_file())
+            .answers(200, doc())
+            .returns(doc()),
+        Case::new("drive_files.export", json!({ "file": DOC, "mimeType": "text/markdown" }), "GET", format!("/drive/v3/files/{DOC}/export"))
+            .query(json!({ "mimeType": "text/markdown" }))
+            .answers_text("text/markdown", markdown)
+            .returns(json!({ "mimeType": "text/markdown", "text": markdown })),
+        Case::new("drive_files.permissions", json!({ "file": DOC }), "GET", format!("/drive/v3/files/{DOC}/permissions"))
+            .query(json!({ "fields": PERMISSIONS_FIELDS, "supportsAllDrives": "true" }))
+            .answers(200, permissions(json!([writer(), domain_reader()])))
+            .returns(json!({ "items": [writer(), domain_reader()], "next_cursor": null })),
+        Case::new("drive_files.create_folder", json!({ "name": "Plans", "parents": ["0AMyDriveRootId9PVA"] }), "POST", "/drive/v3/files")
+            .query(of_file())
+            .body(json!({ "name": "Plans", "mimeType": "application/vnd.google-apps.folder", "parents": ["0AMyDriveRootId9PVA"] }))
+            .answers(200, folder())
+            .returns(folder()),
+        Case::new("drive_files.copy", json!({ "file": DOC, "name": "Q1 plan", "parents": [ARCHIVE] }), "POST", format!("/drive/v3/files/{DOC}/copy"))
+            .query(of_file())
+            .body(json!({ "name": "Q1 plan", "parents": [ARCHIVE] }))
+            .answers(200, doc_with(json!({ "id": "1TheCopy_aBcDeFgHiJkLmNoPqRsTuVw", "name": "Q1 plan", "parents": [ARCHIVE] })))
+            .returns(json!({ "id": "1TheCopy_aBcDeFgHiJkLmNoPqRsTuVw", "name": "Q1 plan", "parents": [ARCHIVE] })),
+        // Google moves a file by adding one parent and taking another away,
+        // so the file is read first for the parent it has.
+        Case::new("drive_files.move_to", json!({ "file": DOC, "folder": ARCHIVE }), "PATCH", format!("/drive/v3/files/{DOC}"))
+            .also("GET", format!("/drive/v3/files/{DOC}"), doc())
+            .query(json!({ "addParents": ARCHIVE, "removeParents": PLANS, "fields": of_file()["fields"], "supportsAllDrives": "true" }))
+            .body(json!({}))
+            .answers(200, doc_with(json!({ "parents": [ARCHIVE] })))
+            .returns(json!({ "id": DOC, "parents": [ARCHIVE] })),
+        Case::new("drive_files.rename", json!({ "file": DOC, "name": "Q4 plan (final)" }), "PATCH", format!("/drive/v3/files/{DOC}"))
+            .query(of_file())
+            .body(json!({ "name": "Q4 plan (final)" }))
+            .answers(200, doc_with(json!({ "name": "Q4 plan (final)" })))
+            .returns(json!({ "id": DOC, "name": "Q4 plan (final)" })),
+        Case::new("drive_files.trash", json!({ "file": DOC }), "PATCH", format!("/drive/v3/files/{DOC}"))
+            .query(of_file())
+            .body(json!({ "trashed": true }))
+            .answers(200, doc_with(json!({ "trashed": true })))
+            .returns(json!({ "id": DOC, "trashed": true })),
+        Case::new("drive_shared_drives.list", json!({ "limit": 25 }), "GET", "/drive/v3/drives")
+            .query(json!({ "fields": DRIVES_FIELDS, "pageSize": "25" }))
+            .answers(200, drives(json!([shared_drive()])))
+            .returns(json!({ "items": [shared_drive()], "next_cursor": null })),
+    ]
 }
 
 // ── docs and sheets: cases ──
@@ -210,6 +267,16 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("meet_spaces.get", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
 
         // ── drive: effects ──
+        ("drive_files.list", Effect::Read, &[scopes::DRIVE_READONLY]),
+        ("drive_files.get", Effect::Read, &[scopes::DRIVE_READONLY]),
+        ("drive_files.export", Effect::Read, &[scopes::DRIVE_READONLY]),
+        ("drive_files.permissions", Effect::Read, &[scopes::DRIVE_READONLY]),
+        ("drive_files.create_folder", Effect::Write, &[scopes::DRIVE_FILE]),
+        ("drive_files.copy", Effect::Write, &[scopes::DRIVE_FILE]),
+        ("drive_files.move_to", Effect::Write, &[scopes::DRIVE_FILE]),
+        ("drive_files.rename", Effect::Write, &[scopes::DRIVE_FILE]),
+        ("drive_files.trash", Effect::Write, &[scopes::DRIVE_FILE]),
+        ("drive_shared_drives.list", Effect::Read, &[scopes::DRIVE_READONLY]),
 
         // ── docs and sheets: effects ──
     ]

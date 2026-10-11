@@ -33,6 +33,10 @@ mod meet_transcript;
 mod meet_transcript_content;
 
 // ── drive: modules ──
+mod drive_export;
+mod drive_file;
+mod drive_permission;
+mod shared_drive;
 
 // ── docs and sheets: modules ──
 
@@ -65,5 +69,9 @@ pub use meet_transcript::{MeetDocsDestination, MeetReadTranscript, MeetTranscrip
 pub use meet_transcript_content::{MeetTranscriptContent, MeetTranscriptContentEntry};
 
 // ── drive: types ──
+pub use drive_export::{DriveExport, DriveExportFormat};
+pub use drive_file::{DriveCopyFile, DriveCreateFolder, DriveFile, DriveListFiles, DriveShortcutDetails, DriveUser};
+pub use drive_permission::{DrivePermission, DrivePermissionDetail};
+pub use shared_drive::SharedDrive;
 
 // ── docs and sheets: types ──
