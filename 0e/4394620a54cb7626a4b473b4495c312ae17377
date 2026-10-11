@@ -1,0 +1,77 @@
+crates/testkit/src/lib.rs
+  s_dbbe1dc13eabf1::t_29908767dc0f60 4-6,12-13,22-28,31-33,38,52-71,136-139
+docs/superpowers/specs/2026-10-08-socket-project-design.md
+  s_dbbe1dc13eabf1::t_16315d8980de13 310,314
+  s_dbbe1dc13eabf1::t_a4f0112e416568 186
+  s_dbbe1dc13eabf1::t_a3b1fb18a5e625 285-286
+crates/core/src/lib.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 18,21,27-29
+  s_dbbe1dc13eabf1::t_45172a511b5c75 19-20
+crates/integrations/github/src/lib.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 28
+crates/core/tests/wire.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 30,505
+crates/core/src/http.rs
+  s_dbbe1dc13eabf1::t_60f4d265514492 12-15,270,289,295-296,305-317,336,362,419-488,516,577-586,614-628,631-637,643
+crates/integrations/notion/src/lib.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 30
+crates/integrations/slack/src/lib.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 45
+crates/core/src/provider.rs
+  s_dbbe1dc13eabf1::t_45172a511b5c75 565-569
+  s_dbbe1dc13eabf1::t_12652a82edf154 65-68,72-89,162-174,176-179,188-206,263-283,303,551-564,570-632
+crates/core/examples/invoke_by_name.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 25
+crates/core/src/operation.rs
+  s_dbbe1dc13eabf1::t_e651d2dc5fcd85 225-229
+  s_dbbe1dc13eabf1::t_96c5d917a97547 12,205-224,230-249,253,267
+crates/core/src/http/content.rs
+  s_dbbe1dc13eabf1::t_fcb706ed63911c 350
+  s_dbbe1dc13eabf1::t_45172a511b5c75 14,364-365,475-478
+  s_dbbe1dc13eabf1::t_dd5d94708ffd8f 15,69-72,78-80,117-129,138-141,150-160,207-210,243-245,247-249,251,254,303-318,324-325,343-347,349,386-387,406-416
+  s_dbbe1dc13eabf1::t_bd1ba2c43b4dc7 114
+  s_dbbe1dc13eabf1::t_01fc65589f31fc 1-13,16,18-35,40-51,53-68,73-75,82-112,116,130-137,142-149,161-206,211-238,242,250,252-253,255-267,269-276,278-299,319-323,326-342,348,351-363,366-369,371-385,388-393,396-405,417-474,479-480
+  s_dbbe1dc13eabf1::t_a3b1fb18a5e625 239,246
+  s_dbbe1dc13eabf1::t_ced2ee1f5d87a9 17,36-39,52,76-77,81,113,115,240-241,268,277,300-302,370,394-395
+crates/core/tests/invoke.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 38
+crates/core/src/error.rs
+  s_dbbe1dc13eabf1::t_12652a82edf154 21-22,28-30,47,189,196
+crates/core/tests/content.rs
+  s_dbbe1dc13eabf1::t_0c142e1d549ae6 1-8,12-65,69-144,150-187,191-205,207,226-232,238-274,278-326,524-535,537-546,548-566,568-570,687,715-744,749-799,846-879,883-886,890-893,916-920
+  s_dbbe1dc13eabf1::t_45172a511b5c75 9-11,66-68,145-149,188-190,275-277,745-748,887-889
+  s_dbbe1dc13eabf1::t_e0e7e1849f11bd 206,208-225,233-237,396-399,431-440,442,445-521,631-686,894-915
+  s_dbbe1dc13eabf1::t_dd5d94708ffd8f 536,547,567,616,624,702
+  s_dbbe1dc13eabf1::t_e651d2dc5fcd85 880-882
+  s_dbbe1dc13eabf1::t_3429020760a5ef 327-395,400-430,441,443-444,522-523,571-615,617-623,625-630,689-701,703-714,800-845
+  s_dbbe1dc13eabf1::t_c733cdaccaca4f 688
+crates/integrations/microsoft/src/lib.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 64
+crates/integrations/zoom/src/lib.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 30
+crates/integrations/linear/src/lib.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 36
+CLAUDE.md
+  s_dbbe1dc13eabf1::t_a4f0112e416568 74-79
+crates/integrations/google/src/lib.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 35
+crates/core/src/socket.rs
+  s_dbbe1dc13eabf1::t_96c5d917a97547 166-172
+  s_dbbe1dc13eabf1::t_45172a511b5c75 12-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0e4394620a54cb7626a4b473b4495c312ae17377",
+  "prompts": {},
+  "sessions": {
+    "s_dbbe1dc13eabf1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a613a42-f563-420a-9c41-cee8bd04b5b1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
