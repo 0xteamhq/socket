@@ -1,0 +1,222 @@
+crates/integrations/attio/src/models/object.rs
+  s_5364ed162acbd6::t_cacfea4af855e5 1-29
+crates/integrations/hubspot/src/models/pipeline.rs
+  s_5364ed162acbd6::t_3a0b55ff163f08 8,15,32
+  s_5364ed162acbd6::t_bbc9981ef97a25 1-7,9-14,16-31,33-46
+crates/integrations/hubspot/src/client/owners.rs
+  s_5364ed162acbd6::t_a8bc005ddde7fe 1-52
+crates/integrations/attio/src/client/records.rs
+  s_5364ed162acbd6::t_b6ad444ecdf412 1-98
+crates/facade/tests/features.rs
+  s_5364ed162acbd6::t_4d9375ac519dba 17,20,28,32,35,46-56,59-64,109,112,135,138,168,171,275-284,290-299,301-313
+  s_5364ed162acbd6::t_f69384e4d24f27 285-289,300
+  s_5364ed162acbd6::t_6ceb0763138b04 314
+crates/integrations/attio/src/models/call_recording.rs
+  s_5364ed162acbd6::t_8d3e66d86c8b9f 1-18,23-74
+  s_5364ed162acbd6::t_64d1d184a505e9 19-22
+crates/integrations/attio/src/models/task.rs
+  s_5364ed162acbd6::t_64d1d184a505e9 96
+  s_5364ed162acbd6::t_8d3e66d86c8b9f 1-95,97-150
+crates/integrations/attio/src/client/entries.rs
+  s_5364ed162acbd6::t_b6ad444ecdf412 1-2,5-40,42,45-52,56-77
+  s_5364ed162acbd6::t_65bd8233b6a114 43-44
+  s_5364ed162acbd6::t_d76a46c450e9e2 3-4,41,53-55
+crates/integrations/hubspot/src/client/objects.rs
+  s_5364ed162acbd6::t_1c9db2548451a9 1-131
+crates/integrations/hubspot/src/lib.rs
+  s_5364ed162acbd6::t_baf97eee97ae8b 1-55,57-115,117-140,143-144,148-157,161-365,367-386,388-486
+  s_5364ed162acbd6::t_28a6df5ad67734 56,158-160,366
+  s_5364ed162acbd6::t_595aa512c9c863 141-142,145-147
+  s_5364ed162acbd6::t_97008ff63c958b 116
+  s_5364ed162acbd6::t_6359119788213c 387
+crates/integrations/hubspot/tests/wire.rs
+  s_5364ed162acbd6::t_581e3394cb0f8c 124-128,151-154,268-270,377-379,430-434,436-445,474,506-510,554-558,581-582,589-594,614-618
+  s_5364ed162acbd6::t_595aa512c9c863 647
+  s_5364ed162acbd6::t_6bcc6a5997151d 1-123,129-150,155-267,271-376,380-429,435,446-473,475-505,511-553,559-580,583-588,595-613,619-646,648-789
+crates/integrations/attio/src/models/nullable.rs
+  s_5364ed162acbd6::t_316d0cf54284e3 1-23
+crates/integrations/attio/src/models/entry.rs
+  s_5364ed162acbd6::t_cacfea4af855e5 1-96
+crates/integrations/attio/src/client/threads.rs
+  s_5364ed162acbd6::t_a1051ee57b40f5 1-44,46-62,66-95
+  s_5364ed162acbd6::t_65bd8233b6a114 45,63-65
+crates/integrations/attio/src/models/mod.rs
+  s_5364ed162acbd6::t_8d3e66d86c8b9f 37,45-48
+  s_5364ed162acbd6::t_316d0cf54284e3 1-36,38-44,49
+crates/integrations/attio/src/models/attribute.rs
+  s_5364ed162acbd6::t_cacfea4af855e5 1-171
+crates/integrations/attio/src/models/meeting.rs
+  s_5364ed162acbd6::t_8d3e66d86c8b9f 1-118
+crates/integrations/hubspot/src/models/property.rs
+  s_5364ed162acbd6::t_bbc9981ef97a25 1-81
+crates/integrations/hubspot/src/client/objects_batch.rs
+  s_5364ed162acbd6::t_1c9db2548451a9 1-92,96-99
+  s_5364ed162acbd6::t_28a6df5ad67734 93-95
+crates/integrations/hubspot/src/client/objects_search.rs
+  s_5364ed162acbd6::t_a8bc005ddde7fe 6
+  s_5364ed162acbd6::t_1c9db2548451a9 1-5,7-60,72-136
+  s_5364ed162acbd6::t_595aa512c9c863 61-71
+crates/integrations/attio/src/models/value.rs
+  s_5364ed162acbd6::t_316d0cf54284e3 1-49,56-175
+  s_5364ed162acbd6::t_65bd8233b6a114 50-55
+crates/integrations/attio/src/models/paging.rs
+  s_5364ed162acbd6::t_316d0cf54284e3 1-14
+crates/integrations/attio/src/models/thread.rs
+  s_5364ed162acbd6::t_8d3e66d86c8b9f 1-179
+Cargo.toml
+  s_5364ed162acbd6::t_4d9375ac519dba 22-23
+crates/integrations/hubspot/src/models/mod.rs
+  s_5364ed162acbd6::t_595aa512c9c863 22
+  s_5364ed162acbd6::t_bbc9981ef97a25 1-21,23-33
+crates/integrations/hubspot/src/models/nullable.rs
+  s_5364ed162acbd6::t_bbc9981ef97a25 2-3,5-13,26
+  s_5364ed162acbd6::t_3a0b55ff163f08 1,4,14-25
+crates/integrations/attio/src/client/attributes.rs
+  s_5364ed162acbd6::t_b6ad444ecdf412 1-90
+crates/facade/Cargo.toml
+  s_5364ed162acbd6::t_4d9375ac519dba 13,16,29,33,36
+crates/integrations/attio/src/client/notes.rs
+  s_5364ed162acbd6::t_b6ad444ecdf412 1-5,7-55
+  s_5364ed162acbd6::t_a1051ee57b40f5 6
+crates/integrations/hubspot/src/models/object.rs
+  s_5364ed162acbd6::t_3a0b55ff163f08 10,21,52,140
+  s_5364ed162acbd6::t_bbc9981ef97a25 1-9,11-20,22-51,53-139,141-171
+crates/integrations/attio/tests/wire.rs
+  s_5364ed162acbd6::t_9e7c12b1a33d51 93-97,125-129,243-246,269-273,313-318,327-332
+  s_5364ed162acbd6::t_4556c22edaebc3 1-92,98-102,104-106,108-109,113-124,130-242,247-268,274-312,319-326,333-540
+  s_5364ed162acbd6::t_2a85a46d276dd5 103,107,110-112
+crates/integrations/attio/src/client/tasks.rs
+  s_5364ed162acbd6::t_64d1d184a505e9 23-25,31-35
+  s_5364ed162acbd6::t_3554df00d9d309 26-30
+  s_5364ed162acbd6::t_a1051ee57b40f5 1-22,36-104
+crates/integrations/hubspot/src/client/mod.rs
+  s_5364ed162acbd6::t_97008ff63c958b 102
+  s_5364ed162acbd6::t_1c9db2548451a9 1-101,103-109,117-228
+  s_5364ed162acbd6::t_595aa512c9c863 110-116
+crates/integrations/attio/src/models/actor.rs
+  s_5364ed162acbd6::t_316d0cf54284e3 1-16
+README.md
+  s_5364ed162acbd6::t_d986de0b03916e 7
+  s_5364ed162acbd6::t_7b43acd291f850 19,37,39,55,57,67,164-165,167
+crates/integrations/attio/Cargo.toml
+  s_5364ed162acbd6::t_8ad4542f987972 1-29
+crates/integrations/attio/src/client/mod.rs
+  s_5364ed162acbd6::t_d76a46c450e9e2 125
+  s_5364ed162acbd6::t_64d1d184a505e9 10-11,59-60,63
+  s_5364ed162acbd6::t_80571e68580f77 1-9,12-31,34-58,61-62,64-120,126-128,141-171,173-195,197-204,256-324,330
+  s_5364ed162acbd6::t_b6ad444ecdf412 32-33,172,196,205-208,215-248,250-255
+  s_5364ed162acbd6::t_a1051ee57b40f5 121-124,129-140,209-214,249,325-329
+crates/integrations/hubspot/src/client/associations.rs
+  s_5364ed162acbd6::t_da164d0b07ef93 4,6,37-40,50-53,56-58,61,100-102,104-108,123
+  s_5364ed162acbd6::t_595aa512c9c863 7,32-36,54-55,110
+  s_5364ed162acbd6::t_28a6df5ad67734 69-72
+  s_5364ed162acbd6::t_a8bc005ddde7fe 1-3,5,8-31,41-49,59-60,62-68,73-99,103,109,111-122,124-127
+crates/integrations/attio/src/models/query.rs
+  s_5364ed162acbd6::t_cacfea4af855e5 1-59
+crates/integrations/hubspot/src/models/owner.rs
+  s_5364ed162acbd6::t_bbc9981ef97a25 1-5,7-11,13-33,35-74
+  s_5364ed162acbd6::t_3a0b55ff163f08 6,12,34
+crates/integrations/attio/tests/operations.rs
+  s_5364ed162acbd6::t_9e7c12b1a33d51 164,168,281-383,387-505,570-678,680-681,683,695-985,987,991-992,996-1256,1258,1260,1262,1348-1479
+  s_5364ed162acbd6::t_018e1b36b7a7bb 154,156,163,170,172,175,179-180,183,192,211-212,263,265,384-386,507-565,567,684-691,986,988-990,993-995,1257,1259,1261,1263-1264,1270-1338,1340,1343,1346,1481-1532,1534,1536-1537,1539-1540,1543
+  s_5364ed162acbd6::t_2d5d57d396a0c3 1-153,155,157-162,165-167,169,171,173-174,176-178,181-182,184-191,193-210,213-262,264,266-280,506,566,568-569,679,682,692-694,1265-1269,1339,1341-1342,1344-1345,1347,1480,1533,1535,1538,1541-1542
+crates/integrations/attio/src/client/workspace_members.rs
+  s_5364ed162acbd6::t_a1051ee57b40f5 1-27
+crates/integrations/hubspot/src/models/batch.rs
+  s_5364ed162acbd6::t_bbc9981ef97a25 1-81
+docs/integrations/attio.md
+  s_5364ed162acbd6::t_018e1b36b7a7bb 70,170,185-186,209,263-265,271,288-289
+  s_5364ed162acbd6::t_59a449d4402a8a 1-69,71-169,171-184,187-208,210-262,266-270,272-287,290-309
+crates/facade/src/lib.rs
+  s_5364ed162acbd6::t_4d9375ac519dba 8-9,14-15
+crates/integrations/hubspot/src/client/pipelines.rs
+  s_5364ed162acbd6::t_a8bc005ddde7fe 1-39
+crates/integrations/hubspot/tests/operations.rs
+  s_5364ed162acbd6::t_f7cbbedeefdcc1 1-76,79-252,262-268,275-279,286-306,313-326,333-338,344-412,445-453,472-524,534-610,624-629,632-633,637-638,658-662,682-694,699-707,714-720,727-731,738-751,757-768,779,815-817,823,829,835,841-847,851-924,929-937,943-948,954-955,961,967-971,980,994-1034,1054-1059,1070-1071,1077-1084,1088,1094-1107,1111-1130,1139-1144,1148-1160,1162-1164,1171-1181,1187-1229,1235-1236,1242-1243,1249-1268,1273-1300,1311,1337,1343-1395,1400-1432,1437-1439,1442,1447-1454,1467-1478,1483-1488,1493,1498,1507-1508,1515-1516,1521-1522,1527-1529,1546-1549,1562-1563,1592-1600,1616-1648,1654-1671,1677-1681,1687-1704,1709-1713,1719-1754,1771-1772,1785-1796,1812-1831,1836-1865,1894-1895,1917-1919,1924-1927,1932-1934,1939-1982,1995-1998,2008-2010,2015-2049
+  s_5364ed162acbd6::t_10ad02cad47eba 644-657,985-993
+  s_5364ed162acbd6::t_581e3394cb0f8c 253-261,269-274,280-285,307-312,327-332,339-343,413-444,454-471,525-533,611-623,634-636,672-674,677-678,695-698,708-713,721-726,732-737,752-756,769-778,780-814,818-822,824-828,830-834,836-840,848-850,925-928,938-942,949-953,956-960,962-966,972-979,981-984,1060-1069,1072-1076,1085-1087,1089-1093,1108-1110,1131-1138,1145-1147,1182-1186,1230-1234,1237-1241,1244-1248,1269-1272,1301-1310,1312-1336,1338-1342,1396-1399,1433-1436,1440-1441,1443-1446,1455-1466,1479-1482,1489-1492,1494-1497,1499-1506,1509-1514,1517-1520,1523-1526,1530-1545,1550-1561,1564-1591,1601-1615,1649-1653,1672-1676,1682-1686,1705-1708,1714-1718,1755-1770,1773-1780,1797-1811,1832-1835,1866-1893,1896-1916,1920-1923,1928-1931,1935-1938,1983-1994,1999-2007,2011-2014
+  s_5364ed162acbd6::t_da164d0b07ef93 77-78,630-631,639-643,663-671,675-676,679-681,1161,1165-1170,1781-1784
+  s_5364ed162acbd6::t_595aa512c9c863 1035-1053
+crates/integrations/attio/src/client/call_recordings.rs
+  s_5364ed162acbd6::t_a1051ee57b40f5 1-32
+crates/integrations/attio/src/models/record.rs
+  s_5364ed162acbd6::t_cacfea4af855e5 1-84
+crates/integrations/attio/src/lib.rs
+  s_5364ed162acbd6::t_3554df00d9d309 22-23,80-83
+  s_5364ed162acbd6::t_65bd8233b6a114 361-364
+  s_5364ed162acbd6::t_8ad4542f987972 1-14,17-19,24-57,87-279,285-341,346-360,365-382
+  s_5364ed162acbd6::t_64d1d184a505e9 15-16,20-21,58-79,84-86,280-284,342-345
+docs/integrations/hubspot.md
+  s_5364ed162acbd6::t_581e3394cb0f8c 17,29,146,162,215-216,223,226,277,339,372,399
+  s_5364ed162acbd6::t_0b1cfff311b035 1-16,18-28,30-145,147-161,163-173,175-214,217-222,224-225,227-276,278-282,284-338,340-346,348-371,373-393,395-398,400-424
+  s_5364ed162acbd6::t_595aa512c9c863 174,283,347,394
+crates/integrations/attio/src/models/member.rs
+  s_5364ed162acbd6::t_8d3e66d86c8b9f 1-33
+crates/integrations/attio/src/client/lists.rs
+  s_5364ed162acbd6::t_b6ad444ecdf412 1-23
+crates/integrations/hubspot/src/client/properties.rs
+  s_5364ed162acbd6::t_a8bc005ddde7fe 1-45
+crates/facade/examples/catalogue.rs
+  s_5364ed162acbd6::t_4d9375ac519dba 12,15
+crates/integrations/hubspot/src/operations.rs
+  s_5364ed162acbd6::t_97008ff63c958b 363
+  s_5364ed162acbd6::t_595aa512c9c863 377
+  s_5364ed162acbd6::t_a98ef94dd16119 1-362,364-376,378-400
+crates/integrations/attio/src/client/meetings.rs
+  s_5364ed162acbd6::t_a1051ee57b40f5 1-22,29-56
+  s_5364ed162acbd6::t_65bd8233b6a114 23-28
+crates/integrations/hubspot/src/models/paging.rs
+  s_5364ed162acbd6::t_bbc9981ef97a25 1-15
+crates/integrations/attio/tests/support/mod.rs
+  s_5364ed162acbd6::t_9e7c12b1a33d51 116-119
+  s_5364ed162acbd6::t_ee0cecb63f8502 1-115,120-290
+crates/integrations/hubspot/src/models/search.rs
+  s_5364ed162acbd6::t_bbc9981ef97a25 1-99
+crates/integrations/hubspot/src/models/association.rs
+  s_5364ed162acbd6::t_bbc9981ef97a25 1-5,8-13,15-54,59-65,67,69-71,73-76,87
+  s_5364ed162acbd6::t_595aa512c9c863 6,55-58,77-86
+  s_5364ed162acbd6::t_3a0b55ff163f08 7,14,66,68,72
+crates/integrations/hubspot/tests/support/mod.rs
+  s_5364ed162acbd6::t_023885e838798a 1-227
+crates/integrations/attio/src/models/list.rs
+  s_5364ed162acbd6::t_cacfea4af855e5 1-53
+crates/integrations/attio/src/client/objects.rs
+  s_5364ed162acbd6::t_b6ad444ecdf412 1-20,24-25
+  s_5364ed162acbd6::t_65bd8233b6a114 21-23
+crates/integrations/attio/src/models/note.rs
+  s_5364ed162acbd6::t_8d3e66d86c8b9f 1-49,51,53-126
+  s_5364ed162acbd6::t_64d1d184a505e9 50,52
+crates/integrations/hubspot/Cargo.toml
+  s_5364ed162acbd6::t_86d108796cf440 1-29
+crates/integrations/attio/src/operations.rs
+  s_5364ed162acbd6::t_65bd8233b6a114 1-355,358-489
+  s_5364ed162acbd6::t_64d1d184a505e9 356-357
+Cargo.lock
+  s_8c98d26ded7b36::t_b284eedb4252eb 1129,1133,1143-1157,1200-1214
+docs/roadmap.md
+  s_5364ed162acbd6::t_7273f6973f0715 56-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3a01779e8987eb4dd5f870504f43908ffb99f905",
+  "prompts": {},
+  "sessions": {
+    "s_5364ed162acbd6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f1e12b67-a1be-4aec-81db-fb26c46ad84c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    },
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
