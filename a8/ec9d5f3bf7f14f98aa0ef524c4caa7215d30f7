@@ -1,0 +1,22 @@
+crates/integrations/attio/src/models/task.rs
+  s_5364ed162acbd6::t_11e0988aa9b90f 143,151-181
+  s_5364ed162acbd6::t_3986d9d0b33e73 182
+README.md
+  s_5364ed162acbd6::t_c4020264ac97b9 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a8ec9d5f3bf7f14f98aa0ef524c4caa7215d30f7",
+  "prompts": {},
+  "sessions": {
+    "s_5364ed162acbd6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f1e12b67-a1be-4aec-81db-fb26c46ad84c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
