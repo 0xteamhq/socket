@@ -1,0 +1,24 @@
+crates/integrations/google/src/client/mod.rs
+  s_8c98d26ded7b36::t_6ba8a223600549 44,65,104-135
+  s_8c98d26ded7b36::t_32d1c3636146ac 136
+crates/integrations/google/src/models/download.rs
+  s_8c98d26ded7b36::t_6ba8a223600549 1-25
+crates/integrations/google/src/models/mod.rs
+  s_8c98d26ded7b36::t_6ba8a223600549 21,61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c252a42c84abf0d62469b4b3381055340ae1efd3",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
