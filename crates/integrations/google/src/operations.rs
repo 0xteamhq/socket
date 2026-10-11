@@ -17,39 +17,29 @@ use socketkit_core::{Connection, Effect, Error, ErrorKind, OperationInfo, Page, 
 
 use crate::Google;
 use crate::models::Paging;
-use crate::scopes;
-
-// ── gmail: types ──
-use crate::models::{
-    GmailAttachmentBody, GmailDraft, GmailDraftRef, GmailGetMessage, GmailGetThread, GmailLabel, GmailListDrafts,
-    GmailListMessages, GmailListThreads, GmailMessage, GmailMessageRef, GmailModifyMessage, GmailProfile, GmailReply,
-    GmailSendMessage, GmailThread,
-};
-
-// ── calendar: types ──
 use crate::models::{
     CalendarEvent, CalendarListEntry, CalendarListFilter, EventDelete, EventFilter, EventInsert, EventInstancesFilter,
     EventPatch, EventResponse, FreeBusy, FreeBusyQuery,
 };
-
-// ── meet: types ──
 use crate::models::{
     ConferenceRecord, MeetListConferenceRecords, MeetParticipant, MeetParticipantSession, MeetReadTranscript,
     MeetRecording, MeetSpace, MeetTranscript, MeetTranscriptContent, MeetTranscriptEntry,
 };
-
-// ── drive: types ──
-use crate::models::{
-    DriveCopyFile, DriveCreateFolder, DriveExport, DriveExportFormat, DriveFile, DriveListFiles, DrivePermission,
-    SharedDrive,
-};
-
-// ── docs and sheets: types ──
 use crate::models::{
     DocsAppendText, DocsCreateDocument, Document, DocumentText, DocumentUpdate, SheetsAppendValues,
     SheetsAppendedValues, SheetsGetValues, SheetsUpdateValues, SheetsUpdatedValues, SheetsValueRanges, Spreadsheet,
     ValueRange,
 };
+use crate::models::{
+    DriveCopyFile, DriveCreateFolder, DriveExport, DriveExportFormat, DriveFile, DriveListFiles, DrivePermission,
+    SharedDrive,
+};
+use crate::models::{
+    GmailAttachmentBody, GmailDraft, GmailDraftRef, GmailGetMessage, GmailGetThread, GmailLabel, GmailListDrafts,
+    GmailListMessages, GmailListThreads, GmailMessage, GmailMessageRef, GmailModifyMessage, GmailProfile, GmailReply,
+    GmailSendMessage, GmailThread,
+};
+use crate::scopes;
 
 type Running = std::pin::Pin<Box<dyn Future<Output = Result<Value>> + Send>>;
 
@@ -240,7 +230,6 @@ macro_rules! input {
     };
 }
 
-// ── gmail: inputs ──
 input!(
     GmailMessagesList {
         /// The `next_cursor` of the page before, unchanged; absent for the first page.
@@ -323,7 +312,6 @@ input!(GmailThisDraft {
     draft: String
 });
 
-// ── calendar: inputs ──
 input!(
     CalendarListing {
         #[serde(flatten)]
@@ -396,7 +384,6 @@ input!(
     } + FreeBusyQuery
 );
 
-// ── meet: inputs ──
 // A conference record, and each thing in one, is given as its id or as the
 // name Google returned for it: `conferenceRecords/{id}/transcripts/{id}`.
 input!(MeetRecords {} + MeetListConferenceRecords);
@@ -457,7 +444,6 @@ input!(MeetOneSpace {
     space: String
 });
 
-// ── drive: inputs ──
 input!(DriveFilesListed {} + DriveListFiles);
 input!(DriveOneFile {
     /// A file or folder id. `google.resource.resolve` reads one from a pasted link.
@@ -497,7 +483,6 @@ input!(DriveRenamed {
     name: String
 });
 
-// ── docs and sheets: inputs ──
 input!(DocsOneDocument {
     /// A document id: the part of its address after `/document/d/`.
     document: String

@@ -11,7 +11,6 @@ use support::{Case, TOKEN, answer, body_of, contains, google, google_error, invo
 // One table of cases for each product. A case is one operation: the request
 // that must reach Google, and what the operation returns for Google's answer.
 
-// ── gmail: cases ──
 use support::gmail::{
     GMAIL_ATTACHMENT, GMAIL_DRAFT, GMAIL_DRAFTS, GMAIL_LABELS, GMAIL_MESSAGE, GMAIL_MESSAGES, GMAIL_PROFILE,
     GMAIL_THREAD, GMAIL_THREADS, gmail_data, gmail_draft_ref, gmail_label, gmail_message, gmail_message_returned,
@@ -105,7 +104,6 @@ fn gmail_cases() -> Vec<Case> {
     ]
 }
 
-// ── calendar: cases ──
 use support::calendar::{
     AT_NINE, AT_TEN, CALENDAR_EVENT_PATH, CALENDAR_EVENTS_PATH, CALENDAR_LIST_PATH, FREEBUSY_PATH, MEET_LINK,
     calendar_entry, calendar_event, calendar_events_page, calendar_invitation, freebusy,
@@ -166,7 +164,6 @@ fn calendar_cases() -> Vec<Case> {
     ]
 }
 
-// ── meet: cases ──
 #[rustfmt::skip]
 fn meet_cases() -> Vec<Case> {
     // Imported here and not at the top, so that a name as plain as `FILE`
@@ -239,7 +236,6 @@ fn meet_cases() -> Vec<Case> {
     ]
 }
 
-// ── drive: cases ──
 #[rustfmt::skip]
 fn drive_cases() -> Vec<Case> {
     // Named here and not at the top of the file, where five products' fixtures meet.
@@ -302,7 +298,6 @@ fn drive_cases() -> Vec<Case> {
     ]
 }
 
-// ── docs and sheets: cases ──
 use support::docs::{
     DOCUMENT, DOCUMENT_FIELDS, PLAN_TEXT, REVISION, SPREADSHEET, SPREADSHEET_FIELDS, created_document, document,
     document_updated, document_with_content, spreadsheet, unformatted_values, value_ranges, values_appended,
@@ -395,7 +390,7 @@ fn every_case() -> Vec<Case> {
 #[rustfmt::skip]
 fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
     vec![
-        // ── gmail: effects ──
+        // ── gmail ──
         ("gmail_messages.list", Effect::Read, &[scopes::GMAIL_READONLY]),
         ("gmail_messages.get", Effect::Read, &[scopes::GMAIL_READONLY]),
         ("gmail_messages.attachment_get", Effect::Read, &[scopes::GMAIL_READONLY]),
@@ -421,7 +416,7 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("gmail_drafts.update", Effect::Destructive, &[scopes::GMAIL_COMPOSE]),
         ("gmail_drafts.delete", Effect::Destructive, &[scopes::GMAIL_COMPOSE]),
 
-        // ── calendar: effects ──
+        // ── calendar ──
         ("calendar_list.list", Effect::Read, &[scopes::CALENDAR_READONLY]),
         ("calendar_list.get", Effect::Read, &[scopes::CALENDAR_READONLY]),
         ("calendar_events.list", Effect::Read, &[scopes::CALENDAR_READONLY]),
@@ -434,7 +429,7 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("calendar_events.respond", Effect::Destructive, &[scopes::CALENDAR_EVENTS]),
         ("calendar_events.delete", Effect::Destructive, &[scopes::CALENDAR_EVENTS]),
 
-        // ── meet: effects ──
+        // ── meet ──
         ("meet_conference_records.list", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
         ("meet_conference_records.get", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
         ("meet_participants.list", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
@@ -448,7 +443,7 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("meet_recordings.get", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
         ("meet_spaces.get", Effect::Read, &[scopes::MEETINGS_SPACE_READONLY]),
 
-        // ── drive: effects ──
+        // ── drive ──
         ("drive_files.list", Effect::Read, &[scopes::DRIVE_READONLY]),
         ("drive_files.get", Effect::Read, &[scopes::DRIVE_READONLY]),
         ("drive_files.export", Effect::Read, &[scopes::DRIVE_READONLY]),
@@ -462,7 +457,7 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("drive_files.trash", Effect::Destructive, &[scopes::DRIVE_FILE]),
         ("drive_shared_drives.list", Effect::Read, &[scopes::DRIVE_READONLY]),
 
-        // ── docs and sheets: effects ──
+        // ── docs and sheets ──
         ("docs_documents.get", Effect::Read, &[scopes::DOCUMENTS_READONLY]),
         ("docs_documents.read", Effect::Read, &[scopes::DOCUMENTS_READONLY]),
         ("docs_documents.create", Effect::Write, &[scopes::DOCUMENTS]),

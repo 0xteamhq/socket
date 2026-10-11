@@ -3,20 +3,12 @@
 
 #![allow(dead_code)] // Each test file uses its own part of this.
 
-// ── gmail: fixtures ──
-pub mod gmail;
-
-// ── calendar: fixtures ──
+// What Google answers for each product, as the tests need it.
 pub mod calendar;
-
-// ── meet: fixtures ──
-pub mod meet;
-
-// ── drive: fixtures ──
-pub mod drive;
-
-// ── docs and sheets: fixtures ──
 pub mod docs;
+pub mod drive;
+pub mod gmail;
+pub mod meet;
 
 use std::sync::Arc;
 
