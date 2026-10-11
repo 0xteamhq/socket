@@ -1,0 +1,121 @@
+crates/integrations/notion/src/client/databases.rs
+  s_afb0d00c6f7d5b::t_f1ed07baa7340e 1-48
+crates/integrations/notion/src/models/page_or_data_source.rs
+  s_afb0d00c6f7d5b::t_ebeafccb6644ae 1-20
+crates/integrations/notion/src/models/sort.rs
+  s_afb0d00c6f7d5b::t_251ed9cfea8fcb 1-25
+crates/integrations/notion/src/models/search.rs
+  s_afb0d00c6f7d5b::t_39eb981e3e41ee 1-44
+crates/integrations/notion/src/models/paging.rs
+  s_afb0d00c6f7d5b::t_6b972fff231aba 1-13
+crates/integrations/notion/src/client/pages_read.rs
+  s_afb0d00c6f7d5b::t_ef0208aae56ade 1-29,34-51,66-83,88,93-121
+  s_afb0d00c6f7d5b::t_ca6974b5ed6d16 30-33,56-57,61-65
+  s_afb0d00c6f7d5b::t_c736049220beca 52-55,58-60,84-87,89-92
+crates/integrations/notion/tests/support/mod.rs
+  s_afb0d00c6f7d5b::t_e5448b32433f44 1-161,168-206
+  s_afb0d00c6f7d5b::t_c736049220beca 162-167
+crates/integrations/notion/tests/read.rs
+  s_afb0d00c6f7d5b::t_c736049220beca 59-62,88-93,98-109,112-123,125-130,133-144,146-157,170-183,244-247,253-256,280-284,298,318-322,352-356,375-378,393-397,404-409,429-431,438-446,458-461,487-490,499-502,532-537,575-580,585-590,592-597,601-606,608-613,615-626,628-633,638-655,658-666
+  s_afb0d00c6f7d5b::t_0d48dfb7109165 691,693
+  s_afb0d00c6f7d5b::t_37793e39f4ff65 1-58,63-87,94-97,110-111,124,131-132,145,158-169,184-243,248-252,257-279,285-297,299-317,323-351,357-374,379-392,398-403,410-428,432-437,447-457,462-486,491-498,503-531,538-574,581-584,591,598-600,607,614,627,634-637,656-657,667-690,692,694-712
+crates/integrations/notion/src/client/search.rs
+  s_afb0d00c6f7d5b::t_b2d4c9232f1b32 1-48
+crates/integrations/notion/src/models/property.rs
+  s_afb0d00c6f7d5b::t_c60f43e9c1418f 1-38
+crates/integrations/notion/src/operations.rs
+  s_afb0d00c6f7d5b::t_517728964841fe 211,304
+  s_afb0d00c6f7d5b::t_ead71251260143 1-210,212-303,305-345
+docs/integrations/notion.md
+  s_afb0d00c6f7d5b::t_a1d45a8c9af3cf 1-267
+crates/integrations/notion/src/models/mod.rs
+  s_afb0d00c6f7d5b::t_c66799c5caa83e 1-27,29-42,44
+  s_afb0d00c6f7d5b::t_554be0a78ebd92 28,43
+crates/integrations/notion/src/models/user.rs
+  s_afb0d00c6f7d5b::t_9367568b5543b2 1-39
+crates/integrations/notion/src/models/nullable.rs
+  s_afb0d00c6f7d5b::t_4e6a8f8c61d012 1-10
+crates/integrations/notion/src/client/blocks.rs
+  s_afb0d00c6f7d5b::t_d79ac223812c93 1-39,43-88
+  s_afb0d00c6f7d5b::t_c736049220beca 40-42
+crates/integrations/notion/src/models/tree.rs
+  s_afb0d00c6f7d5b::t_554be0a78ebd92 1-80
+crates/integrations/notion/tests/operations.rs
+  s_afb0d00c6f7d5b::t_ed62ba7d018a4b 3,588-589
+  s_afb0d00c6f7d5b::t_c736049220beca 191-195,219-223,239-242,253-262,278-281,283-286,305-308,328-330,341-345,351-355,368-370,387-389,449-452,471-474,503-507,536-543,545-556,558-560
+  s_afb0d00c6f7d5b::t_2c149788f22963 1-2,4-190,196-218,224-238,243-252,263-277,282,287-304,309-327,331-340,346-350,356-367,371-386,390-448,453-470,475-502,508-535,544,557,561-587,590-620
+docs/roadmap.md
+  s_afb0d00c6f7d5b::t_80bccef4659c70 56-57,59-61
+  s_afb0d00c6f7d5b::t_d745192b7ce396 58
+crates/integrations/notion/src/models/markdown.rs
+  s_afb0d00c6f7d5b::t_c736049220beca 27-29,98-101,105-109,149-150,160-164,187-191
+  s_afb0d00c6f7d5b::t_0d48dfb7109165 206-209
+  s_afb0d00c6f7d5b::t_554be0a78ebd92 12
+  s_afb0d00c6f7d5b::t_fa66aef9fe2fe3 1-11,13-26,30-97,102-104,110-148,151-159,165-186,192-205,210-216
+crates/integrations/notion/src/models/block.rs
+  s_afb0d00c6f7d5b::t_a0e3911dd4f3d7 1-92
+crates/integrations/notion/src/models/parent.rs
+  s_afb0d00c6f7d5b::t_a6ad69e6403b64 1-29
+crates/integrations/notion/src/client/users.rs
+  s_afb0d00c6f7d5b::t_b6b173a7d5a752 1-26
+crates/integrations/notion/src/models/rich_text.rs
+  s_afb0d00c6f7d5b::t_1f28c8e66c8773 1-143
+crates/integrations/notion/src/models/page.rs
+  s_afb0d00c6f7d5b::t_c71fda71df964b 1-79
+crates/integrations/notion/src/models/page_content.rs
+  s_afb0d00c6f7d5b::t_249ff714d24adb 1-35
+crates/integrations/notion/src/models/comment.rs
+  s_afb0d00c6f7d5b::t_ccb5a06deb95b8 1-42
+crates/integrations/notion/src/client/pages.rs
+  s_afb0d00c6f7d5b::t_c736049220beca 72-75,87-91,127-129,132-136
+  s_afb0d00c6f7d5b::t_8240c19f5d6325 1-71,76-86,92-126,130-131,137-148
+crates/integrations/notion/src/client/mod.rs
+  s_afb0d00c6f7d5b::t_184929e3524c69 1-164
+crates/integrations/notion/src/models/database.rs
+  s_afb0d00c6f7d5b::t_64ef7bdc4057ed 1-84
+crates/integrations/notion/Cargo.toml
+  s_afb0d00c6f7d5b::t_5576cb93e4fd57 17-18,20
+README.md
+  s_afb0d00c6f7d5b::t_80bccef4659c70 55,158
+crates/integrations/notion/src/client/comments.rs
+  s_afb0d00c6f7d5b::t_deda738506e764 1-13,16-44,62-65
+  s_afb0d00c6f7d5b::t_c736049220beca 45-61
+  s_afb0d00c6f7d5b::t_d0cf7882264706 14-15
+crates/integrations/notion/src/lib.rs
+  s_afb0d00c6f7d5b::t_69ef8d5adf72d2 59-60,330-338,342-350,353-354
+  s_afb0d00c6f7d5b::t_c736049220beca 77-79,120-123
+  s_afb0d00c6f7d5b::t_f8ebc375f4c239 3-13,18-20,23-24,28-32,61-76,80-91,100-101,103-118,124-125,249-253,265-301,358,390,393-395,403-409,412-415
+  s_afb0d00c6f7d5b::t_545fc707a25a3d 119
+crates/integrations/notion/tests/wire.rs
+  s_afb0d00c6f7d5b::t_d1468a23b390ab 4,7,9,13-15,18-20,46,108,110,141-146,154,156-157,162-163,165-170,172-176,187-197,203-207,228-230,232-240,243-294,300-306,312-323,334-341,343-347,349-355,357
+  s_afb0d00c6f7d5b::t_c736049220beca 158-161,198-202,295-299,307-311,324-333,342
+  s_afb0d00c6f7d5b::t_69ef8d5adf72d2 155,164,171,177-186,208-227,231,241-242
+  s_afb0d00c6f7d5b::t_ed824717835639 348,356
+  s_afb0d00c6f7d5b::t_e9f886fc3e20e5 358
+Cargo.lock
+  s_5364ed162acbd6::t_d11b5cbf6079fe 1216-1217,1219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f5846ef93b49cbbc6fb09402bdbbbb6e3c8f95e2",
+  "prompts": {},
+  "sessions": {
+    "s_5364ed162acbd6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f1e12b67-a1be-4aec-81db-fb26c46ad84c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    },
+    "s_afb0d00c6f7d5b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "667ae86a-e810-4077-99f5-2ba619af5ef2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
