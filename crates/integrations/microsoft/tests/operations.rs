@@ -14,8 +14,8 @@ use socketkit_testkit::{connect, point_at};
 
 mod support;
 use support::{
-    AS_TEXT, Case, IN_UTC, answer, answering, body_of, contains, graph_error, invoke, message, message_returned,
-    microsoft, only_request, prefer, query_of, to,
+    AS_TEXT, Case, IN_UTC, MEETING, MEETING_LINK, TRANSCRIPT, VTT, answer, answering, body_of, contains, graph_error,
+    invoke, meeting, message, message_returned, microsoft, only_request, organizer, prefer, query_of, to, transcript,
 };
 
 const JOIN_URL: &str = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0";
@@ -86,7 +86,7 @@ fn event_returned() -> Value {
 
 #[rustfmt::skip]
 fn cases() -> Vec<Case> {
-    let case = |name, input, verb, path, query, body, in_utc: bool, status, response, returns| Case { name, input, verb, path, query, body, prefer: in_utc.then_some(IN_UTC), status, response, returns };
+    let case = |name, input, verb, path, query, body, in_utc: bool, status, response, returns| Case { name, input, verb, path, query, body, prefer: in_utc.then_some(IN_UTC), accept: "application/json", status, response, returns };
     let week = json!({ "startDateTime": "2026-10-12T00:00:00Z", "endDateTime": "2026-10-19T00:00:00Z" });
     let attendee = json!({ "type": "required", "emailAddress": { "address": "grace@contoso.example" } });
     vec![
@@ -159,7 +159,7 @@ fn cases() -> Vec<Case> {
 /// The mail operations: what each sends and what it returns.
 #[rustfmt::skip]
 fn mail_cases() -> Vec<Case> {
-    let case = |name, input, verb, path, query, body, prefer, status, response, returns| Case { name, input, verb, path, query, body, prefer, status, response, returns };
+    let case = |name, input, verb, path, query, body, prefer, status, response, returns| Case { name, input, verb, path, query, body, prefer, accept: "application/json", status, response, returns };
     let text = json!({ "contentType": "text", "content": "See you Monday." });
     let draft = json!({ "id": "msg-9", "isDraft": true, "subject": "Re: Q3 plan", "toRecipients": to("grace@contoso.example") });
     let folder = json!({ "id": "folder-inbox", "displayName": "Inbox", "parentFolderId": "folder-root", "childFolderCount": 2, "unreadItemCount": 5, "totalItemCount": 120, "isHidden": false });
@@ -218,10 +218,57 @@ fn mail_cases() -> Vec<Case> {
     ]
 }
 
+/// The Teams meeting operations. All of them read.
+#[rustfmt::skip]
+fn meeting_cases() -> Vec<Case> {
+    let read = |name, input, path, query, accept, response, returns| Case { name, input, verb: "GET", path, query, body: json!(null), prefer: None, accept, status: 200, response, returns };
+    let json = "application/json";
+    let recording = json!({ "id": "rec-1", "meetingId": MEETING, "callId": "af630fe0", "contentCorrelationId": "bc842d7a-0", "createdDateTime": "2026-09-17T06:09:24.8968037Z", "endDateTime": "2026-09-17T06:27:25.2346000Z",
+        "recordingContentUrl": "https://graph.microsoft.com/v1.0/me/onlineMeetings/m/recordings/r/content", "meetingOrganizer": organizer() });
+    let record = json!({ "emailAddress": "ada@example.test", "totalAttendanceInSeconds": 322, "role": "Organizer", "identity": { "id": "u-1", "displayName": "Ada Lovelace", "tenantId": null },
+        "attendanceIntervals": [{ "joinDateTime": "2026-10-05T04:38:27.6027225Z", "leaveDateTime": "2026-10-05T04:43:49.7702391Z", "durationInSeconds": 322 }] });
+    vec![
+        // online meetings
+        read("online_meetings.get", json!({ "meeting": MEETING }), "/me/onlineMeetings/MSpkYzE3Njc0Yy04MWQ5%2AMCoqMTk6bWVldGluZ18%40thread.v2", json!({}), json,
+            meeting(),
+            json!({ "id": MEETING, "subject": "Launch review", "joinWebUrl": MEETING_LINK, "allowTranscription": true, "chatInfo": { "threadId": "19:meeting_MGQ4@thread.v2" },
+                    "participants": { "organizer": { "upn": "ada@example.test", "identity": { "user": { "id": "u-1" } } }, "attendees": [] } })),
+        read("online_meetings.find_by_join_url", json!({ "join_url": MEETING_LINK }), "/me/onlineMeetings", json!({ "$filter": format!("JoinWebUrl eq '{MEETING_LINK}'") }), json,
+            json!({ "value": [meeting()] }), json!({ "id": MEETING, "joinWebUrl": MEETING_LINK })),
+
+        // transcripts
+        read("transcripts.list", json!({ "meeting": MEETING, "limit": 5 }), "/me/onlineMeetings/MSpkYzE3Njc0Yy04MWQ5%2AMCoqMTk6bWVldGluZ18%40thread.v2/transcripts", json!({ "$top": "5" }), json,
+            json!({ "@odata.count": 1, "value": [transcript()] }),
+            json!({ "items": [{ "id": TRANSCRIPT, "meetingId": MEETING, "meetingOrganizer": { "user": { "id": "u-1" } } }], "next_cursor": null })),
+        read("transcripts.get", json!({ "meeting": MEETING, "transcript": TRANSCRIPT }), "/me/onlineMeetings/MSpkYzE3Njc0Yy04MWQ5%2AMCoqMTk6bWVldGluZ18%40thread.v2/transcripts/MSMjMCMjNzU3ODc2ZDY%3D", json!({}), json,
+            transcript(), json!({ "id": TRANSCRIPT, "contentCorrelationId": "bc842d7a-0", "endDateTime": "2026-09-17T06:27:25.2346000Z" })),
+        // The one answer that is text: asked for as WebVTT, and returned whole and as entries.
+        read("transcripts.content", json!({ "meeting": MEETING, "transcript": TRANSCRIPT }), "/me/onlineMeetings/MSpkYzE3Njc0Yy04MWQ5%2AMCoqMTk6bWVldGluZ18%40thread.v2/transcripts/MSMjMCMjNzU3ODc2ZDY%3D/content", json!({}), "text/vtt",
+            json!(VTT),
+            json!({ "text": VTT, "entries": [{ "speaker": "Ada Lovelace", "startMs": 16_246, "endMs": 17_726, "text": "We ship on Friday." }] })),
+
+        // recordings
+        read("recordings.list", json!({ "meeting": MEETING }), "/me/onlineMeetings/MSpkYzE3Njc0Yy04MWQ5%2AMCoqMTk6bWVldGluZ18%40thread.v2/recordings", json!({}), json,
+            json!({ "value": [recording.clone()] }), json!({ "items": [{ "id": "rec-1", "meetingId": MEETING }], "next_cursor": null })),
+        read("recordings.get", json!({ "meeting": MEETING, "recording": "rec-1" }), "/me/onlineMeetings/MSpkYzE3Njc0Yy04MWQ5%2AMCoqMTk6bWVldGluZ18%40thread.v2/recordings/rec-1", json!({}), json,
+            recording.clone(), json!({ "id": "rec-1", "recordingContentUrl": "https://graph.microsoft.com/v1.0/me/onlineMeetings/m/recordings/r/content", "meetingOrganizer": { "user": { "id": "u-1" } } })),
+
+        // attendance
+        read("attendance.reports", json!({ "meeting": MEETING }), "/me/onlineMeetings/MSpkYzE3Njc0Yy04MWQ5%2AMCoqMTk6bWVldGluZ18%40thread.v2/attendanceReports", json!({}), json,
+            json!({ "value": [{ "id": "rep-1", "totalParticipantCount": 2, "meetingStartDateTime": "2026-10-05T04:38:23.945Z", "meetingEndDateTime": "2026-10-05T04:43:49.77Z", "attendanceRecords": [] }] }),
+            json!({ "items": [{ "id": "rep-1", "totalParticipantCount": 2, "meetingStartDateTime": "2026-10-05T04:38:23.945Z" }], "next_cursor": null })),
+        read("attendance.records", json!({ "meeting": MEETING, "report": "rep-1" }), "/me/onlineMeetings/MSpkYzE3Njc0Yy04MWQ5%2AMCoqMTk6bWVldGluZ18%40thread.v2/attendanceReports/rep-1/attendanceRecords", json!({}), json,
+            json!({ "value": [record.clone()] }),
+            json!({ "items": [{ "emailAddress": "ada@example.test", "role": "Organizer", "totalAttendanceInSeconds": 322, "identity": { "displayName": "Ada Lovelace" },
+                    "attendanceIntervals": [{ "joinDateTime": "2026-10-05T04:38:27.6027225Z", "durationInSeconds": 322 }] }], "next_cursor": null })),
+    ]
+}
+
 /// Every operation, whichever product it belongs to.
 fn every_case() -> Vec<Case> {
     let mut all = cases();
     all.extend(mail_cases());
+    all.extend(meeting_cases());
     all
 }
 
@@ -241,16 +288,21 @@ async fn the_table_below_covers_every_operation_microsoft_offers() {
         tested.len(),
         "a test case names an operation that does not exist"
     );
-    assert_eq!(listed.len(), 32);
+    assert_eq!(listed.len(), 41);
 }
 
 #[tokio::test]
 async fn every_operation_sends_the_right_request_and_returns_what_graph_sent() {
     for case in every_case() {
         let (server, socket, key) = microsoft().await;
+        // An answer that is not JSON is sent as the text it is.
+        let answered = match case.response.as_str().filter(|_| case.accept != "application/json") {
+            Some(text) => ResponseTemplate::new(case.status).set_body_raw(text, case.accept),
+            None => answer(case.status, &case.response),
+        };
         Mock::given(method(case.verb))
             .and(path(format!("/v1.0{}", case.path)))
-            .respond_with(answer(case.status, &case.response))
+            .respond_with(answered)
             .mount(&server)
             .await;
 
@@ -281,6 +333,12 @@ async fn every_operation_sends_the_right_request_and_returns_what_graph_sent() {
             body_of(&request),
             case.body,
             "{}: exactly this body reaches Graph",
+            case.name
+        );
+        assert_eq!(
+            request.headers.get("accept").unwrap(),
+            case.accept,
+            "{}: the answer is asked for in this format",
             case.name
         );
         assert_eq!(
@@ -346,6 +404,15 @@ async fn every_operation_describes_its_input_and_marks_what_it_changes() {
         // Takes the message from where it was, to Deleted Items if asked, and its id stops working.
         ("mail.move_to", Effect::Destructive, "Mail.ReadWrite"),
         ("mail.delete", Effect::Destructive, "Mail.ReadWrite"),
+        ("online_meetings.get", Effect::Read, "OnlineMeetings.Read"),
+        ("online_meetings.find_by_join_url", Effect::Read, "OnlineMeetings.Read"),
+        ("transcripts.list", Effect::Read, "OnlineMeetingTranscript.Read.All"),
+        ("transcripts.get", Effect::Read, "OnlineMeetingTranscript.Read.All"),
+        ("transcripts.content", Effect::Read, "OnlineMeetingTranscript.Read.All"),
+        ("recordings.list", Effect::Read, "OnlineMeetingRecording.Read.All"),
+        ("recordings.get", Effect::Read, "OnlineMeetingRecording.Read.All"),
+        ("attendance.reports", Effect::Read, "OnlineMeetingArtifact.Read.All"),
+        ("attendance.records", Effect::Read, "OnlineMeetingArtifact.Read.All"),
     ];
     assert_eq!(expected.len(), every_case().len());
     for (name, effect, scope) in expected {

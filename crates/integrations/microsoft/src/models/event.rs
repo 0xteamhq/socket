@@ -46,7 +46,7 @@ pub struct Event {
     pub online_meeting_provider: Option<String>,
     /// How to join, when the event is an online meeting. For a Teams meeting
     /// the join link is also how its transcript is found.
-    pub online_meeting: Option<OnlineMeeting>,
+    pub online_meeting: Option<OnlineMeetingInfo>,
     /// The id of the series this event is one occurrence of.
     pub series_master_id: Option<String>,
     /// `singleInstance`, `occurrence`, `exception` or `seriesMaster`.
@@ -131,7 +131,7 @@ impl Location {
 /// How to join an online meeting.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, rename_all = "camelCase")]
-pub struct OnlineMeeting {
+pub struct OnlineMeetingInfo {
     pub join_url: Option<String>,
     pub conference_id: Option<String>,
     pub toll_number: Option<String>,

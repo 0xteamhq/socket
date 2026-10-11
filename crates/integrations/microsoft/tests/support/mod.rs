@@ -32,6 +32,9 @@ pub struct Case {
     pub body: Value,
     /// Exactly the `Prefer` header that reaches Graph, if any.
     pub prefer: Option<&'static str>,
+    /// The `Accept` header that reaches Graph: JSON, or the text format asked
+    /// for. When it is not JSON, `response` is a string and is sent as that text.
+    pub accept: &'static str,
     pub status: u16,
     pub response: Value,
     /// What the operation returns. Checked as a subset, so models may carry more fields.
@@ -158,4 +161,48 @@ pub fn message_returned() -> Value {
 
 pub fn to(address: &str) -> Value {
     json!([{ "emailAddress": { "address": address } }])
+}
+
+/// A meeting's id as Graph writes it, with characters that must be encoded in a path.
+pub const MEETING: &str = "MSpkYzE3Njc0Yy04MWQ5*MCoqMTk6bWVldGluZ18@thread.v2";
+pub const MEETING_PATH: &str = "MSpkYzE3Njc0Yy04MWQ5%2AMCoqMTk6bWVldGluZ18%40thread.v2";
+/// A transcript's id ends in base64 padding.
+pub const TRANSCRIPT: &str = "MSMjMCMjNzU3ODc2ZDY=";
+pub const TRANSCRIPT_PATH: &str = "MSMjMCMjNzU3ODc2ZDY%3D";
+/// A join link as it appears on a calendar event: already percent-encoded once.
+pub const MEETING_LINK: &str =
+    "https://teams.microsoft.com/l/meetup-join/19%3ameeting_MGQ4%40thread.v2/0?context=%7b%22Tid%22%3a%22909c%22%7d";
+pub const VTT: &str = "WEBVTT\n\n00:00:16.246 --> 00:00:17.726\n<v Ada Lovelace>We ship on Friday.</v>\n";
+
+pub fn organizer() -> Value {
+    json!({ "application": null, "device": null, "user": { "id": "u-1", "displayName": null, "tenantId": "t-1" } })
+}
+
+pub fn meeting() -> Value {
+    json!({
+        "id": MEETING,
+        "subject": "Launch review",
+        "startDateTime": "2026-09-29T22:35:31.389759Z",
+        "endDateTime": "2026-09-29T23:35:31.389759Z",
+        "joinWebUrl": MEETING_LINK,
+        "allowTranscription": true,
+        "chatInfo": { "threadId": "19:meeting_MGQ4@thread.v2", "messageId": "0", "replyChainMessageId": null },
+        "participants": {
+            "organizer": { "upn": "ada@example.test", "role": "presenter", "identity": organizer() },
+            "attendees": null
+        }
+    })
+}
+
+pub fn transcript() -> Value {
+    json!({
+        "id": TRANSCRIPT,
+        "meetingId": MEETING,
+        "callId": "af630fe0",
+        "contentCorrelationId": "bc842d7a-0",
+        "createdDateTime": "2026-09-17T06:09:24.8968037Z",
+        "endDateTime": "2026-09-17T06:27:25.2346000Z",
+        "transcriptContentUrl": "https://graph.microsoft.com/v1.0/me/onlineMeetings/m/transcripts/t/content",
+        "meetingOrganizer": organizer()
+    })
 }

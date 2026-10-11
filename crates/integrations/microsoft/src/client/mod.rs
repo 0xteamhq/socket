@@ -10,11 +10,15 @@
 //! This file holds only what every area shares: the access to the API, and
 //! the re-exports. Each area's methods are in the file named after it.
 
+mod attendance;
 mod calendars;
 mod events;
 mod mail;
 mod mail_compose;
 mod mail_folders;
+mod online_meetings;
+mod recordings;
+mod transcripts;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -22,10 +26,14 @@ use serde_json::{Map, Value};
 use socketkit_core::{Connection, Error, ErrorKind, Page, RawRequest, Result};
 use url::Url;
 
+pub use attendance::Attendance;
 pub use calendars::Calendars;
 pub use events::Events;
 pub use mail::Mail;
 pub use mail_folders::MailFolders;
+pub use online_meetings::OnlineMeetings;
+pub use recordings::Recordings;
+pub use transcripts::Transcripts;
 
 use crate::models::{ItemBody, Paging, Recipient};
 
@@ -42,7 +50,19 @@ impl Api<'_> {
 
     /// Sends `request` and returns what Graph answered. A request that
     /// answers with no content, as most actions do, returns `null`.
-    pub(super) async fn send(&self, request: RawRequest) -> Result<Value> {
+    ///
+    /// The query is written here and not by the transport. The transport
+    /// writes a space as `+`, as a form does; Graph documents its filters
+    /// with `%20`, which every server reads the same way.
+    pub(super) async fn send(&self, mut request: RawRequest) -> Result<Value> {
+        if !request.query.is_empty() {
+            let written: Vec<String> = request
+                .query
+                .drain(..)
+                .map(|(name, value)| format!("{name}={}", encoded(&value)))
+                .collect();
+            request.path = format!("{}?{}", request.path, written.join("&"));
+        }
         Ok(self.connection.request(request).await?.body)
     }
 
@@ -185,16 +205,22 @@ impl Api<'_> {
         if id == "." || id == ".." {
             return Err(self.error(ErrorKind::InvalidInput, format!("{what} is not valid")));
         }
-        let mut encoded = String::with_capacity(id.len());
-        for byte in id.bytes() {
-            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-                encoded.push(char::from(byte));
-            } else {
-                encoded.push_str(&format!("%{byte:02X}"));
-            }
-        }
-        Ok(encoded)
+        Ok(encoded(id))
     }
+}
+
+/// `text` with everything percent-encoded but the characters a URL always
+/// leaves alone: letters, digits and `-._~`.
+fn encoded(text: &str) -> String {
+    let mut encoded = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 /// `base` with the set fields of `options` added. Unset fields are left out

@@ -21,6 +21,7 @@ use crate::models::{
     GetSchedule, ListFolders, ListMessages, MailFolder, MeetingTimeSuggestions, Message, Paging, ReplyContent,
     RespondToEvent, ScheduleInformation, SendMail, UpdateEvent, UpdateMessage,
 };
+use crate::models::{AttendanceRecord, AttendanceReport, OnlineMeeting, Recording, Transcript, TranscriptContent};
 
 type Running = std::pin::Pin<Box<dyn Future<Output = Result<Value>> + Send>>;
 
@@ -314,6 +315,41 @@ input!(Move {
     folder: String
 });
 
+input!(OneMeeting {
+    /// The id of an online meeting, as `online_meetings.find_by_join_url` returns it.
+    meeting: String
+});
+input!(JoinUrl {
+    /// The meeting's join link, exactly as the calendar event has it in `onlineMeeting.joinUrl`.
+    join_url: String
+});
+input!(
+    InMeeting {
+        /// The id of an online meeting.
+        meeting: String
+    } + Paging
+);
+input!(OneTranscript {
+    /// The id of an online meeting.
+    meeting: String,
+    /// The id of one of the meeting's transcripts.
+    transcript: String
+});
+input!(OneRecording {
+    /// The id of an online meeting.
+    meeting: String,
+    /// The id of one of the meeting's recordings.
+    recording: String
+});
+input!(
+    InReport {
+        /// The id of an online meeting.
+        meeting: String,
+        /// The id of one of the meeting's attendance reports.
+        report: String
+    } + Paging
+);
+
 // `Destructive` is anything that deletes, removes or overwrites what was
 // there, or that cannot be taken back: an answer to an invitation reaches its
 // organiser at once and cannot be unsent, and neither can mail. A host uses it
@@ -399,5 +435,31 @@ fn build() -> Vec<Operation> {
             |m: Microsoft, c: Connection, i: Folders| async move { m.mail_folders(&c).list(i.options).await as Result<Page<MailFolder>> }),
         operation("mail_folders.get", "Get one folder, by its id or by a well-known name such as inbox.", Read, &["Mail.Read"],
             |m: Microsoft, c: Connection, i: OneFolder| async move { m.mail_folders(&c).get(&i.folder).await as Result<MailFolder> }),
+
+        // ── online meetings ──
+        operation("online_meetings.get", "Get one Teams online meeting by its id.", Read, &["OnlineMeetings.Read"],
+            |m: Microsoft, c: Connection, i: OneMeeting| async move { m.online_meetings(&c).get(&i.meeting).await as Result<OnlineMeeting> }),
+        operation("online_meetings.find_by_join_url", "Find the Teams online meeting behind a join link from a calendar event. Returns its id, which transcripts, recordings and attendance are asked for by.", Read, &["OnlineMeetings.Read"],
+            |m: Microsoft, c: Connection, i: JoinUrl| async move { m.online_meetings(&c).find_by_join_url(&i.join_url).await as Result<OnlineMeeting> }),
+
+        // ── transcripts ──
+        operation("transcripts.list", "List a meeting's transcripts. Empty when transcription was never switched on.", Read, &["OnlineMeetingTranscript.Read.All"],
+            |m: Microsoft, c: Connection, i: InMeeting| async move { m.transcripts(&c).list(&i.meeting, i.options).await as Result<Page<Transcript>> }),
+        operation("transcripts.get", "Get one transcript's details: when it was made, and by whose meeting.", Read, &["OnlineMeetingTranscript.Read.All"],
+            |m: Microsoft, c: Connection, i: OneTranscript| async move { m.transcripts(&c).get(&i.meeting, &i.transcript).await as Result<Transcript> }),
+        operation("transcripts.content", "Read what was said in a meeting: the transcript's text, and one entry for each thing said with the speaker, the start and the end.", Read, &["OnlineMeetingTranscript.Read.All"],
+            |m: Microsoft, c: Connection, i: OneTranscript| async move { m.transcripts(&c).content(&i.meeting, &i.transcript).await as Result<TranscriptContent> }),
+
+        // ── recordings ──
+        operation("recordings.list", "List a meeting's recordings. Empty when the meeting was not recorded.", Read, &["OnlineMeetingRecording.Read.All"],
+            |m: Microsoft, c: Connection, i: InMeeting| async move { m.recordings(&c).list(&i.meeting, i.options).await as Result<Page<Recording>> }),
+        operation("recordings.get", "Get one recording's details, with the address its video is at.", Read, &["OnlineMeetingRecording.Read.All"],
+            |m: Microsoft, c: Connection, i: OneRecording| async move { m.recordings(&c).get(&i.meeting, &i.recording).await as Result<Recording> }),
+
+        // ── attendance ──
+        operation("attendance.reports", "List a meeting's attendance reports, one for each time it was held.", Read, &["OnlineMeetingArtifact.Read.All"],
+            |m: Microsoft, c: Connection, i: InMeeting| async move { m.attendance(&c).reports(&i.meeting, i.options).await as Result<Page<AttendanceReport>> }),
+        operation("attendance.records", "List who joined a meeting, in what role, when, and for how long.", Read, &["OnlineMeetingArtifact.Read.All"],
+            |m: Microsoft, c: Connection, i: InReport| async move { m.attendance(&c).records(&i.meeting, &i.report, i.options).await as Result<Page<AttendanceRecord>> }),
     ]
 }

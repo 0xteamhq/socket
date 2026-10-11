@@ -10,18 +10,24 @@
 //! these types describe still reads.
 
 mod attachment;
+mod attendance;
 mod availability;
 mod calendar;
 mod date_time;
 mod email_address;
 mod event;
 mod folder;
+mod identity;
 mod item_body;
 mod message;
 mod nullable;
+mod online_meeting;
 mod paging;
+mod recording;
+mod transcript;
 
 pub use attachment::Attachment;
+pub use attendance::{AttendanceInterval, AttendanceRecord, AttendanceReport};
 pub use availability::{
     AttendeeAvailability, FindMeetingTimes, GetSchedule, MeetingTimeSuggestion, MeetingTimeSuggestions, ScheduleError,
     ScheduleInformation, ScheduleItem, TimeConstraint,
@@ -30,12 +36,16 @@ pub use calendar::Calendar;
 pub use date_time::{DateTimeTimeZone, TimeSlot};
 pub use email_address::{EmailAddress, Recipient};
 pub use event::{
-    Attendee, CancelEvent, CreateEvent, Event, EventResponse, Location, OnlineMeeting, RespondToEvent, ResponseStatus,
-    UpdateEvent,
+    Attendee, CancelEvent, CreateEvent, Event, EventResponse, Location, OnlineMeetingInfo, RespondToEvent,
+    ResponseStatus, UpdateEvent,
 };
 pub use folder::{ListFolders, MailFolder};
+pub use identity::{Identity, IdentitySet};
 pub use item_body::ItemBody;
 pub use message::{
     BodyType, DraftMessage, FollowupFlag, GetMessage, ListMessages, Message, ReplyContent, SendMail, UpdateMessage,
 };
+pub use online_meeting::{ChatInfo, MeetingParticipant, MeetingParticipants, OnlineMeeting};
 pub use paging::Paging;
+pub use recording::Recording;
+pub use transcript::{Transcript, TranscriptContent, TranscriptEntry};

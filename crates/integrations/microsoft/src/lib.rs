@@ -25,7 +25,7 @@ use socketkit_core::{
 };
 use url::Url;
 
-pub use client::{Calendars, Events, Mail, MailFolders};
+pub use client::{Attendance, Calendars, Events, Mail, MailFolders, OnlineMeetings, Recordings, Transcripts};
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "microsoft";
@@ -350,6 +350,26 @@ impl Microsoft {
     /// The folders of the account's mailbox.
     pub fn mail_folders<'a>(&self, connection: &'a Connection) -> MailFolders<'a> {
         MailFolders(client::Api { connection })
+    }
+
+    /// Teams online meetings: the meeting behind a join link.
+    pub fn online_meetings<'a>(&self, connection: &'a Connection) -> OnlineMeetings<'a> {
+        OnlineMeetings(client::Api { connection })
+    }
+
+    /// What was said in a Teams meeting.
+    pub fn transcripts<'a>(&self, connection: &'a Connection) -> Transcripts<'a> {
+        Transcripts(client::Api { connection })
+    }
+
+    /// The recordings of a Teams meeting.
+    pub fn recordings<'a>(&self, connection: &'a Connection) -> Recordings<'a> {
+        Recordings(client::Api { connection })
+    }
+
+    /// Who joined a Teams meeting, when, and for how long.
+    pub fn attendance<'a>(&self, connection: &'a Connection) -> Attendance<'a> {
+        Attendance(client::Api { connection })
     }
 
     fn error(&self, kind: ErrorKind, message: impl Into<String>) -> Error {
