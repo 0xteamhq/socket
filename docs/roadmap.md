@@ -53,6 +53,16 @@ Teams meetings are the fourth: 9 methods in `online_meetings`, `transcripts`, `r
 
 Nothing has been run against the real service; [the guide](./integrations/microsoft.md) lists what was confirmed against Microsoft's documentation and what was not.
 
+## HubSpot and Attio, the first two CRMs
+
+Both are new providers, and both needed nothing new from the core. A CRM's shape is its customer's to define, so each client is generic, with the kind of record as an argument, and each has operations that list the fields a record can have.
+
+`socketkit-hubspot` signs in through OAuth, with scopes an account's plan may lack asked for as optional ones, or uses a private app's token. It has 18 typed methods in five groups: `objects` (list, get, batch read, search, create, update, batch create and update, archive, for contacts, companies, deals, tickets, the activities logged on them and custom objects), `associations`, `properties`, `pipelines` and `owners`. It is written against HubSpot's dated API version `2026-09`, which HubSpot names as the one for new integrations; the version is one constant. Its 429 says which of an account's limits was met, and search reports its own limit and its cap of 10,000 results as their own errors.
+
+`socketkit-attio` signs in through OAuth with PKCE, or uses a workspace's API key. Attio takes no scopes at sign-in and its tokens do not expire. It has 38 typed methods in eleven groups: `objects` and `attributes` for the schema, `records`, `lists` and `entries` for the data, `notes`, `tasks` and `threads`, `workspace_members`, and `meetings` and `call_recordings`, which carry transcripts. A record keeps Attio's shape, a list of dated values for each attribute, and gives beside it what each attribute holds now.
+
+Each crate carries its own copy of the operation machinery, as Microsoft and Slack do. Nothing has been run against either real service; the guides for [HubSpot](./integrations/hubspot.md) and [Attio](./integrations/attio.md) list what was confirmed against each vendor's documentation and what was not.
+
 ## Carried forward from reviews
 
 - Decide before the first release whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.

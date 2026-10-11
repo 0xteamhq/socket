@@ -14,8 +14,10 @@ fn the_slack_feature_exposes_the_slack_crate() {
 }
 
 #[cfg(all(
+    feature = "attio",
     feature = "github",
     feature = "google",
+    feature = "hubspot",
     feature = "linear",
     feature = "microsoft",
     feature = "notion",
@@ -23,12 +25,14 @@ fn the_slack_feature_exposes_the_slack_crate() {
     feature = "zoom"
 ))]
 #[test]
-fn all_seven_integrations_register_together_and_each_offers_identity_and_lookup() {
+fn all_nine_integrations_register_together_and_each_offers_identity_and_lookup() {
     use std::sync::Arc;
 
     let socket = socketkit::Socket::builder(Arc::new(socketkit::MemoryTokenStore::new()))
+        .integration(Arc::new(socketkit::attio::Attio::new()))
         .integration(Arc::new(socketkit::github::GitHub::new()))
         .integration(Arc::new(socketkit::google::Google::new()))
+        .integration(Arc::new(socketkit::hubspot::HubSpot::new()))
         .integration(Arc::new(socketkit::linear::Linear::new()))
         .integration(Arc::new(socketkit::microsoft::Microsoft::new()))
         .integration(Arc::new(socketkit::notion::Notion::new()))
@@ -39,11 +43,25 @@ fn all_seven_integrations_register_together_and_each_offers_identity_and_lookup(
     let ids: Vec<String> = socket.providers().into_iter().map(|p| p.id.to_string()).collect();
     assert_eq!(
         ids,
-        ["github", "google", "linear", "microsoft", "notion", "slack", "zoom"]
+        [
+            "attio",
+            "github",
+            "google",
+            "hubspot",
+            "linear",
+            "microsoft",
+            "notion",
+            "slack",
+            "zoom"
+        ]
     );
     let names: Vec<String> = socket.operations().into_iter().map(|o| o.name).collect();
-    // Every integration has these two; Slack and Microsoft have typed operations besides.
-    assert!(names.len() >= 14);
+    // Every integration has these two; Attio, HubSpot, Microsoft and Slack have typed operations besides.
+    assert!(names.len() >= 18);
+    assert!(names.contains(&"attio.records.query".to_owned()));
+    assert!(names.contains(&"attio.notes.create".to_owned()));
+    assert!(names.contains(&"hubspot.objects.search".to_owned()));
+    assert!(names.contains(&"hubspot.properties.list".to_owned()));
     assert!(names.contains(&"slack.chat.post_message".to_owned()));
     assert!(names.contains(&"microsoft.events.create".to_owned()));
     assert!(names.contains(&"microsoft.mail.send".to_owned()));
@@ -88,8 +106,10 @@ fn connection_details_are_given_to_each_integration() {
 }
 
 #[cfg(all(
+    feature = "attio",
     feature = "github",
     feature = "google",
+    feature = "hubspot",
     feature = "linear",
     feature = "microsoft",
     feature = "notion",
@@ -112,8 +132,10 @@ mod every_integration {
     #[test]
     fn takes_an_oauth_app_and_can_start_connecting_a_user() {
         let integrations: Vec<Arc<dyn Integration>> = vec![
+            Arc::new(socketkit::attio::Attio::with_oauth(client("attio"))),
             Arc::new(socketkit::github::GitHub::with_oauth(client("github"))),
             Arc::new(socketkit::google::Google::with_oauth(client("google"))),
+            Arc::new(socketkit::hubspot::HubSpot::with_oauth(client("hubspot"))),
             Arc::new(socketkit::linear::Linear::with_oauth(client("linear"))),
             Arc::new(socketkit::microsoft::Microsoft::with_oauth(client("microsoft"))),
             Arc::new(socketkit::notion::Notion::with_oauth(client("notion"))),
@@ -143,8 +165,10 @@ mod every_integration {
     #[test]
     fn takes_a_token_and_reports_it_as_the_one_to_use() {
         let integrations: Vec<Arc<dyn Integration>> = vec![
+            Arc::new(socketkit::attio::Attio::with_token("t-attio")),
             Arc::new(socketkit::github::GitHub::with_token("t-github")),
             Arc::new(socketkit::google::Google::with_token("t-google")),
+            Arc::new(socketkit::hubspot::HubSpot::with_token("t-hubspot")),
             Arc::new(socketkit::linear::Linear::with_token("t-linear")),
             Arc::new(socketkit::microsoft::Microsoft::with_token("t-microsoft")),
             Arc::new(socketkit::notion::Notion::with_token("t-notion")),
@@ -246,6 +270,46 @@ mod every_integration {
         assert_eq!(param(&url, "login_hint").as_deref(), Some("ada@contoso.example"));
         assert_eq!(param(&url, "prompt").as_deref(), Some("select_account"));
         assert_eq!(param(&url, "scope").as_deref(), Some("Calendars.Read offline_access"));
+    }
+
+    #[test]
+    fn attio_takes_a_token_level_and_asks_for_no_scopes() {
+        let settings = socketkit::attio::AttioOAuth {
+            client: client("attio"),
+            token_level: Some(socketkit::attio::TokenLevel::User),
+        };
+        let url = authorize_url(Arc::new(socketkit::attio::Attio::with_oauth(settings)));
+        assert_eq!(url.host_str(), Some("app.attio.com"));
+        assert_eq!(url.path(), "/authorize");
+        assert_eq!(param(&url, "token_level").as_deref(), Some("user"));
+        assert_eq!(
+            param(&url, "scope"),
+            None,
+            "attio's scopes are set on the app, not asked for here"
+        );
+
+        let plain = authorize_url(Arc::new(socketkit::attio::Attio::with_oauth(client("attio"))));
+        assert_eq!(param(&plain, "token_level"), None);
+    }
+
+    #[test]
+    fn hubspot_takes_scopes_an_account_may_lack_as_optional_ones() {
+        let settings = socketkit::hubspot::HubSpotOAuth {
+            client: client("hubspot"),
+            scopes: Some(vec!["oauth".into(), "crm.objects.contacts.read".into()]),
+            optional_scopes: Some(vec!["crm.objects.deals.read".into(), "tickets".into()]),
+        };
+        let url = authorize_url(Arc::new(socketkit::hubspot::HubSpot::with_oauth(settings)));
+        assert_eq!(url.host_str(), Some("app.hubspot.com"));
+        assert_eq!(url.path(), "/oauth/authorize");
+        assert_eq!(param(&url, "scope").as_deref(), Some("oauth crm.objects.contacts.read"));
+        assert_eq!(
+            param(&url, "optional_scope").as_deref(),
+            Some("crm.objects.deals.read tickets")
+        );
+
+        let plain = authorize_url(Arc::new(socketkit::hubspot::HubSpot::with_oauth(client("hubspot"))));
+        assert_eq!(param(&plain, "optional_scope"), None);
     }
 
     #[test]

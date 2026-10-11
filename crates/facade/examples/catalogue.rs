@@ -9,8 +9,10 @@ use socketkit::{AuthScheme, MemoryTokenStore, Result, Socket};
 
 fn main() -> Result<()> {
     let socket = Socket::builder(Arc::new(MemoryTokenStore::new()))
+        .integration(Arc::new(socketkit::attio::Attio::new()))
         .integration(Arc::new(socketkit::github::GitHub::new()))
         .integration(Arc::new(socketkit::google::Google::new()))
+        .integration(Arc::new(socketkit::hubspot::HubSpot::new()))
         .integration(Arc::new(socketkit::linear::Linear::new()))
         .integration(Arc::new(socketkit::microsoft::Microsoft::new()))
         .integration(Arc::new(socketkit::notion::Notion::new()))

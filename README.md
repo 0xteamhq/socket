@@ -4,7 +4,7 @@
 
 Socket gives a product the layers it needs to connect to SaaS APIs: a registry of providers, an OAuth and token-refresh engine, and typed operations for each service. The application owns its OAuth apps and its token storage. Nothing is hosted.
 
-> **Status:** Early. The core, the OAuth flow, token refresh and seven providers are built and tested against local servers (~23k lines of Rust, 366 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
+> **Status:** Early. The core, the OAuth flow, token refresh and nine providers are built and tested against local servers (~35k lines of Rust, 450 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
 
 ## Why
 
@@ -16,7 +16,7 @@ Read [the vision](docs/vision.md) for the full picture.
 
 ## Features
 
-- **OAuth 2.0** — begin and complete the flow; signed, expiring state; the application owns the callback route. PKCE is supported by the core. It is on for Microsoft, and switched off for the other six providers until each is confirmed against the real service
+- **OAuth 2.0** — begin and complete the flow; signed, expiring state; the application owns the callback route. PKCE is supported by the core. It is on for Microsoft and Attio, which document it, and switched off for the other seven providers until each is confirmed against the real service
 - **Token refresh** — single-flight per connection so concurrent calls never race a refresh token
 - **Host allowlist** — credentials are attached only to HTTPS requests on the provider's declared hosts
 - **Retry with backoff** — honours `Retry-After`; non-idempotent requests are retried only when safe
@@ -34,7 +34,9 @@ socket/
 │   ├── core/                   # socketkit-core: providers, OAuth, transport, operations
 │   ├── facade/                 # socketkit: one feature per provider
 │   ├── integrations/
+│   │   ├── attio/              # socketkit-attio (38 typed methods)
 │   │   ├── github/             # socketkit-github
+│   │   ├── hubspot/            # socketkit-hubspot (18 typed methods)
 │   │   ├── slack/              # socketkit-slack (54 typed methods)
 │   │   ├── linear/             # socketkit-linear
 │   │   ├── notion/             # socketkit-notion
@@ -50,9 +52,9 @@ socket/
 
 | Crate | Purpose |
 | --- | --- |
-| `socketkit` | What an application depends on. One feature per provider: `github`, `google`, `linear`, `microsoft`, `notion`, `slack`, `zoom`. |
+| `socketkit` | What an application depends on. One feature per provider: `attio`, `github`, `google`, `hubspot`, `linear`, `microsoft`, `notion`, `slack`, `zoom`. |
 | `socketkit-core` | Providers, the token store interface, the HTTP transport, OAuth, refresh, and call-by-name. |
-| `socketkit-<provider>` | The provider's definition, plus operations (`identity.get`, `resource.resolve`, and typed methods where they are built: all of Slack, and Microsoft's Outlook calendar, mail, Teams and Teams meetings). |
+| `socketkit-<provider>` | The provider's definition, plus operations (`identity.get`, `resource.resolve`, and typed methods where they are built: all of Slack, Microsoft's Outlook calendar, mail, Teams and Teams meetings, HubSpot's CRM, and Attio). |
 | `socketkit-testkit` | A local test server and the conformance checks every provider must pass. |
 
 ## Quick start
@@ -62,7 +64,7 @@ socket/
 Neither needs a network or credentials:
 
 ```sh
-# Print the seven providers and their operations
+# Print the nine providers and their operations
 cargo run -p socketkit --all-features --example catalogue
 
 # Register an integration, invoke an operation by name with JSON
@@ -159,8 +161,10 @@ Keep the pending record tied to the session of the person who started the flow, 
 | Google | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Zoom | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Microsoft | OAuth 2.0 | 57 typed methods for the Outlook calendar, Outlook mail, Teams and Teams meetings | Wire-tested |
+| HubSpot | OAuth 2.0 or a private app's token | 18 typed methods for CRM records of any object type, associations, properties, pipelines and owners | Wire-tested |
+| Attio | OAuth 2.0 or a workspace API key | 38 typed methods for objects, attributes, records, lists, entries, notes, tasks, comment threads, members, meetings and call recordings | Wire-tested |
 
-All seven support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
+All nine support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
 
 ## How breadth grows
 

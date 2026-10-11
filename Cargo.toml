@@ -19,6 +19,8 @@ socketkit-notion = { path = "crates/integrations/notion", version = "0.0.0" }
 socketkit-google = { path = "crates/integrations/google", version = "0.0.0" }
 socketkit-zoom = { path = "crates/integrations/zoom", version = "0.0.0" }
 socketkit-microsoft = { path = "crates/integrations/microsoft", version = "0.0.0" }
+socketkit-hubspot = { path = "crates/integrations/hubspot", version = "0.0.0" }
+socketkit-attio = { path = "crates/integrations/attio", version = "0.0.0" }
 async-trait = "0.1"
 base64 = "0.22"
 getrandom = "0.3"

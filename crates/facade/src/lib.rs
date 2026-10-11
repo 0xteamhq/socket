@@ -5,10 +5,14 @@
 
 pub use socketkit_core::*;
 
+#[cfg(feature = "attio")]
+pub use socketkit_attio as attio;
 #[cfg(feature = "github")]
 pub use socketkit_github as github;
 #[cfg(feature = "google")]
 pub use socketkit_google as google;
+#[cfg(feature = "hubspot")]
+pub use socketkit_hubspot as hubspot;
 #[cfg(feature = "linear")]
 pub use socketkit_linear as linear;
 #[cfg(feature = "microsoft")]
