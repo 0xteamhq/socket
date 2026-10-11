@@ -1,0 +1,25 @@
+crates/integrations/google/tests/operations.rs
+  s_8c98d26ded7b36::t_5ff74c658e443a 393,419,432,446,460
+crates/integrations/google/src/operations.rs
+  s_8c98d26ded7b36::t_2dfe00201c7017 28-32,38-40,42
+crates/integrations/google/tests/support/mod.rs
+  s_8c98d26ded7b36::t_5ff74c658e443a 6,9-11
+crates/integrations/google/src/models/mod.rs
+  s_8c98d26ded7b36::t_5ff74c658e443a 11-23,41,56-72,84,92-100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e6e431cd096f2986b95bd1d64d15af9fbcc3903a",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
