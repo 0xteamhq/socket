@@ -1,0 +1,129 @@
+crates/integrations/pipedrive/src/lib.rs
+  s_bcb90e4e44ba65::t_bcea00319435a7 2-8,10-28,31-68,70-151,153-228,230-476,496-526,534-535,543-548,553-606,610-628,634,641-743,748-788,793-828,839-848
+  s_bcb90e4e44ba65::t_1188cff7d300af 477-495,527-533,536-541,629-633,635-640
+  s_bcb90e4e44ba65::t_6f401f65f62aca 1,9,29-30
+  s_bcb90e4e44ba65::t_12453b0234ef22 69,152,229,549-552,607-609,744-747,789-792,829-838
+  s_bcb90e4e44ba65::t_e098a4e909ee32 542
+crates/integrations/pipedrive/src/client/deals.rs
+  s_bcb90e4e44ba65::t_31ecc65a8d1e8e 1-51,53-59,61-70
+  s_bcb90e4e44ba65::t_bfe233b97e39c9 52,60
+crates/integrations/pipedrive/src/models/custom_fields.rs
+  s_bcb90e4e44ba65::t_bfe233b97e39c9 67-75,78,164-169
+  s_bcb90e4e44ba65::t_12453b0234ef22 138-141
+  s_bcb90e4e44ba65::t_df9bb4b6887f15 1-66,76-77,79-137,142-163,170-209
+crates/integrations/pipedrive/src/client/leads.rs
+  s_bcb90e4e44ba65::t_12453b0234ef22 82-84
+  s_bcb90e4e44ba65::t_4862b4bb0e5bbb 6
+  s_bcb90e4e44ba65::t_31ecc65a8d1e8e 1-5,7-81,85-88
+crates/integrations/pipedrive/src/models/field.rs
+  s_bcb90e4e44ba65::t_df9bb4b6887f15 1-49
+crates/integrations/pipedrive/src/models/lead.rs
+  s_bcb90e4e44ba65::t_1a9c77fba72972 1-39,45-129
+  s_bcb90e4e44ba65::t_12453b0234ef22 40-44
+crates/integrations/pipedrive/src/client/search.rs
+  s_bcb90e4e44ba65::t_31ecc65a8d1e8e 1-26
+crates/integrations/pipedrive/src/models/pipeline.rs
+  s_bcb90e4e44ba65::t_df9bb4b6887f15 1-37
+crates/integrations/pipedrive/tests/wire.rs
+  s_bcb90e4e44ba65::t_7e7b882dfcc9e8 1-133,138-166,171-188,192-206,211-221,226-228,234-269,275-327,331-333,338-367,372-387,451-490,499-522,524-538,543-544,547-557,563-573,577-599,665-686,690-711,717-728,734-753,759-776,782-802,808-814,818-828,859-866,871-914,923-924,929-940,947-965,970-996,1004-1020,1028-1037,1041-1070,1079-1105,1109-1129
+  s_bcb90e4e44ba65::t_9f65af923b17ca 388-450,558-562,600-664,829-858
+  s_bcb90e4e44ba65::t_12453b0234ef22 134-137,167-170,189-191,207-210,222-225,229-233,270-274,328-330,334-337,368-371,491-498,523,539-542,545-546,574-576,687-689,712-716,729-733,754-758,777-781,803-807,815-817,867-870,915-922,925-928,941-946,966-969,997-1003,1021-1027,1038-1040,1071-1078,1106-1108
+crates/integrations/pipedrive/tests/support/mod.rs
+  s_bcb90e4e44ba65::t_d006ace60af80b 1-250
+crates/integrations/pipedrive/src/models/note.rs
+  s_bcb90e4e44ba65::t_1a9c77fba72972 1-132
+crates/integrations/pipedrive/src/models/person.rs
+  s_bcb90e4e44ba65::t_12453b0234ef22 34-38
+  s_bcb90e4e44ba65::t_1a9c77fba72972 1-33,39-129
+crates/integrations/pipedrive/src/models/search.rs
+  s_bcb90e4e44ba65::t_1188cff7d300af 20-21,40,42,47,50
+  s_bcb90e4e44ba65::t_1a9c77fba72972 1-19,22-39,41,43-46,48-49,51-100
+crates/integrations/pipedrive/src/models/address.rs
+  s_bcb90e4e44ba65::t_df9bb4b6887f15 1-27
+crates/integrations/pipedrive/src/models/nullable.rs
+  s_bcb90e4e44ba65::t_df9bb4b6887f15 1-25
+crates/integrations/pipedrive/src/client/request.rs
+  s_bcb90e4e44ba65::t_46a552043098e5 1-188
+crates/integrations/pipedrive/src/client/paging.rs
+  s_bcb90e4e44ba65::t_513f1988d0b695 1-4,7-9,11-22,25-48,55,57-64,66-98,101-137,142-207
+  s_bcb90e4e44ba65::t_46a552043098e5 5-6,10,23-24,49-54,56,65,99-100,138-141
+crates/integrations/pipedrive/src/models/activity.rs
+  s_bcb90e4e44ba65::t_1a9c77fba72972 1-40,44-47,51,55-166
+  s_bcb90e4e44ba65::t_1188cff7d300af 41-43,48-50,52-54
+crates/integrations/pipedrive/src/operations.rs
+  s_bcb90e4e44ba65::t_12453b0234ef22 61-62
+  s_bcb90e4e44ba65::t_b75de0fd27bf10 1-60,63-370,372,374-382,387,389,391,393,395-421
+  s_bcb90e4e44ba65::t_1188cff7d300af 371,373,383-386,388,390,392,394
+crates/integrations/pipedrive/src/client/notes.rs
+  s_bcb90e4e44ba65::t_31ecc65a8d1e8e 1-51,60-72
+  s_bcb90e4e44ba65::t_12453b0234ef22 52-59
+crates/integrations/pipedrive/src/client/users.rs
+  s_bcb90e4e44ba65::t_31ecc65a8d1e8e 1-27
+crates/integrations/pipedrive/Cargo.toml
+  s_bcb90e4e44ba65::t_6f401f65f62aca 1-29
+crates/integrations/pipedrive/tests/operations.rs
+  s_bcb90e4e44ba65::t_5a2218e90a35d1 1-220,225-319,342-343,349,354-355,360-370,386-391,433,444-446,460,535-544,565,571-576,579,601-612,621-639,644,666-668,676-691,695-708,716,720-723,727-728
+  s_bcb90e4e44ba65::t_9f65af923b17ca 320-341,392-432,434-435,461-504,506-507,509-534,640-643,645-665
+  s_bcb90e4e44ba65::t_a147f217b90f95 447-459,505,508
+  s_bcb90e4e44ba65::t_12453b0234ef22 221-224,344-348,350-353,356-359,371-385,436-443,545-564,566-570,581-588,590-593,597-599,613-620,669-675,692-694,709-715,717-719,724-726
+  s_bcb90e4e44ba65::t_429ff518cbec69 577-578,580,589,594-596,600
+crates/integrations/pipedrive/src/models/user.rs
+  s_bcb90e4e44ba65::t_df9bb4b6887f15 1-34
+crates/integrations/pipedrive/src/models/deal.rs
+  s_bcb90e4e44ba65::t_12453b0234ef22 47-51
+  s_bcb90e4e44ba65::t_a147f217b90f95 56-59,148,174
+  s_bcb90e4e44ba65::t_1a9c77fba72972 1-46,52-54,60-65,76-92,94-124,126-147,149-173,175-186
+  s_bcb90e4e44ba65::t_3c4e63c87effcf 55,66-75,93,125
+crates/integrations/pipedrive/src/client/mod.rs
+  s_bcb90e4e44ba65::t_bfe233b97e39c9 58-59,167-182
+  s_bcb90e4e44ba65::t_f1e69699114f5d 1-5,7,11-16,21,25-31,33-34,36-41,43-54,60-147,185-199
+  s_bcb90e4e44ba65::t_03d3739625ceb9 17-20,57
+  s_bcb90e4e44ba65::t_201b84bc10888f 148-166,183-184
+  s_bcb90e4e44ba65::t_c684a59378e318 6,8-10
+  s_bcb90e4e44ba65::t_46a552043098e5 22-24,32,35,42,55-56
+crates/integrations/pipedrive/src/client/pipelines.rs
+  s_bcb90e4e44ba65::t_31ecc65a8d1e8e 1-27
+crates/integrations/pipedrive/src/models/paging.rs
+  s_bcb90e4e44ba65::t_df9bb4b6887f15 1-17
+crates/integrations/pipedrive/src/client/fields.rs
+  s_bcb90e4e44ba65::t_31ecc65a8d1e8e 1-35
+crates/integrations/pipedrive/src/client/persons.rs
+  s_bcb90e4e44ba65::t_bfe233b97e39c9 53,60
+  s_bcb90e4e44ba65::t_31ecc65a8d1e8e 1-52,54-59,61-70
+crates/integrations/pipedrive/src/models/mod.rs
+  s_bcb90e4e44ba65::t_df9bb4b6887f15 1-33,35-45,47
+  s_bcb90e4e44ba65::t_bfe233b97e39c9 46
+  s_bcb90e4e44ba65::t_3c4e63c87effcf 34
+crates/integrations/pipedrive/src/client/organizations.rs
+  s_bcb90e4e44ba65::t_bfe233b97e39c9 56,63
+  s_bcb90e4e44ba65::t_31ecc65a8d1e8e 1-55,57-62,64-73
+crates/integrations/pipedrive/src/models/sort.rs
+  s_bcb90e4e44ba65::t_df9bb4b6887f15 1-14
+crates/integrations/pipedrive/src/client/activities.rs
+  s_bcb90e4e44ba65::t_31ecc65a8d1e8e 1-16,21-35,37-60
+  s_bcb90e4e44ba65::t_1188cff7d300af 17-20,36
+crates/integrations/pipedrive/src/models/organization.rs
+  s_bcb90e4e44ba65::t_12453b0234ef22 31-35
+  s_bcb90e4e44ba65::t_1a9c77fba72972 1-30,36-113
+docs/integrations/pipedrive.md
+  s_bcb90e4e44ba65::t_638e957ed31309 171,232
+  s_bcb90e4e44ba65::t_e51ba41d2c6e26 1-28,30-92,94,97-105,107-108,110,112-150,153,155-170,172-178,180-218,220-222,224-228,230-231,233-238,240-274,276-299,302-304,310-318,320,322-329,331-350,352-402,404-410
+  s_bcb90e4e44ba65::t_a71344ccab5a07 93,95-96,106,109,111,151-152,154,179,219,223,229,239,275,300-301,305-309,319,321,351,403
+  s_bcb90e4e44ba65::t_c684a59378e318 29,330
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "12fb643f016bfdb45325fc582fdf4a17762191be",
+  "prompts": {},
+  "sessions": {
+    "s_bcb90e4e44ba65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9b1631a4-f411-425a-a51b-2099dc11635a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
