@@ -1,0 +1,48 @@
+crates/integrations/google/src/lib.rs
+  s_8c98d26ded7b36::t_83c87399b2315c 4-15,20-23,26-33,50,53-54,61,74-127,353-364,431,433-434,436-445,457,460-462,470-473,476-479
+crates/integrations/google/tests/support/meet.rs
+  s_8c98d26ded7b36::t_4fc5ab76783544 1
+crates/integrations/google/tests/operations.rs
+  s_8c98d26ded7b36::t_2d08f682164920 88-92,135-139,179
+  s_8c98d26ded7b36::t_3965dc7eff99ae 1-87,93-134,140-178,180-206
+crates/integrations/google/Cargo.toml
+  s_8c98d26ded7b36::t_c057ed2e694090 17-20,22,24
+crates/integrations/google/src/models/paging.rs
+  s_8c98d26ded7b36::t_c057ed2e694090 1-15
+crates/integrations/google/tests/support/mod.rs
+  s_8c98d26ded7b36::t_4fc5ab76783544 1-197
+crates/integrations/google/tests/support/calendar.rs
+  s_8c98d26ded7b36::t_4fc5ab76783544 1
+crates/integrations/google/src/client/mod.rs
+  s_8c98d26ded7b36::t_c2431a91745d72 1-266,271-284,289-293,301-303
+  s_8c98d26ded7b36::t_83c87399b2315c 267-270,285-288,294-300
+crates/integrations/google/src/models/mod.rs
+  s_8c98d26ded7b36::t_c2431a91745d72 14-29
+  s_8c98d26ded7b36::t_c057ed2e694090 1-13
+crates/integrations/google/tests/support/drive.rs
+  s_8c98d26ded7b36::t_4fc5ab76783544 1
+crates/integrations/google/src/scopes.rs
+  s_8c98d26ded7b36::t_c057ed2e694090 1-35
+crates/integrations/google/src/operations.rs
+  s_8c98d26ded7b36::t_28568f670fd4ee 1-235
+crates/integrations/google/tests/support/gmail.rs
+  s_8c98d26ded7b36::t_4fc5ab76783544 1
+Cargo.lock
+  s_8c98d26ded7b36::t_09c92bc1d15021 1177-1180,1182,1186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9a8ae40c2c696702d3aaa461ddfd18466592f8b0",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
