@@ -101,8 +101,65 @@ fn phrase(name: &str) -> Vec<String> {
 /// The mailboxes named in a header that was received, such as `From` or
 /// `Reply-To`, as Gmail sent it. What is not one mailbox is left out.
 pub(super) fn listed(header: &str) -> Vec<GmailAddress> {
-    // Commas separate the addresses, except inside a quoted name, a comment
-    // in parentheses, or the angle brackets around a mailbox.
+    pieces(header).iter().filter_map(|piece| one(piece)).collect()
+}
+
+/// A header of people as a person reads it: `Grace Hopper
+/// <grace@example.test>, ada@example.test`. `None` when it names nobody.
+///
+/// The name beside an address is the sender's own text, and can be written
+/// to look like an address itself: `boss@example.test <eve@example.test>`.
+/// So the header is taken apart before its encoded words are read, and a
+/// name that holds a character with a meaning of its own goes back in
+/// quotes. The mailbox a message really came from is then always the one in
+/// angle brackets, or the one that stands alone. What is not a mailbox at
+/// all is shown as text in quotes, never as an address.
+pub(super) fn displayed(header: &str) -> Option<String> {
+    let unfolded = header.replace(['\r', '\n'], "");
+    let shown: Vec<String> = pieces(&unfolded)
+        .iter()
+        .filter_map(|piece| match one(piece) {
+            Some(GmailAddress {
+                email,
+                name: Some(name),
+            }) => Some(format!("{} <{email}>", name_shown(&name))),
+            Some(GmailAddress { email, name: None }) => Some(email),
+            None => Some(readable(piece))
+                .filter(|text| !text.is_empty())
+                .map(|text| in_quotes(&text)),
+        })
+        .collect();
+    Some(shown.join(", ")).filter(|shown| !shown.is_empty())
+}
+
+/// A name as it is shown beside its address: as it is, or in quotes when it
+/// holds a character that could be taken for part of an address.
+fn name_shown(name: &str) -> String {
+    if name.contains(['<', '>', '@', ',', ';', ':', '"', '\\', '(', ')', '[', ']']) {
+        in_quotes(name)
+    } else {
+        name.to_owned()
+    }
+}
+
+fn in_quotes(text: &str) -> String {
+    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Someone else's text with its encoded words read. Whatever it hides in
+/// one, no control character comes out of it.
+fn readable(text: &str) -> String {
+    let read: String = gmail_words::decoded(text)
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    read.trim().to_owned()
+}
+
+/// The addresses of a header, split at the commas between them. A comma
+/// inside a quoted name, a comment in parentheses or the angle brackets
+/// around a mailbox separates nothing, and a comment is left out.
+fn pieces(header: &str) -> Vec<String> {
     let mut pieces = vec![String::new()];
     let (mut quoted, mut comment, mut escaped) = (false, 0_u32, false);
     for character in header.chars() {
@@ -125,14 +182,30 @@ pub(super) fn listed(header: &str) -> Vec<GmailAddress> {
             piece.push(character);
         }
     }
-    pieces.iter().filter_map(|piece| one(piece)).collect()
+    pieces
 }
 
 fn one(piece: &str) -> Option<GmailAddress> {
     let piece = piece.trim();
-    let (name, email) = match piece.rfind('<') {
-        Some(open) if piece.ends_with('>') => (&piece[..open], &piece[open + 1..piece.len() - 1]),
-        _ => ("", piece),
+    // Angle brackets outside a quoted name. A mailbox is in the one pair of
+    // them, at the end. With more than one pair, mail programs disagree on
+    // which is the address, so the piece is not read as one at all.
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut brackets = Vec::new();
+    for (at, character) in piece.char_indices() {
+        match character {
+            _ if escaped => escaped = false,
+            '\\' if quoted => escaped = true,
+            '"' => quoted = !quoted,
+            '<' | '>' if !quoted => brackets.push((at, character)),
+            _ => {}
+        }
+    }
+    let (name, email) = match brackets[..] {
+        [] => ("", piece),
+        [(open, '<'), (close, '>')] if close + 1 == piece.len() => (&piece[..open], &piece[open + 1..close]),
+        _ => return None,
     };
     let name = name.trim();
     // Inside quotes a backslash stands before a character that is meant as itself.
@@ -149,13 +222,10 @@ fn one(piece: &str) -> Option<GmailAddress> {
         });
     // The name is someone else's text. Whatever it hides in an encoded word,
     // it is written out again by `written`, which lets no control character by.
-    let name: String = gmail_words::decoded(unquoted.as_deref().unwrap_or(name))
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
+    let name = readable(unquoted.as_deref().unwrap_or(name));
     Some(GmailAddress {
         email: mailbox(email)?.to_owned(),
-        name: Some(name.trim().to_owned()).filter(|name| !name.is_empty()),
+        name: Some(name).filter(|name| !name.is_empty()),
     })
 }
 
@@ -164,6 +234,63 @@ mod tests {
     use base64::Engine;
 
     use super::*;
+
+    #[test]
+    fn a_name_written_to_look_like_an_address_is_never_shown_as_one() {
+        // The name says one address and the brackets another. Encoded, so
+        // that it is only a name until its words are read.
+        let disguised = "=?UTF-8?Q?boss=40example.test_=3Cboss=40example.test=3E?= <eve@example.test>";
+        assert_eq!(
+            displayed(disguised).as_deref(),
+            Some("\"boss@example.test <boss@example.test>\" <eve@example.test>")
+        );
+        assert_eq!(
+            listed(disguised),
+            [GmailAddress::named(
+                "eve@example.test",
+                "boss@example.test <boss@example.test>"
+            )]
+        );
+        // The same thing already read, as Gmail may send it: quoted, the
+        // mailbox is still the one outside the quotes.
+        assert_eq!(
+            listed("\"boss <boss@example.test>\" <eve@example.test>"),
+            [GmailAddress::named("eve@example.test", "boss <boss@example.test>")]
+        );
+        // Two pairs of brackets: mail programs disagree on which is the
+        // address, so it is nobody's, and is shown as the text it is.
+        let two = "boss <boss@example.test> <eve@example.test>";
+        assert_eq!(listed(two), []);
+        assert_eq!(
+            displayed(two).as_deref(),
+            Some("\"boss <boss@example.test> <eve@example.test>\"")
+        );
+        // What is not a mailbox is text, in quotes, and never dropped unseen.
+        assert_eq!(
+            displayed("undisclosed-recipients:;").as_deref(),
+            Some("\"undisclosed-recipients:;\"")
+        );
+        assert_eq!(displayed("grace@localhost").as_deref(), Some("\"grace@localhost\""));
+    }
+
+    #[test]
+    fn a_header_of_people_is_shown_as_names_and_addresses() {
+        assert_eq!(
+            displayed("=?UTF-8?Q?Zo=C3=AB_M=C3=BCller?= <zoe@example.test>").as_deref(),
+            Some("Zoë Müller <zoe@example.test>")
+        );
+        assert_eq!(
+            displayed("ada@example.test,\r\n \"Hopper, Grace\" <grace@example.test> (her own)").as_deref(),
+            Some("ada@example.test, \"Hopper, Grace\" <grace@example.test>")
+        );
+        // A line break an encoded word was hiding does not come out of a name.
+        assert_eq!(
+            displayed("=?UTF-8?B?R3JhY2UNCkJjYzogZXZlQGV4YW1wbGUudGVzdA==?= <grace@example.test>").as_deref(),
+            Some("\"Grace  Bcc: eve@example.test\" <grace@example.test>")
+        );
+        assert_eq!(displayed(""), None);
+        assert_eq!(displayed(" , "), None);
+    }
 
     #[test]
     fn a_mailbox_is_one_plain_address_and_nothing_else() {

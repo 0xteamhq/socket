@@ -569,7 +569,7 @@ fn build() -> Vec<Operation> {
             |g: Google, c: Connection, i: GmailOneAttachment| async move { g.gmail_messages(&c).attachment_get(&i.message, &i.attachment).await as Result<GmailAttachmentBody> }),
         operation("gmail_messages.send", "Send a message at once from the Gmail account's own address. It cannot be taken back.", Destructive, &[scopes::GMAIL_SEND],
             |g: Google, c: Connection, i: GmailSendNow| async move { g.gmail_messages(&c).send(i.options).await as Result<GmailMessageRef> }),
-        operation("gmail_messages.reply", "Answer a Gmail message in its thread and send the answer at once, to the address the original asks replies to go to or else its sender. It cannot be taken back.", Destructive, &[scopes::GMAIL_READONLY, scopes::GMAIL_SEND],
+        operation("gmail_messages.reply", "Answer a Gmail message in its thread and send the answer at once, to its sender unless `to` names someone else. A message that asks for its replies to go to another address is answered only when `to` is given. It cannot be taken back.", Destructive, &[scopes::GMAIL_READONLY, scopes::GMAIL_SEND],
             |g: Google, c: Connection, i: GmailAnswer| async move { g.gmail_messages(&c).reply(&i.message, i.options).await as Result<GmailMessageRef> }),
         operation("gmail_messages.send_draft", "Send a Gmail draft as it stands. It cannot be taken back, and the draft is gone once it is sent.", Destructive, &[scopes::GMAIL_COMPOSE],
             |g: Google, c: Connection, i: GmailThisDraft| async move { g.gmail_messages(&c).send_draft(&i.draft).await as Result<GmailMessageRef> }),

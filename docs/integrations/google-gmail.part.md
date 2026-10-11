@@ -91,7 +91,8 @@ for row in &unread.items {
 
 **Replying.** `reply(message, GmailReply)` reads the original's headers (one more request, without its body) and sends an answer that stays in the thread: it carries the original's `threadId`, names the original in `In-Reply-To`, and lists the thread so far in `References`.
 
-- It goes to the address the original asks replies to go to (`Reply-To`), or else to its sender (`From`). Nobody else is added: this is "reply", not "reply all". Set `to`, `cc` and `bcc` to choose the recipients yourself. Replying to a message the account itself sent therefore addresses the account, unless `to` says otherwise.
+- It goes to the original's sender (`from`). Nobody else is added: this is "reply", not "reply all". Set `to`, `cc` and `bcc` to choose the recipients yourself. Replying to a message the account itself sent therefore addresses the account, unless `to` says otherwise.
+- **A message that asks for its replies to go elsewhere is not answered unasked.** A sender can set `Reply-To` to any address, and no mail program shows it until a reply is written: mail that seems to come from a colleague can ask for its answers to go to a stranger. A person approves a reply by what they were shown, so when `replyTo` names a mailbox that is not the sender's, `reply` fails with `InvalidInput` and sends nothing. Read the message's `replyTo`, decide, and give `to`.
 - The subject is the original's with `Re: ` before it, and an original that already starts with `Re:` is not marked twice. Gmail keeps a reply in its thread only while the subjects match, so setting `subject` can start a new thread.
 - A reply needs `text` or `html`. The original is not quoted beneath it.
 - An original with no `Message-ID` cannot be answered in its thread, and `reply` fails with `Decode` and sends nothing. So does one that names no mailbox to answer, with `InvalidInput`, unless `to` is given.

@@ -5,7 +5,8 @@
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
-use super::{GmailAttachment, GmailMessage, gmail_words};
+use super::gmail_address::{displayed, listed};
+use super::{GmailAddress, GmailAttachment, GmailMessage, gmail_words};
 
 /// A message in Gmail's own shape. It has no `Debug`: it holds someone's mail.
 #[derive(Default, Deserialize)]
@@ -120,9 +121,10 @@ impl Part {
         self.values(name).find_map(shown)
     }
 
-    /// A list of people, which some senders write as several headers.
-    fn all(&self, name: &str) -> Option<String> {
-        let joined = self.values(name).filter_map(shown).collect::<Vec<_>>().join(", ");
+    /// The people a header names, as a person reads them. Some senders
+    /// write a list as several headers; every one of them is shown.
+    fn people(&self, name: &str) -> Option<String> {
+        let joined = self.values(name).filter_map(displayed).collect::<Vec<_>>().join(", ");
         Some(joined).filter(|joined| !joined.is_empty())
     }
 
@@ -211,6 +213,13 @@ impl GmailWireMessage {
         self.payload.as_ref()?.values(name).next()
     }
 
+    /// The mailboxes a header of the message names, in every place the
+    /// header is written: the same people `read` shows for it.
+    pub(crate) fn mailboxes(&self, name: &str) -> Vec<GmailAddress> {
+        let headers = self.payload.iter().flat_map(|payload| payload.values(name));
+        headers.flat_map(listed).collect()
+    }
+
     /// The subject as a person reads it.
     pub(crate) fn subject(&self) -> Option<String> {
         self.payload.as_ref()?.one("Subject")
@@ -229,11 +238,11 @@ impl GmailWireMessage {
             history_id: self.history_id,
             internal_date: self.internal_date,
             size_estimate: self.size_estimate,
-            from: top.one("From"),
-            to: top.all("To"),
-            cc: top.all("Cc"),
-            bcc: top.all("Bcc"),
-            reply_to: top.all("Reply-To"),
+            from: top.people("From"),
+            to: top.people("To"),
+            cc: top.people("Cc"),
+            bcc: top.people("Bcc"),
+            reply_to: top.people("Reply-To"),
             subject: top.one("Subject"),
             date: top.one("Date"),
             message_id: top.one("Message-ID"),

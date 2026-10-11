@@ -339,25 +339,23 @@ async fn a_reply_stays_in_the_thread_of_the_message_it_answers() {
 }
 
 #[tokio::test]
-async fn a_reply_goes_where_the_original_asks_unless_the_caller_says_otherwise() {
+async fn a_reply_goes_to_the_sender_unless_the_caller_says_otherwise() {
     let headers = |subject: &str| {
         gmail_headers_of(&[
-            ("from", "Grace Hopper <grace@example.test>"),
-            (
-                "REPLY-TO",
-                "=?UTF-8?Q?Pl=C3=A4ne?= <plans@example.test>, lead@example.test",
-            ),
+            ("from", "=?UTF-8?Q?Gr=C3=A4ce?= <grace@example.test>"),
+            // The sender again, however it is written, redirects nothing.
+            ("REPLY-TO", "GRACE@example.test"),
             ("Cc", "alan@example.test"),
             ("subject", subject),
             ("Message-Id", "<CAF1plan@mail.example.test>"),
         ])
     };
     for (subject, extra, to, cc, written) in [
-        // The address the original asks for, and nobody who was only in copy.
+        // The sender, and nobody who was only in copy.
         (
             "Q3 plan",
             json!({}),
-            format!("{} <plans@example.test>, lead@example.test", word("Pläne")),
+            format!("{} <grace@example.test>", word("Gräce")),
             None,
             "Re: Q3 plan",
         ),
@@ -365,7 +363,7 @@ async fn a_reply_goes_where_the_original_asks_unless_the_caller_says_otherwise()
         (
             "RE: Q3 plan",
             json!({}),
-            format!("{} <plans@example.test>, lead@example.test", word("Pläne")),
+            format!("{} <grace@example.test>", word("Gräce")),
             None,
             "RE: Q3 plan",
         ),
@@ -394,6 +392,38 @@ async fn a_reply_goes_where_the_original_asks_unless_the_caller_says_otherwise()
         // A thread's first message lists no thread before it.
         assert_eq!(reply.header("References"), Some("<CAF1plan@mail.example.test>"));
     }
+}
+
+#[tokio::test]
+async fn a_reply_is_not_sent_to_an_address_the_original_chose_and_nobody_was_shown() {
+    // Mail that is seen to come from a colleague and asks for its answers
+    // to go to someone else. Whoever approves the reply was shown neither.
+    let redirected = gmail_headers_of(&[
+        ("From", "Grace Hopper <grace@example.test>"),
+        ("Reply-To", "Grace Hopper <eve@elsewhere.test>"),
+        ("Subject", "Q3 plan"),
+        ("Message-ID", "<CAF1plan@mail.example.test>"),
+    ]);
+    let (server, socket, key) = answering_a_reply_to(gmail_metadata_with(redirected.clone())).await;
+    let input = json!({ "message": GMAIL_MESSAGE, "text": "The figures are attached." });
+    let err = invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    assert!(
+        err.message().contains("`replyTo`") && err.message().contains("`to`"),
+        "{err}"
+    );
+    assert!(!format!("{err} {err:?}").contains("elsewhere"), "{err:?}");
+    let received = server.received_requests().await.unwrap();
+    assert_eq!(received.len(), 1, "the original was read, and nothing was sent");
+    assert_eq!(received[0].method.as_str(), "GET");
+
+    // Named by the caller, that address is where the reply goes.
+    let (server, socket, key) = answering_a_reply_to(gmail_metadata_with(redirected)).await;
+    let input = json!({ "message": GMAIL_MESSAGE, "text": "The figures are attached.", "to": [{ "email": "eve@elsewhere.test" }] });
+    invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap();
+    let received = server.received_requests().await.unwrap();
+    let reply = gmail_sent(&body_of(&received[1])["raw"]);
+    assert_eq!(reply.header("To"), Some("eve@elsewhere.test"));
 }
 
 #[tokio::test]

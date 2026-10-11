@@ -4,7 +4,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::gmail_address::listed;
 use super::gmail_rfc2822::message_ids;
 use super::{GmailAddress, GmailSendMessage, GmailThreading, GmailWireMessage};
 
@@ -13,8 +12,10 @@ use super::{GmailAddress, GmailSendMessage, GmailThreading, GmailWireMessage};
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GmailReply {
-    /// Who the reply goes to. When not given, the address the original asks
-    /// replies to go to (`Reply-To`), or else its sender (`From`).
+    /// Who the reply goes to. When not given, the original's sender
+    /// (`from`). It has to be given when the original asks for its replies
+    /// to go somewhere else (`replyTo`): that address is the sender's to
+    /// choose and nobody has looked at it, so it is never used unasked.
     pub to: Option<Vec<GmailAddress>>,
     /// Who receives a copy. Nobody when not given: the people in copy on
     /// the original are not added.
@@ -37,16 +38,27 @@ impl GmailReply {
         let to = match self.to.filter(|to| !to.is_empty()) {
             Some(to) => to,
             None => {
-                let asked = original.header("Reply-To").map(listed).unwrap_or_default();
-                let to = if asked.is_empty() {
-                    original.header("From").map(listed).unwrap_or_default()
-                } else {
-                    asked
-                };
-                if to.is_empty() {
+                // A reply goes to whoever the message is seen to be from. The
+                // address a message asks its replies to go to is set by its
+                // sender and shown nowhere: mail that seems to come from a
+                // colleague can ask for its answers to go to a stranger. A
+                // person approves a reply by what they are shown, so that
+                // address is used only when the caller names it.
+                let from = original.mailboxes("From");
+                let asked = original.mailboxes("Reply-To");
+                let elsewhere =
+                    |asked: &GmailAddress| !from.iter().any(|from| from.email.eq_ignore_ascii_case(&asked.email));
+                if asked.iter().any(elsewhere) {
+                    return Err(
+                        "the message being answered asks for its replies to go to an address that is not its sender's; \
+                         read its `replyTo` and give `to`"
+                            .to_owned(),
+                    );
+                }
+                if from.is_empty() {
                     return Err("the message being answered names no one to reply to; give `to`".to_owned());
                 }
-                to
+                from
             }
         };
         let subject = match self.subject.filter(|subject| !subject.trim().is_empty()) {
@@ -114,7 +126,51 @@ mod tests {
     }
 
     #[test]
-    fn a_reply_goes_where_the_original_asks_or_else_to_its_sender() {
+    fn a_reply_is_never_sent_to_an_address_the_original_chose_unseen() {
+        // Mail that seems to come from a colleague, asking for its answers
+        // to go to someone else. One other address among the sender's own
+        // is enough.
+        for asked in [
+            "eve@elsewhere.test",
+            "Grace Hopper <eve@elsewhere.test>",
+            "grace@example.test, eve@elsewhere.test",
+        ] {
+            let redirected = json!({ "From": "Grace Hopper <grace@example.test>", "Reply-To": asked });
+            let refused = GmailReply::default()
+                .into_message(&original(redirected.clone()))
+                .unwrap_err();
+            assert!(refused.contains("`replyTo`") && refused.contains("`to`"), "{refused}");
+            assert!(!refused.contains("eve"), "the address is not repeated: {refused}");
+
+            // Named by the caller, it is where the reply goes.
+            let chosen = GmailReply {
+                to: Some(vec![GmailAddress::new("eve@elsewhere.test")]),
+                ..GmailReply::default()
+            };
+            assert_eq!(
+                answer(redirected, chosen).to,
+                Some(vec![GmailAddress::new("eve@elsewhere.test")])
+            );
+        }
+        // A sender written twice is both of them, as it is shown.
+        let wire: GmailWireMessage =
+            serde_json::from_value(json!({ "id": "m2", "threadId": "t1", "payload": { "headers": [
+            { "name": "From", "value": "grace@example.test" },
+            { "name": "from", "value": "ada@example.test" },
+            { "name": "Reply-To", "value": "ada@example.test" }
+        ] } }))
+            .unwrap();
+        assert_eq!(
+            GmailReply::default().into_message(&wire).unwrap().to,
+            Some(vec![
+                GmailAddress::new("grace@example.test"),
+                GmailAddress::new("ada@example.test")
+            ])
+        );
+    }
+
+    #[test]
+    fn a_reply_goes_to_the_sender_unless_the_caller_says_otherwise() {
         let sender = json!({ "From": "Grace Hopper <grace@example.test>", "Subject": "Plan" });
         let sent = answer(sender.clone(), GmailReply::default());
         assert_eq!(
@@ -123,20 +179,20 @@ mod tests {
         );
         assert_eq!((sent.cc, sent.bcc), (None, None));
 
-        let list = json!({ "From": "grace@example.test", "reply-to": "Team <team@example.test>, lead@example.test" });
-        assert_eq!(
-            answer(list, GmailReply::default()).to,
-            Some(vec![
-                GmailAddress::named("team@example.test", "Team"),
-                GmailAddress::new("lead@example.test")
-            ])
-        );
-        // A Reply-To with no mailbox in it does not leave the reply without one.
-        let empty = json!({ "From": "grace@example.test", "Reply-To": "undisclosed-recipients:;" });
-        assert_eq!(
-            answer(empty, GmailReply::default()).to,
-            Some(vec![GmailAddress::new("grace@example.test")])
-        );
+        // A Reply-To that names the sender again changes nothing, and one
+        // with no mailbox in it does not leave the reply without one.
+        for same in [
+            "GRACE@example.test",
+            "Grace <grace@example.test>",
+            "undisclosed-recipients:;",
+        ] {
+            let again = json!({ "From": "grace@example.test", "Reply-To": same });
+            assert_eq!(
+                answer(again, GmailReply::default()).to,
+                Some(vec![GmailAddress::new("grace@example.test")]),
+                "{same}"
+            );
+        }
 
         let chosen = GmailReply {
             to: Some(vec![GmailAddress::new("alan@example.test")]),

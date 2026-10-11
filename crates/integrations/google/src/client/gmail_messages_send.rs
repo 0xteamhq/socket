@@ -32,9 +32,11 @@ impl GmailMessages<'_> {
     /// cannot be taken back.
     ///
     /// The original's headers are read first, which is one more request. The
-    /// reply goes to the address the original asks replies to go to
-    /// (`Reply-To`), or else to its sender (`From`), unless `reply.to` says
-    /// otherwise; nobody else on the original is added. Its subject is the
+    /// reply goes to the original's sender (`From`) unless `reply.to` says
+    /// otherwise; nobody else on the original is added. When the original
+    /// asks for its replies to go to another address (`Reply-To`), the reply
+    /// is refused until `reply.to` names who it goes to: that address is the
+    /// sender's to choose and is shown to nobody, so it is never used unasked. Its subject is the
     /// original's with `Re: ` before it, once. It names the original in
     /// `In-Reply-To` and the thread so far in `References`, and is filed
     /// under the original's `threadId`, which together are what keeps it in
