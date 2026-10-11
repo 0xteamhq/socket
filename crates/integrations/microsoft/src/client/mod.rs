@@ -10,11 +10,19 @@
 //! This file holds only what every area shares: the access to the API, and
 //! the re-exports. Each area's methods are in the file named after it.
 
+mod attendance;
 mod calendars;
+mod channel_messages;
+mod channels;
+mod chats;
 mod events;
 mod mail;
 mod mail_compose;
 mod mail_folders;
+mod online_meetings;
+mod recordings;
+mod teams;
+mod transcripts;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -22,12 +30,20 @@ use serde_json::{Map, Value};
 use socketkit_core::{Connection, Error, ErrorKind, Page, RawRequest, Result};
 use url::Url;
 
+pub use attendance::Attendance;
 pub use calendars::Calendars;
+pub use channel_messages::ChannelMessages;
+pub use channels::Channels;
+pub use chats::Chats;
 pub use events::Events;
 pub use mail::Mail;
 pub use mail_folders::MailFolders;
+pub use online_meetings::OnlineMeetings;
+pub use recordings::Recordings;
+pub use teams::Teams;
+pub use transcripts::Transcripts;
 
-use crate::models::{ItemBody, Paging, Recipient};
+use crate::models::{ChatMessage, ItemBody, Paging, Recipient, SendChatMessage};
 
 /// One connection's access to Microsoft Graph.
 #[derive(Debug, Clone, Copy)]
@@ -42,7 +58,19 @@ impl Api<'_> {
 
     /// Sends `request` and returns what Graph answered. A request that
     /// answers with no content, as most actions do, returns `null`.
-    pub(super) async fn send(&self, request: RawRequest) -> Result<Value> {
+    ///
+    /// The query is written here and not by the transport. The transport
+    /// writes a space as `+`, as a form does; Graph documents its filters
+    /// with `%20`, which every server reads the same way.
+    pub(super) async fn send(&self, mut request: RawRequest) -> Result<Value> {
+        if !request.query.is_empty() {
+            let written: Vec<String> = request
+                .query
+                .drain(..)
+                .map(|(name, value)| format!("{name}={}", encoded(&value)))
+                .collect();
+            request.path = format!("{}?{}", request.path, written.join("&"));
+        }
         Ok(self.connection.request(request).await?.body)
     }
 
@@ -87,9 +115,20 @@ impl Api<'_> {
         paging: &Paging,
         what: &str,
     ) -> Result<Page<T>> {
-        // Graph takes a page of 1 to 1000.
-        if paging.limit.is_some_and(|limit| !(1..=1000).contains(&limit)) {
-            return Err(self.error(ErrorKind::InvalidInput, "`limit` is from 1 to 1000"));
+        // Graph takes a page of 1 to 1000, where it does not say less.
+        self.page_up_to(1000, first, paging, what).await
+    }
+
+    /// [`Api::page`] for a list whose pages Graph keeps to `most` items.
+    pub(super) async fn page_up_to<T: DeserializeOwned>(
+        &self,
+        most: u32,
+        first: RawRequest,
+        paging: &Paging,
+        what: &str,
+    ) -> Result<Page<T>> {
+        if paging.limit.is_some_and(|limit| !(1..=most).contains(&limit)) {
+            return Err(self.error(ErrorKind::InvalidInput, format!("`limit` is from 1 to {most}")));
         }
         let cursor = paging.cursor.as_deref().map(str::trim).filter(|c| !c.is_empty());
         let request = match (cursor, paging.limit) {
@@ -167,6 +206,39 @@ impl Api<'_> {
         Ok(())
     }
 
+    /// One page of messages, each with its body also as plain text. Graph
+    /// keeps a page of messages to 50.
+    pub(super) async fn messages(&self, first: RawRequest, paging: &Paging) -> Result<Page<ChatMessage>> {
+        let page: Page<ChatMessage> = self.page_up_to(50, named(first), paging, "messages").await?;
+        Ok(Page {
+            items: page.items.into_iter().map(ChatMessage::rendered).collect(),
+            next_cursor: page.next_cursor,
+        })
+    }
+
+    /// One message, with its body also as plain text. `request` reads it or
+    /// sends it; either way Graph answers with the message.
+    pub(super) async fn message(&self, request: RawRequest) -> Result<ChatMessage> {
+        let message: ChatMessage = self.decode(self.send(named(request)).await?, "a message")?;
+        if message.id.is_empty() {
+            return Err(self.error(ErrorKind::Decode, "microsoft answered without a message"));
+        }
+        Ok(message.rendered())
+    }
+
+    /// The body of a message to send, once it is known to say something.
+    pub(super) fn outgoing(&self, message: &SendChatMessage) -> Result<Value> {
+        if message
+            .body
+            .content
+            .as_deref()
+            .is_none_or(|content| content.trim().is_empty())
+        {
+            return Err(self.error(ErrorKind::InvalidInput, "a message needs `body.content`"));
+        }
+        Ok(with(serde_json::json!({}), message))
+    }
+
     pub(super) fn required(&self, what: &str, value: &str) -> Result<()> {
         if value.trim().is_empty() {
             return Err(self.error(ErrorKind::InvalidInput, format!("{what} is required")));
@@ -185,16 +257,29 @@ impl Api<'_> {
         if id == "." || id == ".." {
             return Err(self.error(ErrorKind::InvalidInput, format!("{what} is not valid")));
         }
-        let mut encoded = String::with_capacity(id.len());
-        for byte in id.bytes() {
-            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-                encoded.push(char::from(byte));
-            } else {
-                encoded.push_str(&format!("%{byte:02X}"));
-            }
-        }
-        Ok(encoded)
+        Ok(encoded(id))
     }
+}
+
+/// Asks Graph to name the kinds it has added since v1.0 was fixed: a system
+/// message, a shared channel, a co-organiser. Without this it writes each of
+/// them as `unknownFutureValue`.
+pub(super) fn named(request: RawRequest) -> RawRequest {
+    request.with_header("Prefer", "include-unknown-enum-members")
+}
+
+/// `text` with everything percent-encoded but the characters a URL always
+/// leaves alone: letters, digits and `-._~`.
+pub(super) fn encoded(text: &str) -> String {
+    let mut encoded = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 /// `base` with the set fields of `options` added. Unset fields are left out

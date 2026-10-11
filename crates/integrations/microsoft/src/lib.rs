@@ -3,7 +3,10 @@
 //! One provider covers Outlook, Teams, OneDrive, SharePoint and Entra ID,
 //! because they share one sign-in. Offers the provider definition, identity,
 //! lookup of a OneDrive or SharePoint sharing link, and typed methods for
-//! Graph grouped by area (`calendars`, `events`, `mail`, `mail_folders`). Every typed method is also
+//! Graph grouped by area: the Outlook calendar (`calendars`, `events`),
+//! Outlook mail (`mail`, `mail_folders`), Teams (`teams`, `channels`,
+//! `channel_messages`, `chats`) and Teams meetings (`online_meetings`,
+//! `transcripts`, `recordings`, `attendance`). Every typed method is also
 //! a named operation. See `docs/integrations/microsoft.md`.
 
 mod client;
@@ -25,7 +28,10 @@ use socketkit_core::{
 };
 use url::Url;
 
-pub use client::{Calendars, Events, Mail, MailFolders};
+pub use client::{
+    Attendance, Calendars, ChannelMessages, Channels, Chats, Events, Mail, MailFolders, OnlineMeetings, Recordings,
+    Teams, Transcripts,
+};
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "microsoft";
@@ -350,6 +356,46 @@ impl Microsoft {
     /// The folders of the account's mailbox.
     pub fn mail_folders<'a>(&self, connection: &'a Connection) -> MailFolders<'a> {
         MailFolders(client::Api { connection })
+    }
+
+    /// The teams the account belongs to.
+    pub fn teams<'a>(&self, connection: &'a Connection) -> Teams<'a> {
+        Teams(client::Api { connection })
+    }
+
+    /// The channels of a team.
+    pub fn channels<'a>(&self, connection: &'a Connection) -> Channels<'a> {
+        Channels(client::Api { connection })
+    }
+
+    /// The messages of a channel, and the replies under them.
+    pub fn channel_messages<'a>(&self, connection: &'a Connection) -> ChannelMessages<'a> {
+        ChannelMessages(client::Api { connection })
+    }
+
+    /// Chats: one-to-one, group and meeting conversations outside a channel.
+    pub fn chats<'a>(&self, connection: &'a Connection) -> Chats<'a> {
+        Chats(client::Api { connection })
+    }
+
+    /// Teams online meetings: the meeting behind a join link.
+    pub fn online_meetings<'a>(&self, connection: &'a Connection) -> OnlineMeetings<'a> {
+        OnlineMeetings(client::Api { connection })
+    }
+
+    /// What was said in a Teams meeting.
+    pub fn transcripts<'a>(&self, connection: &'a Connection) -> Transcripts<'a> {
+        Transcripts(client::Api { connection })
+    }
+
+    /// The recordings of a Teams meeting.
+    pub fn recordings<'a>(&self, connection: &'a Connection) -> Recordings<'a> {
+        Recordings(client::Api { connection })
+    }
+
+    /// Who joined a Teams meeting, when, and for how long.
+    pub fn attendance<'a>(&self, connection: &'a Connection) -> Attendance<'a> {
+        Attendance(client::Api { connection })
     }
 
     fn error(&self, kind: ErrorKind, message: impl Into<String>) -> Error {

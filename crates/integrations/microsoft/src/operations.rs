@@ -21,6 +21,8 @@ use crate::models::{
     GetSchedule, ListFolders, ListMessages, MailFolder, MeetingTimeSuggestions, Message, Paging, ReplyContent,
     RespondToEvent, ScheduleInformation, SendMail, UpdateEvent, UpdateMessage,
 };
+use crate::models::{AttendanceRecord, AttendanceReport, OnlineMeeting, Recording, Transcript, TranscriptContent};
+use crate::models::{Channel, Chat, ChatMessage, ConversationMember, CreateChat, Cursor, SendChatMessage, Team};
 
 type Running = std::pin::Pin<Box<dyn Future<Output = Result<Value>> + Send>>;
 
@@ -314,6 +316,138 @@ input!(Move {
     folder: String
 });
 
+input!(Place {} + Cursor);
+input!(OneTeam {
+    /// A team id.
+    team: String
+});
+input!(
+    InTeam {
+        /// A team id.
+        team: String
+    } + Paging
+);
+input!(
+    TeamPlace {
+        /// A team id.
+        team: String
+    } + Cursor
+);
+input!(OneChannel {
+    /// A team id.
+    team: String,
+    /// The id of one of the team's channels, such as `19:…@thread.tacv2`.
+    channel: String
+});
+input!(
+    InChannel {
+        /// A team id.
+        team: String,
+        /// The id of one of the team's channels.
+        channel: String
+    } + Paging
+);
+input!(OneChannelMessage {
+    /// A team id.
+    team: String,
+    /// The id of one of the team's channels.
+    channel: String,
+    /// The id of a message that starts a conversation in the channel.
+    message: String
+});
+input!(
+    UnderMessage {
+        /// A team id.
+        team: String,
+        /// The id of one of the team's channels.
+        channel: String,
+        /// The id of the message the replies are to.
+        message: String
+    } + Paging
+);
+input!(
+    ToChannel {
+        /// A team id.
+        team: String,
+        /// The id of one of the team's channels.
+        channel: String
+    } + SendChatMessage
+);
+input!(
+    ReplyInChannel {
+        /// A team id.
+        team: String,
+        /// The id of one of the team's channels.
+        channel: String,
+        /// The id of the message to reply to.
+        message: String
+    } + SendChatMessage
+);
+input!(OneChat {
+    /// A chat id, such as `19:…@thread.v2`.
+    chat: String
+});
+input!(
+    ChatPlace {
+        /// A chat id.
+        chat: String
+    } + Cursor
+);
+input!(
+    InChat {
+        /// A chat id.
+        chat: String
+    } + Paging
+);
+input!(OneChatMessage {
+    /// A chat id.
+    chat: String,
+    /// The id of one of the chat's messages.
+    message: String
+});
+input!(
+    ToChat {
+        /// A chat id.
+        chat: String
+    } + SendChatMessage
+);
+input!(NewChat {} + CreateChat);
+
+input!(OneMeeting {
+    /// The id of an online meeting, as `online_meetings.find_by_join_url` returns it.
+    meeting: String
+});
+input!(JoinUrl {
+    /// The meeting's join link, exactly as the calendar event has it in `onlineMeeting.joinUrl`.
+    join_url: String
+});
+input!(
+    InMeeting {
+        /// The id of an online meeting.
+        meeting: String
+    } + Paging
+);
+input!(OneTranscript {
+    /// The id of an online meeting.
+    meeting: String,
+    /// The id of one of the meeting's transcripts.
+    transcript: String
+});
+input!(OneRecording {
+    /// The id of an online meeting.
+    meeting: String,
+    /// The id of one of the meeting's recordings.
+    recording: String
+});
+input!(
+    InReport {
+        /// The id of an online meeting.
+        meeting: String,
+        /// The id of one of the meeting's attendance reports.
+        report: String
+    } + Paging
+);
+
 // `Destructive` is anything that deletes, removes or overwrites what was
 // there, or that cannot be taken back: an answer to an invitation reaches its
 // organiser at once and cannot be unsent, and neither can mail. A host uses it
@@ -399,5 +533,75 @@ fn build() -> Vec<Operation> {
             |m: Microsoft, c: Connection, i: Folders| async move { m.mail_folders(&c).list(i.options).await as Result<Page<MailFolder>> }),
         operation("mail_folders.get", "Get one folder, by its id or by a well-known name such as inbox.", Read, &["Mail.Read"],
             |m: Microsoft, c: Connection, i: OneFolder| async move { m.mail_folders(&c).get(&i.folder).await as Result<MailFolder> }),
+
+        // ── teams ──
+        operation("teams.list_joined", "List the teams the account is a member of.", Read, &["Team.ReadBasic.All"],
+            |m: Microsoft, c: Connection, i: Place| async move { m.teams(&c).list_joined(i.options).await as Result<Page<Team>> }),
+        operation("teams.get", "Get one team.", Read, &["Team.ReadBasic.All"],
+            |m: Microsoft, c: Connection, i: OneTeam| async move { m.teams(&c).get(&i.team).await as Result<Team> }),
+        operation("teams.members", "List a team's members and owners. Needs an administrator's consent.", Read, &["TeamMember.Read.All"],
+            |m: Microsoft, c: Connection, i: InTeam| async move { m.teams(&c).members(&i.team, i.options).await as Result<Page<ConversationMember>> }),
+
+        // ── channels ──
+        operation("channels.list", "List a team's channels.", Read, &["Channel.ReadBasic.All"],
+            |m: Microsoft, c: Connection, i: TeamPlace| async move { m.channels(&c).list(&i.team, i.options).await as Result<Page<Channel>> }),
+        operation("channels.get", "Get one channel of a team.", Read, &["Channel.ReadBasic.All"],
+            |m: Microsoft, c: Connection, i: OneChannel| async move { m.channels(&c).get(&i.team, &i.channel).await as Result<Channel> }),
+        operation("channels.members", "List a channel's members and owners. Needs an administrator's consent.", Read, &["ChannelMember.Read.All"],
+            |m: Microsoft, c: Connection, i: InChannel| async move { m.channels(&c).members(&i.team, &i.channel, i.options).await as Result<Page<ConversationMember>> }),
+
+        // ── channel messages ──
+        operation("channel_messages.list", "List the messages that start a conversation in a channel, without their replies, each also as plain text. Needs an administrator's consent.", Read, &["ChannelMessage.Read.All"],
+            |m: Microsoft, c: Connection, i: InChannel| async move { m.channel_messages(&c).list(&i.team, &i.channel, i.options).await as Result<Page<ChatMessage>> }),
+        operation("channel_messages.get", "Get one message of a channel, also as plain text. Needs an administrator's consent.", Read, &["ChannelMessage.Read.All"],
+            |m: Microsoft, c: Connection, i: OneChannelMessage| async move { m.channel_messages(&c).get(&i.team, &i.channel, &i.message).await as Result<ChatMessage> }),
+        operation("channel_messages.replies", "List the replies to a message of a channel, each also as plain text. Needs an administrator's consent.", Read, &["ChannelMessage.Read.All"],
+            |m: Microsoft, c: Connection, i: UnderMessage| async move { m.channel_messages(&c).replies(&i.team, &i.channel, &i.message, i.options).await as Result<Page<ChatMessage>> }),
+        operation("channel_messages.send", "Post a new message to a channel, as the signed-in person. Everyone in the channel sees it.", Write, &["ChannelMessage.Send"],
+            |m: Microsoft, c: Connection, i: ToChannel| async move { m.channel_messages(&c).send(&i.team, &i.channel, i.options).await as Result<ChatMessage> }),
+        operation("channel_messages.reply", "Post a reply under a message of a channel, as the signed-in person.", Write, &["ChannelMessage.Send"],
+            |m: Microsoft, c: Connection, i: ReplyInChannel| async move { m.channel_messages(&c).reply(&i.team, &i.channel, &i.message, i.options).await as Result<ChatMessage> }),
+
+        // ── chats ──
+        operation("chats.list", "List the chats the account is in: one-to-one, group and meeting chats.", Read, &["Chat.ReadBasic"],
+            |m: Microsoft, c: Connection, i: Listing| async move { m.chats(&c).list(i.options).await as Result<Page<Chat>> }),
+        operation("chats.get", "Get one chat.", Read, &["Chat.ReadBasic"],
+            |m: Microsoft, c: Connection, i: OneChat| async move { m.chats(&c).get(&i.chat).await as Result<Chat> }),
+        operation("chats.members", "List who is in a chat.", Read, &["Chat.ReadBasic"],
+            |m: Microsoft, c: Connection, i: ChatPlace| async move { m.chats(&c).members(&i.chat, i.options).await as Result<Page<ConversationMember>> }),
+        operation("chats.messages", "List a chat's messages, the most recently changed first, each also as plain text.", Read, &["Chat.Read"],
+            |m: Microsoft, c: Connection, i: InChat| async move { m.chats(&c).messages(&i.chat, i.options).await as Result<Page<ChatMessage>> }),
+        operation("chats.message_get", "Get one message of a chat, also as plain text.", Read, &["Chat.Read"],
+            |m: Microsoft, c: Connection, i: OneChatMessage| async move { m.chats(&c).message_get(&i.chat, &i.message).await as Result<ChatMessage> }),
+        operation("chats.send", "Send a message to a chat, as the signed-in person.", Write, &["ChatMessage.Send"],
+            |m: Microsoft, c: Connection, i: ToChat| async move { m.chats(&c).send(&i.chat, i.options).await as Result<ChatMessage> }),
+        operation("chats.create", "Create a chat between two people or among several. Returns the chat that already exists between two people, when there is one.", Write, &["Chat.Create"],
+            |m: Microsoft, c: Connection, i: NewChat| async move { m.chats(&c).create(i.options).await as Result<Chat> }),
+
+        // ── online meetings ──
+        operation("online_meetings.get", "Get one Teams online meeting by its id.", Read, &["OnlineMeetings.Read"],
+            |m: Microsoft, c: Connection, i: OneMeeting| async move { m.online_meetings(&c).get(&i.meeting).await as Result<OnlineMeeting> }),
+        operation("online_meetings.find_by_join_url", "Find the Teams online meeting behind a join link from a calendar event. Returns its id, which transcripts, recordings and attendance are asked for by.", Read, &["OnlineMeetings.Read"],
+            |m: Microsoft, c: Connection, i: JoinUrl| async move { m.online_meetings(&c).find_by_join_url(&i.join_url).await as Result<OnlineMeeting> }),
+
+        // ── transcripts ──
+        operation("transcripts.list", "List a meeting's transcripts. Empty when transcription was never switched on. Needs an administrator's consent.", Read, &["OnlineMeetingTranscript.Read.All"],
+            |m: Microsoft, c: Connection, i: InMeeting| async move { m.transcripts(&c).list(&i.meeting, i.options).await as Result<Page<Transcript>> }),
+        operation("transcripts.get", "Get one transcript's details: when it was made, and by whose meeting. Needs an administrator's consent.", Read, &["OnlineMeetingTranscript.Read.All"],
+            |m: Microsoft, c: Connection, i: OneTranscript| async move { m.transcripts(&c).get(&i.meeting, &i.transcript).await as Result<Transcript> }),
+        operation("transcripts.content", "Read what was said in a meeting: the transcript's text, and one entry for each thing said with the speaker, the start and the end. Needs an administrator's consent.", Read, &["OnlineMeetingTranscript.Read.All"],
+            |m: Microsoft, c: Connection, i: OneTranscript| async move { m.transcripts(&c).content(&i.meeting, &i.transcript).await as Result<TranscriptContent> }),
+
+        // ── recordings ──
+        operation("recordings.list", "List a meeting's recordings. Empty when the meeting was not recorded. Needs an administrator's consent.", Read, &["OnlineMeetingRecording.Read.All"],
+            |m: Microsoft, c: Connection, i: InMeeting| async move { m.recordings(&c).list(&i.meeting, i.options).await as Result<Page<Recording>> }),
+        operation("recordings.get", "Get one recording's details, with the address its video is at. Needs an administrator's consent.", Read, &["OnlineMeetingRecording.Read.All"],
+            |m: Microsoft, c: Connection, i: OneRecording| async move { m.recordings(&c).get(&i.meeting, &i.recording).await as Result<Recording> }),
+
+        // ── attendance ──
+        operation("attendance.reports", "List a meeting's attendance reports, one for each time it was held.", Read, &["OnlineMeetingArtifact.Read.All"],
+            |m: Microsoft, c: Connection, i: InMeeting| async move { m.attendance(&c).reports(&i.meeting, i.options).await as Result<Page<AttendanceReport>> }),
+        operation("attendance.records", "List who joined a meeting, in what role, when, and for how long.", Read, &["OnlineMeetingArtifact.Read.All"],
+            |m: Microsoft, c: Connection, i: InReport| async move { m.attendance(&c).records(&i.meeting, &i.report, i.options).await as Result<Page<AttendanceRecord>> }),
     ]
 }

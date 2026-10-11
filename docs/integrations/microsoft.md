@@ -2,7 +2,7 @@
 
 **Status:** built and tested against a local server that answers as Microsoft's documentation says. Not yet run against the real Microsoft Graph.
 
-Socket's Microsoft integration is one provider for everything behind Microsoft Graph: Outlook, Teams, OneDrive, SharePoint and Entra ID share one sign-in. Today it gives a program the Outlook calendar and Outlook mail as 30 typed methods, and the same 30 as operations callable by name with JSON, plus identity and lookup of a sharing link. This page shows how to connect, lists everything that is supported, and says what was and was not confirmed against Microsoft's documentation.
+Socket's Microsoft integration is one provider for everything behind Microsoft Graph: Outlook, Teams, OneDrive, SharePoint and Entra ID share one sign-in. Today it gives a program the Outlook calendar, Outlook mail, Teams and Teams meetings as 57 typed methods, and the same 57 as operations callable by name with JSON, plus identity and lookup of a sharing link. This page shows how to connect, lists everything that is supported, and says what was and was not confirmed against Microsoft's documentation.
 
 ## Connect
 
@@ -240,6 +240,104 @@ Reading needs `Mail.Read`; drafts and changes need `Mail.ReadWrite`; `send`, `se
 
 A `MailFolder` has `id`, `displayName`, `parentFolderId`, `childFolderCount`, `unreadItemCount`, `totalItemCount` and `isHidden`. Hidden folders are left out unless `includeHidden` is set. Needs `Mail.Read`.
 
+### Teams: `teams`, `channels`, `channel_messages` and `chats`
+
+```rust
+use socketkit::microsoft::models::{Cursor, Paging, SendChatMessage};
+
+let teams = microsoft.teams(&connection).list_joined(Cursor::default()).await?;
+let channels = microsoft.channels(&connection).list(&teams.items[0].id, Cursor::default()).await?;
+let messages = microsoft.channel_messages(&connection)
+    .list(&teams.items[0].id, &channels.items[0].id, Paging::default()).await?;
+for message in &messages.items {
+    println!("{}", message.text); // plain text, with mentions as @names
+}
+microsoft.chats(&connection).send(chat_id, SendChatMessage::text("On my way.")).await?;
+```
+
+| Group | Method | Returns |
+| --- | --- | --- |
+| `teams` | `list_joined(Cursor)` | `Page<Team>` |
+| `teams` | `get(team)` | `Team` |
+| `teams` | `members(team, Paging)` | `Page<ConversationMember>` |
+| `channels` | `list(team, Cursor)` | `Page<Channel>` |
+| `channels` | `get(team, channel)` | `Channel` |
+| `channels` | `members(team, channel, Paging)` | `Page<ConversationMember>` |
+| `channel_messages` | `list(team, channel, Paging)` | `Page<ChatMessage>`: the messages that start a conversation |
+| `channel_messages` | `get(team, channel, message)` | `ChatMessage` |
+| `channel_messages` | `replies(team, channel, message, Paging)` | `Page<ChatMessage>` |
+| `channel_messages` | `send(team, channel, SendChatMessage)` | `ChatMessage` |
+| `channel_messages` | `reply(team, channel, message, SendChatMessage)` | `ChatMessage` |
+| `chats` | `list(Paging)` | `Page<Chat>` |
+| `chats` | `get(chat)` | `Chat` |
+| `chats` | `members(chat, Cursor)` | `Page<ConversationMember>` |
+| `chats` | `messages(chat, Paging)` | `Page<ChatMessage>`, the most recently changed first |
+| `chats` | `message_get(chat, message)` | `ChatMessage` |
+| `chats` | `send(chat, SendChatMessage)` | `ChatMessage` |
+| `chats` | `create(CreateChat)` | `Chat` |
+
+**A message as plain text.** Teams writes a message as HTML, with an `<at>` tag for each mention and an `<attachment>` tag where a file or a card sits. A `ChatMessage` keeps that in `body`, and also carries `text`: the same message as a person would read it. A mention is `@` and the name, an attachment is `[attachment: name]` on a line of its own, an emoji or a picture is what it stands for, a symbol written by one of about 140 common names (`&mdash;`, `&hellip;`, `&eacute;`) is the symbol, and a name outside those is left as it was written, a link is its words with its address after them, the cells of a table are kept apart with `|`, and paragraphs are lines. What a tag holds in its attributes, such as a tooltip, is not text, and neither is a comment. Socket writes `text` from `body`; Graph does not send it.
+
+**What a `ChatMessage` carries:** `id`, `replyToId`, `messageType`, `from`, `createdDateTime`, `lastModifiedDateTime`, `lastEditedDateTime` (set when it was edited), `deletedDateTime` (set when it was deleted), `body`, `text`, `attachments`, `mentions`, `reactions`, and also `subject`, `importance`, `webUrl`, `chatId`, `channelIdentity` and `eventDetail`.
+
+- **Who sent it** is `from.user` for a person, or `from.application` for an application; a bot is an application whose `applicationIdentityType` is `bot`.
+- **What Teams itself noted**, such as a member being added, has `messageType: "systemEventMessage"`, no sender and no text. What happened is in `eventDetail`, kept as Graph sent it; its `@odata.type` says which kind of event it is. Socket asks Graph to name every kind (`Prefer: include-unknown-enum-members`); without that Graph writes these as `unknownFutureValue`.
+- **A message id is unique only inside its channel, its chat or its conversation.**
+
+**Page sizes.** A page of messages or chats is at most 50, and a page of members at most 999; a larger `limit` is refused. Joined teams, a team's channels and a chat's members take no page size, so those take a `Cursor` and not a `Paging`.
+
+**Sending.** `SendChatMessage` has `body` (`{ "contentType": "text" or "html", "content": "…" }`), and optionally `subject` (a new channel message only), `importance` and `mentions`. A message with nothing in it is refused. To mention someone so that they are notified, write `<at id="0">Name</at>` in an HTML body and name who it is in `mentions`, as Graph's own documentation shows. A message is posted as the signed-in person.
+
+**Creating a chat.** `CreateChat` has `chatType` (`oneOnOne` or `group`), `members` (each person's directory id or sign-in name, a guest's `…#EXT#@…` name included) and, for a group, a `topic`. Everyone in the chat is named, the account that creates it included: two for a one-to-one chat. When a one-to-one chat between the two already exists, Graph returns it.
+
+**Permissions.** Three of the reads need an administrator's consent: `teams.members` (`TeamMember.Read.All`), `channels.members` (`ChannelMember.Read.All`) and everything that reads channel messages (`ChannelMessage.Read.All`). The rest do not: `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `Chat.ReadBasic` for chats and their members, `Chat.Read` for chat messages, `ChannelMessage.Send`, `ChatMessage.Send` and `Chat.Create`.
+
+**Throttling.** Graph allows about one read and one post a second for each channel and each chat, and says a conversation should be polled for changes no more than once a day. A throttled call arrives as `RateLimited` with the wait Graph asked for.
+
+### Teams meetings: `online_meetings`, `transcripts`, `recordings` and `attendance`
+
+```rust
+// From the join link on a calendar event to what was said.
+let event = microsoft.events(&connection).get(event_id).await?;
+let join_url = event.online_meeting.and_then(|m| m.join_url).expect("an online meeting");
+let meeting = microsoft.online_meetings(&connection).find_by_join_url(&join_url).await?;
+let transcripts = microsoft.transcripts(&connection).list(&meeting.id, Paging::default()).await?;
+let content = microsoft.transcripts(&connection).content(&meeting.id, &transcripts.items[0].id).await?;
+for entry in &content.entries {
+    println!("{}: {}", entry.speaker.as_deref().unwrap_or("?"), entry.text);
+}
+```
+
+| Group | Method | Returns |
+| --- | --- | --- |
+| `online_meetings` | `get(meeting)` | `OnlineMeeting` |
+| `online_meetings` | `find_by_join_url(join_url)` | `OnlineMeeting` |
+| `transcripts` | `list(meeting, Paging)` | `Page<Transcript>` |
+| `transcripts` | `get(meeting, transcript)` | `Transcript` |
+| `transcripts` | `content(meeting, transcript)` | `TranscriptContent`: the text, and one entry for each thing said |
+| `recordings` | `list(meeting, Paging)` | `Page<Recording>` |
+| `recordings` | `get(meeting, recording)` | `Recording`, with the address its video is at |
+| `attendance` | `reports(meeting, Paging)` | `Page<AttendanceReport>`, one for each time the meeting was held |
+| `attendance` | `records(meeting, report, Paging)` | `Page<AttendanceRecord>`: who joined, in what role, when and for how long |
+
+**Finding the meeting.** A calendar event carries the join link (`onlineMeeting.joinUrl`). Give it to `find_by_join_url` exactly as the event has it, and the meeting that comes back has the `id` everything else here is asked for by. A link that matches no meeting the account can read is `NotFound`.
+
+**What was said.** `content` asks for WebVTT and returns `text`, the transcript exactly as Microsoft wrote it, and `entries`: for each thing said, the `speaker`, `startMs` and `endMs` in milliseconds from the start of the transcript, and the `text` without markup. A start can be negative: transcription began while people were already talking.
+
+- **An arrow that was said is kept.** Inside a cue, `-->` begins a new cue only on a line that starts with a time; "A --> B" is part of what was said.
+- **The speaker is the voice tag that opens a cue**, which is where Teams writes it. Anything later in a cue that looks like a voice tag is kept as text and not believed, so that words cannot be made to read as another person's. A name is whatever the person joined under.
+- **A transcript that cannot be read whole is an error**, never a shorter transcript: a cue whose timing cannot be read, or text that is not a cue. Only what WebVTT itself sets apart is skipped: the header, a `NOTE`, a `STYLE` and a `REGION`. The error does not repeat what was said.
+
+**Limits Microsoft sets, which callers will meet:**
+
+- **A transcript or a recording exists only if transcription or recording was switched on** during the meeting; otherwise the list is empty.
+- **The meeting has to be on a calendar.** Transcripts and recordings are not offered for a meeting created through the API with no calendar event, for a live event, or for a meeting that has expired, 60 days after it ended.
+- **Who may read.** A person can read the transcripts and the details of recordings of meetings they organised or were invited to. Attendance reports are the organiser's alone, and exist once the meeting has ended.
+- **An organisation can switch these off.** Graph then answers 403, which arrives as `AccessDenied` with Graph's reason. One such setting withholds who spoke; Microsoft offers a second format without speakers for that case, which Socket does not ask for yet, and a refused transcript says that this may be why.
+- **Permissions.** `OnlineMeetings.Read` for the meeting, `OnlineMeetingTranscript.Read.All` and `OnlineMeetingRecording.Read.All` for transcripts and recordings, both of which need an administrator's consent, and `OnlineMeetingArtifact.Read.All` for attendance.
+
+**Downloading a recording is not built.** `recordings.get` returns `recordingContentUrl`, the address the video is at. The video itself is bytes, which Socket's transport does not carry yet.
+
 ## Page through a list
 
 A list returns a `Page` with `items` and `next_cursor`. Pass the cursor back for the next page; `None` means the last page.
@@ -262,7 +360,7 @@ A cursor comes back from the caller, so Socket does not trust it to be what Grap
 
 The query is used whole. Microsoft does not say which parameters a next page carries, so Socket takes none out. A cursor written by hand can therefore filter, sort or skip within the list it is given to, which a caller could also do by other means, and nothing more.
 
-`limit` is Graph's `$top` and applies to the first page; later pages keep it. It is from 1 to 1000, and anything else is refused.
+`limit` is Graph's `$top` and applies to the first page; later pages keep it. It is from 1 to 1000, or to 50 for messages and chats and 999 for members, and anything else is refused. A list Graph takes no page size for has only a `cursor`.
 
 ## Call an operation by name
 
@@ -283,7 +381,7 @@ let output = socket
 `socket.operations()` returns each operation's name, description, input schema, output schema, effect and scope. The effect lets a host ask a person before a change:
 
 - **read** changes nothing.
-- **write** adds something, or changes a mark that can be set back: creating an event, saving a draft, marking a message read.
+- **write** adds something, or changes a mark that can be set back: creating an event, saving a draft, marking a message read, posting to a channel or a chat, creating a chat.
 - **destructive** deletes, removes or overwrites what was there, or cannot be taken back: changing an event (which replaces its fields, and removes any attendee left out of a new list), answering an invitation (the organiser is told at once), cancelling a meeting, deleting an event; sending mail, changing a draft, moving a message (which can be to Deleted Items), deleting a message.
 
 | Operation | Effect | Scope | What it does |
@@ -320,12 +418,41 @@ let output = socket
 | `microsoft.mail.delete` | destructive | Mail.ReadWrite | Delete a message. |
 | `microsoft.mail_folders.list` | read | Mail.Read | List the folders at the top of the mailbox, or those inside one folder. |
 | `microsoft.mail_folders.get` | read | Mail.Read | Get one folder, by its id or by a well-known name such as inbox. |
+| `microsoft.teams.list_joined` | read | Team.ReadBasic.All | List the teams the account is a member of. |
+| `microsoft.teams.get` | read | Team.ReadBasic.All | Get one team. |
+| `microsoft.teams.members` | read | TeamMember.Read.All | List a team's members and owners. Needs an administrator's consent. |
+| `microsoft.channels.list` | read | Channel.ReadBasic.All | List a team's channels. |
+| `microsoft.channels.get` | read | Channel.ReadBasic.All | Get one channel of a team. |
+| `microsoft.channels.members` | read | ChannelMember.Read.All | List a channel's members and owners. Needs an administrator's consent. |
+| `microsoft.channel_messages.list` | read | ChannelMessage.Read.All | List the messages that start a conversation in a channel, without their replies, each also as plain text. Needs an administrator's consent. |
+| `microsoft.channel_messages.get` | read | ChannelMessage.Read.All | Get one message of a channel, also as plain text. Needs an administrator's consent. |
+| `microsoft.channel_messages.replies` | read | ChannelMessage.Read.All | List the replies to a message of a channel, each also as plain text. Needs an administrator's consent. |
+| `microsoft.channel_messages.send` | write | ChannelMessage.Send | Post a new message to a channel, as the signed-in person. Everyone in the channel sees it. |
+| `microsoft.channel_messages.reply` | write | ChannelMessage.Send | Post a reply under a message of a channel, as the signed-in person. |
+| `microsoft.chats.list` | read | Chat.ReadBasic | List the chats the account is in: one-to-one, group and meeting chats. |
+| `microsoft.chats.get` | read | Chat.ReadBasic | Get one chat. |
+| `microsoft.chats.members` | read | Chat.ReadBasic | List who is in a chat. |
+| `microsoft.chats.messages` | read | Chat.Read | List a chat's messages, the most recently changed first, each also as plain text. |
+| `microsoft.chats.message_get` | read | Chat.Read | Get one message of a chat, also as plain text. |
+| `microsoft.chats.send` | write | ChatMessage.Send | Send a message to a chat, as the signed-in person. |
+| `microsoft.chats.create` | write | Chat.Create | Create a chat between two people or among several. Returns the chat that already exists between two people, when there is one. |
+| `microsoft.online_meetings.get` | read | OnlineMeetings.Read | Get one Teams online meeting by its id. |
+| `microsoft.online_meetings.find_by_join_url` | read | OnlineMeetings.Read | Find the Teams online meeting behind a join link from a calendar event. Returns its id, which transcripts, recordings and attendance are asked for by. |
+| `microsoft.transcripts.list` | read | OnlineMeetingTranscript.Read.All | List a meeting's transcripts. Empty when transcription was never switched on. Needs an administrator's consent. |
+| `microsoft.transcripts.get` | read | OnlineMeetingTranscript.Read.All | Get one transcript's details: when it was made, and by whose meeting. Needs an administrator's consent. |
+| `microsoft.transcripts.content` | read | OnlineMeetingTranscript.Read.All | Read what was said in a meeting: the transcript's text, and one entry for each thing said with the speaker, the start and the end. Needs an administrator's consent. |
+| `microsoft.recordings.list` | read | OnlineMeetingRecording.Read.All | List a meeting's recordings. Empty when the meeting was not recorded. Needs an administrator's consent. |
+| `microsoft.recordings.get` | read | OnlineMeetingRecording.Read.All | Get one recording's details, with the address its video is at. Needs an administrator's consent. |
+| `microsoft.attendance.reports` | read | OnlineMeetingArtifact.Read.All | List a meeting's attendance reports, one for each time it was held. |
+| `microsoft.attendance.records` | read | OnlineMeetingArtifact.Read.All | List who joined a meeting, in what role, when, and for how long. |
 
 `find_meeting_times` and `schedule` are reads that Graph offers only as POST. They are marked `read` because they change nothing, which is what the effect is for.
 
 `update` and `respond` are marked `destructive`, not `write`, by the same rule the Slack and GitHub operations follow: an update overwrites, and an answer cannot be taken back. A host that asks a person only before a destructive operation therefore asks before both.
 
 The same rule marks four mail operations `destructive` that could be read as writes. `send`, `send_draft` and `reply` put mail in other people's inboxes, which cannot be undone. `update_draft` overwrites a draft's text. `move_to` takes a message from where it was, to Deleted Items if asked, and its id stops working. Saving a draft, and marking a message, stay `write`: a draft is the person's own until it is sent, and a mark can be set back.
+
+Posting to a channel or a chat, and creating a chat, are `write`, as posting a message is for Slack: a message that was posted can be deleted by whoever posted it. A host that lets writes run without asking should know that a post is seen by everyone in the channel at once.
 
 ## Handle errors
 
@@ -380,6 +507,14 @@ Confirmed:
 - Which fields of a message can be changed only on a draft, and that `isRead`, `categories` and `flag` can be changed on any message.
 - That a moved message is a new copy under a new id.
 - The permissions: `Mail.Read` for attachments, `Mail.ReadWrite` for drafts, changes, moving and deleting, `Mail.Send` to send.
+- Every Teams endpoint above, with its verb, body and status: `GET /me/joinedTeams`, `/teams/{id}` and `/teams/{id}/members`; `GET /teams/{id}/channels`, `/channels/{id}` and `/channels/{id}/members`; `GET …/channels/{id}/messages`, `/messages/{id}` and `/messages/{id}/replies`; `POST …/messages` and `…/messages/{id}/replies` (201); `GET /me/chats`, `/chats/{id}`, `/chats/{id}/members`, `/chats/{id}/messages` and `/messages/{id}`; `POST /chats/{id}/messages` and `POST /chats` (201).
+- The fields of a team, a channel, a member, a chat and a message, with their spelling; the `<at id>` and `<attachment id>` tags of a body; that a system message has no sender and the body `<systemEventMessage/>`; and that `Prefer: include-unknown-enum-members` is what names it.
+- The page sizes: 50 for channel messages, replies, chats and chat messages, 999 for members; that joined teams, channels and chat members take none.
+- Creating a chat: the body, that every member is named with the caller among them, and that an existing one-to-one chat is returned.
+- Which permissions need an administrator's consent, and the limits of about one request a second for each channel and chat.
+- Every meeting endpoint above: `GET /me/onlineMeetings/{id}` and `?$filter=JoinWebUrl eq '…'` with the link encoded; `…/transcripts`, `/transcripts/{id}` and `/transcripts/{id}/content` with `Accept: text/vtt`; `…/recordings` and `/recordings/{id}`; `…/attendanceReports` and `/attendanceReports/{id}/attendanceRecords`.
+- The WebVTT a transcript is written in, with the speaker in a voice tag at the start of each cue, and that a time can be negative.
+- That transcripts and recordings are not offered for a meeting with no calendar event, a live event or an expired meeting; that attendance is the organiser's alone.
 
 Not confirmed:
 
@@ -406,13 +541,24 @@ Not confirmed:
 - **The body of `send_draft`.** Microsoft asks for an empty request with `Content-Length: 0`. Socket's transport sends no length for a request with no body, which a server may refuse, so Socket sends an empty JSON object instead. That Graph accepts it was not confirmed.
 - **The status of a new draft.** The text says 201 and some examples show 200. Socket accepts either.
 - **The casing of `importance` and `contentType`.** Pages differ (`low` and `Low`, `text` and `Text`). Socket passes on what it is given and returns what Graph sends.
+- **That a deleted message's body is empty.** No page shows one. Socket returns whatever Graph sends, and `deletedDateTime` says it was deleted.
+- **Whether joined teams, members and replies are paged.** Their pages do not say. Socket passes on a next page when Graph gives one.
+- **That `+` is not read as a space in a query.** Graph's examples write `%20`, and so does Socket, for every query it sends.
+- **Whether `find_by_join_url` finds a channel meeting**, and whether transcripts can be read for a meeting in a private channel. One Microsoft page says channel meetings are covered, another that they are in beta only.
+- **That a transcript exists only when transcription was on.** Microsoft does not state it as a rule; it is what an empty list means.
+- **How large a recording or a transcript can be.** A transcript over 10 MB cannot be read.
+- **What a mention must carry to notify someone.** Socket sends `mentions` as given; Microsoft's example includes `userIdentityType`.
 
 ## Not supported yet
 
 - **Application-only access** (client credentials), where no person signs in.
 - **The national clouds** (US Government, China), which use other hosts.
 - **Certificates** in place of a client secret.
-- **The other products**: Teams, meeting transcripts, files. Each is its own piece of work on top of this provider.
+- **Files**: OneDrive and SharePoint beyond looking up a sharing link.
+- **Downloading a recording**, and the transcript format without speakers.
+- **Editing and deleting a Teams message, reactions, tabs and apps**, and **change notifications**.
+- **Attaching a file to a Teams message.**
+- **A date range for chat messages.** Graph takes one only with a matching sort; Socket lists the most recently changed first.
 - **Shared and delegated mailboxes** (`/users/{id}/…`, `Mail.Read.Shared`).
 - **Adding an attachment** to a draft, and **attachments too large to read in one answer**.
 - **`replyAll` and `forward` sent at once.** Make the draft with `create_reply_all` or `create_forward`, then `send_draft`.

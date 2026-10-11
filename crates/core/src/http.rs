@@ -23,6 +23,9 @@ pub struct RawRequest {
     /// Sent as JSON when present.
     #[serde(default)]
     pub body: Option<Value>,
+    /// Set when the answer is text and not JSON, such as a transcript. See [`RawRequest::as_text`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub text: bool,
 }
 
 impl RawRequest {
@@ -33,6 +36,7 @@ impl RawRequest {
             query: Vec::new(),
             headers: Vec::new(),
             body: None,
+            text: false,
         }
     }
 
@@ -58,6 +62,18 @@ impl RawRequest {
         self.body = Some(body);
         self
     }
+
+    /// Says the answer is text, such as a transcript, and not JSON.
+    ///
+    /// A successful body then comes back as a JSON string holding the text
+    /// exactly as it was sent, and is refused when it is not UTF-8. Nothing
+    /// else changes: an error status is still read as the provider's JSON
+    /// error, and the same size limit applies. Ask for the format with an
+    /// `Accept` header where the provider needs one.
+    pub fn as_text(mut self) -> Self {
+        self.text = true;
+        self
+    }
 }
 
 /// A response as plain data. Header names are lowercase.
@@ -66,6 +82,7 @@ pub struct RawResponse {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     /// The JSON body, or `null` when the body was empty or (on an error status) not JSON.
+    /// For a request sent with [`RawRequest::as_text`], a string holding the text.
     pub body: Value,
 }
 
@@ -367,7 +384,7 @@ impl Transport {
         if let Some(bytes) = body {
             builder = builder.body(bytes);
         }
-        let response = read(spec, builder).await?;
+        let response = read(spec, builder, request.text).await?;
         if let Some(next) = redirect_target(spec, method, &asked, &response) {
             return Ok(Sent::Moved(next));
         }
@@ -416,7 +433,7 @@ impl Transport {
         if let Some((user, password)) = basic {
             builder = builder.basic_auth(user, Some(password));
         }
-        read(spec, builder).await
+        read(spec, builder, false).await
     }
 }
 
@@ -550,7 +567,10 @@ fn resolve_url(spec: &ProviderSpec, path: &str) -> Result<Url> {
 
 /// Sends a built request and reads the response as data. Never includes the
 /// request URL in an error: an API key may be in its query string.
-async fn read(spec: &ProviderSpec, builder: reqwest::RequestBuilder) -> Result<RawResponse> {
+///
+/// `text` is true when the caller asked for text: a successful body is then
+/// kept as a string and not parsed.
+async fn read(spec: &ProviderSpec, builder: reqwest::RequestBuilder, text: bool) -> Result<RawResponse> {
     let transport = |what: &str, e: reqwest::Error| {
         Error::new(ErrorKind::Transport, format!("could not {what} {}", spec.id))
             .with_provider(spec.id.clone())
@@ -588,6 +608,22 @@ async fn read(spec: &ProviderSpec, builder: reqwest::RequestBuilder) -> Result<R
             .with_provider(spec.id.clone()));
         }
         bytes.extend_from_slice(&chunk);
+    }
+    if text && (200..300).contains(&status) && !bytes.is_empty() {
+        // Lossy decoding would turn a recording or an archive into text that
+        // looks plausible, so bytes that are not UTF-8 are refused.
+        let body = String::from_utf8(bytes).map_err(|_| {
+            Error::new(
+                ErrorKind::Decode,
+                format!("{} answered with something that is not text", spec.id),
+            )
+            .with_provider(spec.id.clone())
+        })?;
+        return Ok(RawResponse {
+            status,
+            headers,
+            body: Value::String(body),
+        });
     }
     let text = String::from_utf8_lossy(&bytes);
     let body = if text.trim().is_empty() {

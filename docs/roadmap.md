@@ -47,6 +47,10 @@ The Outlook calendar is the first product on it: 12 typed methods in two groups,
 
 Outlook mail is the second: 18 methods in `mail` and `mail_folders`. Messages are listed by folder, filter, search and sort, read with their body as plain text, and gathered by conversation; attachments are listed without their content and fetched one at a time; drafts, replies and forwards are written without sending; mail is sent, marked, moved and deleted. Sending, changing a draft, moving and deleting are marked destructive. Not covered: shared and delegated mailboxes, adding attachments, and files too large for one answer.
 
+Teams is the third: 18 methods in `teams`, `channels`, `channel_messages` and `chats`. Teams, channels and their members are listed; a channel's messages and replies and a chat's messages are read, each also as plain text with mentions written as names; a message is posted to a channel or a chat, and a chat is created.
+
+Teams meetings are the fourth: 9 methods in `online_meetings`, `transcripts`, `recordings` and `attendance`. A meeting is found from the join link on a calendar event; its transcripts are read as text and as entries with speaker, start and end; its recordings and its attendance are listed. This needed one change to the core, a request that says its answer is text. Downloading a recording waits for the transport to carry bytes.
+
 Nothing has been run against the real service; [the guide](./integrations/microsoft.md) lists what was confirmed against Microsoft's documentation and what was not.
 
 ## Carried forward from reviews
