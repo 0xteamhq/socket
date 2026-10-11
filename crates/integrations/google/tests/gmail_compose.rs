@@ -173,6 +173,11 @@ async fn mail_that_could_add_a_header_or_reach_no_one_is_refused_before_google_i
             "`to[0]` needs an `email`",
         ),
         (said(json!({ "to": to("grace") })), "`to[0]` needs an `email`"),
+        // An encoded word is text in disguise, and no part of an address.
+        (
+            said(json!({ "to": to("=?utf-8?q?eve=40example.test=2C?=@example.test") })),
+            "`to[0]` needs an `email`",
+        ),
         (said(json!({ "to": to("  ") })), "`to[0]` needs an `email`"),
         (
             said(json!({ "to": [{ "name": "Grace Hopper" }] })),
@@ -259,14 +264,40 @@ async fn mail_that_could_add_a_header_or_reach_no_one_is_refused_before_google_i
             json!({ "draft": GMAIL_DRAFT, "raw": "VG86" }),
             "`raw` is not a field",
         ),
+        // Who a reply goes to is always said, and by the caller.
         (
             "gmail_messages.reply",
-            json!({ "message": GMAIL_MESSAGE }),
+            json!({ "message": GMAIL_MESSAGE, "text": "x" }),
+            "missing field `to`",
+        ),
+        (
+            "gmail_messages.reply",
+            json!({ "message": GMAIL_MESSAGE, "text": "x", "cc": grace(), "bcc": grace() }),
+            "missing field `to`",
+        ),
+        (
+            "gmail_messages.reply",
+            json!({ "message": GMAIL_MESSAGE, "text": "x", "to": [], "cc": grace() }),
+            "a reply needs at least one recipient in `to`",
+        ),
+        (
+            "gmail_messages.reply",
+            json!({ "message": GMAIL_MESSAGE, "text": "x", "to": null }),
+            "a field of the wrong type",
+        ),
+        (
+            "gmail_messages.reply",
+            json!({ "message": GMAIL_MESSAGE, "text": "x", "to": to("=?utf-8?q?eve=40example.test=2C?=@example.test") }),
+            "`to[0]` needs an `email`",
+        ),
+        (
+            "gmail_messages.reply",
+            json!({ "message": GMAIL_MESSAGE, "to": grace() }),
             "a reply needs `text` or `html`",
         ),
         (
             "gmail_messages.reply",
-            json!({ "message": GMAIL_MESSAGE, "text": " ", "html": "" }),
+            json!({ "message": GMAIL_MESSAGE, "to": grace(), "text": " ", "html": "" }),
             "a reply needs `text` or `html`",
         ),
         (
@@ -276,17 +307,17 @@ async fn mail_that_could_add_a_header_or_reach_no_one_is_refused_before_google_i
         ),
         (
             "gmail_messages.reply",
-            json!({ "message": GMAIL_MESSAGE, "text": "x", "subject": "Re: a\nBcc: eve@example.test" }),
+            json!({ "message": GMAIL_MESSAGE, "to": grace(), "text": "x", "subject": "Re: a\nBcc: eve@example.test" }),
             "`subject` has a line break",
         ),
         (
             "gmail_messages.reply",
-            json!({ "message": "", "text": "x" }),
+            json!({ "message": "", "to": grace(), "text": "x" }),
             "a message id is required",
         ),
         (
             "gmail_messages.reply",
-            json!({ "message": GMAIL_MESSAGE, "text": "x", "threadId": "t9" }),
+            json!({ "message": GMAIL_MESSAGE, "to": grace(), "text": "x", "threadId": "t9" }),
             "`threadId` is not a field",
         ),
     ] {
@@ -303,7 +334,8 @@ async fn mail_that_could_add_a_header_or_reach_no_one_is_refused_before_google_i
 #[tokio::test]
 async fn a_reply_stays_in_the_thread_of_the_message_it_answers() {
     let (server, socket, key) = answering_a_reply_to(gmail_metadata()).await;
-    let input = json!({ "message": GMAIL_MESSAGE, "text": "Monday works.", "html": "<p>Monday works.</p>" });
+    let input =
+        json!({ "message": GMAIL_MESSAGE, "to": grace(), "text": "Monday works.", "html": "<p>Monday works.</p>" });
     let sent = invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap();
     assert_eq!(sent["threadId"], GMAIL_THREAD);
 
@@ -339,44 +371,32 @@ async fn a_reply_stays_in_the_thread_of_the_message_it_answers() {
 }
 
 #[tokio::test]
-async fn a_reply_goes_to_the_sender_unless_the_caller_says_otherwise() {
+async fn a_reply_takes_its_subject_from_the_original_and_its_recipients_from_the_caller() {
     let headers = |subject: &str| {
         gmail_headers_of(&[
             ("from", "=?UTF-8?Q?Gr=C3=A4ce?= <grace@example.test>"),
-            // The sender again, however it is written, redirects nothing.
-            ("REPLY-TO", "GRACE@example.test"),
+            ("REPLY-TO", "replies@example.test"),
             ("Cc", "alan@example.test"),
             ("subject", subject),
             ("Message-Id", "<CAF1plan@mail.example.test>"),
         ])
     };
-    for (subject, extra, to, cc, written) in [
-        // The sender, and nobody who was only in copy.
-        (
-            "Q3 plan",
-            json!({}),
-            format!("{} <grace@example.test>", word("Gräce")),
-            None,
-            "Re: Q3 plan",
-        ),
+    let ada = json!([{ "email": "ada@example.test" }]);
+    for (subject, extra, cc, written) in [
+        // The people named, and nobody the original names: not its sender,
+        // not who it asks to be answered, not who was in copy.
+        ("Q3 plan", json!({}), None, "Re: Q3 plan"),
         // An answer is not marked as one twice.
-        (
-            "RE: Q3 plan",
-            json!({}),
-            format!("{} <grace@example.test>", word("Gräce")),
-            None,
-            "RE: Q3 plan",
-        ),
+        ("RE: Q3 plan", json!({}), None, "RE: Q3 plan"),
         (
             "Q3 plan",
-            json!({ "to": [{ "email": "ada@example.test" }], "cc": [{ "email": "alan@example.test", "name": "Alan" }], "subject": "Q3 plan, revised" }),
-            "ada@example.test".to_owned(),
+            json!({ "cc": [{ "email": "alan@example.test", "name": "Alan" }], "subject": "Q3 plan, revised" }),
             Some("Alan <alan@example.test>"),
             "Q3 plan, revised",
         ),
     ] {
         let (server, socket, key) = answering_a_reply_to(gmail_metadata_with(headers(subject))).await;
-        let mut input = json!({ "message": GMAIL_MESSAGE, "text": "Agreed." });
+        let mut input = json!({ "message": GMAIL_MESSAGE, "to": ada, "text": "Agreed." });
         input
             .as_object_mut()
             .unwrap()
@@ -386,8 +406,9 @@ async fn a_reply_goes_to_the_sender_unless_the_caller_says_otherwise() {
             .unwrap();
         let received = server.received_requests().await.unwrap();
         let reply = gmail_sent(&body_of(&received[1])["raw"]);
-        assert_eq!(reply.header("To"), Some(to.as_str()), "{input}");
+        assert_eq!(reply.header("To"), Some("ada@example.test"), "{input}");
         assert_eq!(reply.header("Cc"), cc, "{input}");
+        assert_eq!(reply.header("Bcc"), None, "{input}");
         assert_eq!(reply.header("Subject"), Some(written), "{input}");
         // A thread's first message lists no thread before it.
         assert_eq!(reply.header("References"), Some("<CAF1plan@mail.example.test>"));
@@ -395,46 +416,91 @@ async fn a_reply_goes_to_the_sender_unless_the_caller_says_otherwise() {
 }
 
 #[tokio::test]
-async fn a_reply_is_not_sent_to_an_address_the_original_chose_and_nobody_was_shown() {
-    // Mail that is seen to come from a colleague and asks for its answers
-    // to go to someone else. Whoever approves the reply was shown neither.
-    let redirected = gmail_headers_of(&[
-        ("From", "Grace Hopper <grace@example.test>"),
-        ("Reply-To", "Grace Hopper <eve@elsewhere.test>"),
-        ("Subject", "Q3 plan"),
-        ("Message-ID", "<CAF1plan@mail.example.test>"),
-    ]);
-    let (server, socket, key) = answering_a_reply_to(gmail_metadata_with(redirected.clone())).await;
-    let input = json!({ "message": GMAIL_MESSAGE, "text": "The figures are attached." });
-    let err = invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::InvalidInput);
-    assert!(
-        err.message().contains("`replyTo`") && err.message().contains("`to`"),
-        "{err}"
-    );
-    assert!(!format!("{err} {err:?}").contains("elsewhere"), "{err:?}");
-    let received = server.received_requests().await.unwrap();
-    assert_eq!(received.len(), 1, "the original was read, and nothing was sent");
-    assert_eq!(received[0].method.as_str(), "GET");
+async fn nothing_the_original_says_decides_who_a_reply_goes_to() {
+    // Each of these once decided who a reply went to, or was read as two
+    // different people by two readers of the same header. A person approves
+    // a reply by the input they are shown, and none of this is in it.
+    let originals = [
+        // The sender, as plainly as it can be written.
+        vec![("From", "Eve <eve@evil.test>")],
+        // An address its sender chose for the answers.
+        vec![
+            ("From", "Grace Hopper <grace@example.test>"),
+            ("Reply-To", "Grace Hopper <eve@evil.test>"),
+        ],
+        // Two senders in one header, and in two.
+        vec![("From", "Grace <grace@example.test>, eve@evil.test")],
+        vec![("From", "grace@example.test"), ("from", "eve@evil.test")],
+        // A backslash before a line break: shown as `boss@corp.test`, and
+        // answered to `eve@evil.test`.
+        vec![("From", "(\\\r) <eve@evil.test>, ) <boss@corp\r.test>")],
+        vec![("From", "\"Boss\\\r\" <eve@evil.test>, \" <boss@corp.test>")],
+        // A comment that is never closed, over the address in brackets.
+        vec![("From", "boss@corp.test (<eve@evil.test>")],
+        // An encoded word where the mailbox's own name should be.
+        vec![("From", "=?utf-8?q?eve=40evil.test=2C?=@evil.test")],
+        vec![
+            ("Sender", "eve@evil.test"),
+            ("Mail-Followup-To", "eve@evil.test"),
+            ("Mail-Reply-To", "eve@evil.test"),
+        ],
+    ];
+    for original in originals {
+        let mut headers = original.clone();
+        headers.extend([("Subject", "Q3 plan"), ("Message-ID", "<CAF1plan@mail.example.test>")]);
+        let metadata = gmail_metadata_with(gmail_headers_of(&headers));
 
-    // Named by the caller, that address is where the reply goes.
-    let (server, socket, key) = answering_a_reply_to(gmail_metadata_with(redirected)).await;
-    let input = json!({ "message": GMAIL_MESSAGE, "text": "The figures are attached.", "to": [{ "email": "eve@elsewhere.test" }] });
-    invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap();
-    let received = server.received_requests().await.unwrap();
-    let reply = gmail_sent(&body_of(&received[1])["raw"]);
-    assert_eq!(reply.header("To"), Some("eve@elsewhere.test"));
+        // Unasked, nothing is sent, and the original is not even read.
+        let (server, socket, key) = answering_a_reply_to(metadata.clone()).await;
+        let input = json!({ "message": GMAIL_MESSAGE, "text": "The figures are attached." });
+        let err = invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{original:?}");
+        assert!(err.message().contains("missing field `to`"), "{err}");
+        assert!(server.received_requests().await.unwrap().is_empty(), "{original:?}");
+
+        // Asked, it goes where the caller said and nowhere else.
+        let (server, socket, key) = answering_a_reply_to(metadata).await;
+        let input = json!({ "message": GMAIL_MESSAGE, "to": grace(), "text": "The figures are attached." });
+        invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap();
+        let received = server.received_requests().await.unwrap();
+        let reply = gmail_sent(&body_of(&received[1])["raw"]);
+        assert_eq!(
+            reply.names(),
+            [
+                "To",
+                "Subject",
+                "In-Reply-To",
+                "References",
+                "MIME-Version",
+                "Content-Type",
+                "Content-Transfer-Encoding"
+            ],
+            "{original:?}"
+        );
+        assert_eq!(
+            reply.header("To"),
+            Some("Grace Hopper <grace@example.test>"),
+            "{original:?}"
+        );
+        let named = |value: &str| value.contains("evil") || value.contains("corp");
+        assert!(
+            !reply.headers.iter().any(|(_, value)| named(value)),
+            "{original:?}: {:?}",
+            reply.headers
+        );
+    }
 }
 
 #[tokio::test]
 async fn nothing_in_the_original_can_add_a_header_to_the_reply() {
     // Whoever wrote the original chose these. Each hides a line break and a
     // header of their own: in an encoded word, where it survives unfolding,
-    // and in the list of the thread.
+    // and in the list of the thread. The subject also hides a mark that
+    // turns the writing around.
     let hidden = |text: &str| word(&format!("{text}\r\nBcc: eve@example.test"));
     let hostile = gmail_headers_of(&[
         ("From", &format!("{} <grace@example.test>", hidden("Grace"))),
-        ("Subject", &hidden("Plan")),
+        ("Subject", &hidden("Plan\u{202e}")),
         ("Message-ID", "<m1@mail.example.test>"),
         (
             "References",
@@ -442,7 +508,7 @@ async fn nothing_in_the_original_can_add_a_header_to_the_reply() {
         ),
     ]);
     let (server, socket, key) = answering_a_reply_to(gmail_metadata_with(hostile)).await;
-    let input = json!({ "message": GMAIL_MESSAGE, "text": "Agreed." });
+    let input = json!({ "message": GMAIL_MESSAGE, "to": grace(), "text": "Agreed." });
     invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap();
     let received = server.received_requests().await.unwrap();
     // `gmail_sent` reads the message as a mail server would: line by line.
@@ -460,15 +526,15 @@ async fn nothing_in_the_original_can_add_a_header_to_the_reply() {
         ],
         "the headers a reply has, and no other"
     );
-    assert_eq!(
-        reply.header("To"),
-        Some("\"Grace  Bcc: eve@example.test\" <grace@example.test>"),
-        "a name, however odd"
-    );
+    assert_eq!(reply.header("To"), Some("Grace Hopper <grace@example.test>"));
     assert_eq!(
         reply.header("Subject").unwrap(),
-        word("Re: Plan  Bcc: eve@example.test")
+        word("Re: Plan   Bcc: eve@example.test"),
+        "one line, with a space for each character that is not seen"
     );
+    // The list of the thread was unfolded before it was read, as every
+    // header is: what stood between two ids is dropped, and an id with a
+    // space in it is no id.
     assert_eq!(
         reply.header("References"),
         Some("<m0@mail.example.test> <m1@mail.example.test>")
@@ -476,20 +542,26 @@ async fn nothing_in_the_original_can_add_a_header_to_the_reply() {
 }
 
 #[tokio::test]
-async fn a_reply_that_could_not_be_tied_to_its_thread_or_to_anyone_is_not_sent() {
+async fn a_reply_that_could_not_be_tied_to_its_thread_is_not_sent() {
     let named = [("From", "grace@example.test"), ("Subject", "Plan")];
     let no_id = gmail_metadata_with(gmail_headers_of(&named));
+    let unusable = gmail_metadata_with(gmail_headers_of(&[
+        ("From", "grace@example.test"),
+        ("Message-ID", "m1@x.test"),
+    ]));
     let mut no_thread = gmail_metadata();
     no_thread.as_object_mut().unwrap().remove("threadId");
-    let nobody = gmail_metadata_with(gmail_headers_of(&[
-        ("From", "undisclosed-recipients:;"),
-        ("Message-ID", "<m1@x.test>"),
-    ]));
     for (original, kind, says) in [
+        // The message's own lack, and said so: Google answered as it should.
         (
             no_id,
-            ErrorKind::Decode,
-            "google answered without the `Message-ID` of the message being answered",
+            ErrorKind::InvalidInput,
+            "the message being answered carries no `Message-ID` a reply can name",
+        ),
+        (
+            unusable,
+            ErrorKind::InvalidInput,
+            "the message being answered carries no `Message-ID` a reply can name",
         ),
         (
             no_thread,
@@ -501,10 +573,9 @@ async fn a_reply_that_could_not_be_tied_to_its_thread_or_to_anyone_is_not_sent()
             ErrorKind::Decode,
             "google answered without a message",
         ),
-        (nobody, ErrorKind::InvalidInput, "names no one to reply to; give `to`"),
     ] {
         let (server, socket, key) = answering_a_reply_to(original).await;
-        let input = json!({ "message": GMAIL_MESSAGE, "text": "Agreed." });
+        let input = json!({ "message": GMAIL_MESSAGE, "to": grace(), "text": "Agreed." });
         let err = invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap_err();
         assert_eq!(err.kind(), kind, "{err}");
         assert!(err.message().contains(says), "{err}");
@@ -513,11 +584,25 @@ async fn a_reply_that_could_not_be_tied_to_its_thread_or_to_anyone_is_not_sent()
         assert_eq!(received[0].method.as_str(), "GET", "nothing was sent");
     }
 
+    // A blank `Message-ID` before the real one: reading the message shows
+    // the second, and the reply names it. It used to look only at the first.
+    let twice = gmail_metadata_with(gmail_headers_of(&[
+        ("Message-ID", " "),
+        ("Message-Id", "<CAF1plan@mail.example.test>"),
+        ("Subject", "Plan"),
+    ]));
+    let (server, socket, key) = answering_a_reply_to(twice).await;
+    let input = json!({ "message": GMAIL_MESSAGE, "to": grace(), "text": "Agreed." });
+    invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap();
+    let received = server.received_requests().await.unwrap();
+    let reply = gmail_sent(&body_of(&received[1])["raw"]);
+    assert_eq!(reply.header("In-Reply-To"), Some("<CAF1plan@mail.example.test>"));
+
     // The original is gone: Gmail says so, and nothing is sent.
     let (server, socket, key) = google().await;
     let gone = google_error(404, "notFound", "Requested entity was not found.");
     Mock::given(any()).respond_with(gone).mount(&server).await;
-    let input = json!({ "message": GMAIL_MESSAGE, "text": "Agreed." });
+    let input = json!({ "message": GMAIL_MESSAGE, "to": grace(), "text": "Agreed." });
     let err = invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NotFound);
     assert_eq!(only_request(&server).await.method.as_str(), "GET");
@@ -630,7 +715,7 @@ async fn mail_is_sent_once_when_google_fails() {
         .respond_with(unavailable())
         .mount(&server)
         .await;
-    let input = json!({ "message": GMAIL_MESSAGE, "text": "Agreed." });
+    let input = json!({ "message": GMAIL_MESSAGE, "to": grace(), "text": "Agreed." });
     let err = invoke(&socket, &key, "gmail_messages.reply", input).await.unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unexpected);
     let received = server.received_requests().await.unwrap();

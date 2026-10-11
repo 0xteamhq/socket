@@ -44,7 +44,9 @@ pub struct GmailMessage {
     pub cc: Option<String>,
     /// Present only on a message the account itself wrote.
     pub bcc: Option<String>,
-    /// Where a reply should go, when that is not `from`.
+    /// Where the sender asks for replies to go, when that is not `from`. It
+    /// is the sender's own text and can be any address at all:
+    /// `gmail_messages.reply` never uses it, or `from`, unasked.
     pub reply_to: Option<String>,
     pub subject: Option<String>,
     /// The `Date` header as the sender wrote it: `Fri, 9 Oct 2026 08:15:00 +0000`.
@@ -137,7 +139,8 @@ pub struct GmailGetMessage {
 #[serde(default, rename_all = "camelCase")]
 pub struct GmailModifyMessage {
     /// Labels to add, at most 100: `STARRED` to star, `UNREAD` to mark
-    /// unread, `INBOX` to move back to the inbox, or a label's id.
+    /// unread, `INBOX` to move back to the inbox, or a label's id. Not
+    /// `TRASH`, which is `gmail_messages.trash`, and not `SPAM`.
     pub add_label_ids: Option<Vec<String>>,
     /// Labels to remove, at most 100: `INBOX` to archive, `UNREAD` to mark
     /// read, `STARRED` to unstar, or a label's id.

@@ -47,7 +47,7 @@ fn gmail_cases() -> Vec<Case> {
         Case::new("gmail_messages.send", json!({ "to": grace.clone(), "subject": "Monday", "text": "See you Monday." }), "POST", format!("{GMAIL_MESSAGES}/send"))
             .body(json!({ "raw": monday.clone() }))
             .answers(200, gmail_ref(&["SENT"])).returns(gmail_ref(&["SENT"])),
-        Case::new("gmail_messages.reply", json!({ "message": GMAIL_MESSAGE, "text": "Monday works." }), "POST", format!("{GMAIL_MESSAGES}/send"))
+        Case::new("gmail_messages.reply", json!({ "message": GMAIL_MESSAGE, "to": grace.clone(), "text": "Monday works." }), "POST", format!("{GMAIL_MESSAGES}/send"))
             .body(json!({ "raw": answer, "threadId": GMAIL_THREAD }))
             .also("GET", message.clone(), gmail_metadata())
             .answers(200, gmail_ref(&["SENT"])).returns(gmail_ref(&["SENT"])),

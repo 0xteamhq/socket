@@ -75,7 +75,28 @@ impl GmailMessages<'_> {
 
     /// Adds labels to a message and removes others. Archiving removes
     /// `INBOX`, marking as read removes `UNREAD`, starring adds `STARRED`.
+    ///
+    /// `TRASH` and `SPAM` cannot be added. Adding `TRASH` is moving the
+    /// message to the bin, which is [`GmailMessages::trash`] and asks more of
+    /// whoever approves it than a change of labels does. Marking a message as
+    /// spam is not offered. Either can be removed.
     pub async fn modify(&self, message: &str, changes: GmailModifyMessage) -> Result<GmailMessageRef> {
+        let adds = |label: &str| {
+            let mut added = changes.add_label_ids.iter().flatten();
+            added.any(|id| id.trim().eq_ignore_ascii_case(label))
+        };
+        if adds("TRASH") {
+            return Err(self.0.error(
+                ErrorKind::InvalidInput,
+                "`addLabelIds` cannot hold `TRASH`: use gmail_messages.trash to move a message to the bin",
+            ));
+        }
+        if adds("SPAM") {
+            return Err(self.0.error(
+                ErrorKind::InvalidInput,
+                "`addLabelIds` cannot hold `SPAM`: marking a message as spam is not offered",
+            ));
+        }
         let lists = [
             ("addLabelIds", &changes.add_label_ids),
             ("removeLabelIds", &changes.remove_label_ids),

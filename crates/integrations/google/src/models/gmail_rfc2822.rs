@@ -343,12 +343,11 @@ mod tests {
                 line[name.len() + 1..].to_owned()
             };
             assert_eq!(gmail_words::decoded(&value("Subject:")), text);
+            // A name is read as a person sees it: what is not seen in it
+            // was sent as written, and is a space to whoever reads it back.
+            let seen = text.replace(['\u{2028}', '\u{2029}', '\u{feff}'], " ");
             let read = super::super::gmail_address::listed(&value("To:"));
-            assert_eq!(
-                read,
-                [GmailAddress::named("grace@example.test", text.clone())],
-                "{text:?}"
-            );
+            assert_eq!(read, [GmailAddress::named("grace@example.test", seen)], "{text:?}");
         }
     }
 

@@ -31,18 +31,30 @@ impl GmailMessages<'_> {
     /// Answers a message, in its thread, and sends the answer at once. It
     /// cannot be taken back.
     ///
-    /// The original's headers are read first, which is one more request. The
-    /// reply goes to the original's sender (`From`) unless `reply.to` says
-    /// otherwise; nobody else on the original is added. When the original
-    /// asks for its replies to go to another address (`Reply-To`), the reply
-    /// is refused until `reply.to` names who it goes to: that address is the
-    /// sender's to choose and is shown to nobody, so it is never used unasked. Its subject is the
-    /// original's with `Re: ` before it, once. It names the original in
-    /// `In-Reply-To` and the thread so far in `References`, and is filed
-    /// under the original's `threadId`, which together are what keeps it in
-    /// the thread for Gmail and for whoever receives it.
+    /// The reply goes to the people in `reply.to`, which has to name at
+    /// least one, and to nobody else. Nothing in the original decides who it
+    /// goes to. A person approves a reply by the input they are shown, so
+    /// the recipients are in that input. What the original says about where
+    /// its answers should go, its `From` and its `Reply-To`, is the sender's
+    /// own text: mail that seems to come from a colleague can ask for its
+    /// answers to go to a stranger. It is there to read with
+    /// [`GmailMessages::get`] and decide on, never to act on unseen.
+    ///
+    /// The original's headers are read first, which is one more request.
+    /// They give the reply what keeps it in the thread, for Gmail and for
+    /// whoever receives it: the original's `threadId`, its `Message-ID` in
+    /// `In-Reply-To`, and the thread so far in `References`. They give the
+    /// subject too, when `reply.subject` is not set: the original's with
+    /// `Re: ` before it, once. An original that carries no `Message-ID`
+    /// cannot be answered in its thread, and is refused with `InvalidInput`.
     pub async fn reply(&self, message: &str, reply: GmailReply) -> Result<GmailMessageRef> {
         let invalid = |problem: String| self.0.error(ErrorKind::InvalidInput, problem);
+        if reply.to.is_empty() {
+            return Err(invalid(
+                "a reply needs at least one recipient in `to`: the message it answers does not decide who it goes to"
+                    .to_owned(),
+            ));
+        }
         let said = |body: &Option<String>| body.as_deref().is_some_and(|body| !body.trim().is_empty());
         if !said(&reply.text) && !said(&reply.html) {
             return Err(invalid("a reply needs `text` or `html`".to_owned()));
@@ -50,7 +62,7 @@ impl GmailMessages<'_> {
         // What the caller wrote is checked before the original is read, so
         // that a reply that could never be sent costs Gmail nothing.
         let own = GmailSendMessage {
-            to: reply.to.clone(),
+            to: Some(reply.to.clone()),
             cc: reply.cc.clone(),
             bcc: reply.bcc.clone(),
             subject: reply.subject.clone(),
@@ -61,14 +73,20 @@ impl GmailMessages<'_> {
         // the original's `Message-ID` over its spelling would leave the thread.
         let read = RawRequest::get(self.item(message)?).with_query("format", "metadata");
         let original = self.wire(self.0.send(read).await?)?;
-        let missing = |what: &str| {
-            let said = format!("google answered without the {what} of the message being answered");
-            self.0.error(ErrorKind::Decode, said)
-        };
         let thread_id = original.thread_id.clone().filter(|id| !id.is_empty());
-        let thread_id = thread_id.ok_or_else(|| missing("thread"))?;
-        let threading = original.threading().ok_or_else(|| missing("`Message-ID`"))?;
-        let content = reply.into_message(&original).map_err(invalid)?;
+        let thread_id = thread_id.ok_or_else(|| {
+            let said = "google answered without the thread of the message being answered";
+            self.0.error(ErrorKind::Decode, said)
+        })?;
+        // Not Google's failure: the message itself has no id to answer.
+        let threading = original.threading().ok_or_else(|| {
+            invalid(
+                "the message being answered carries no `Message-ID` a reply can name, so it cannot be answered in its \
+                 thread; nothing was sent"
+                    .to_owned(),
+            )
+        })?;
+        let content = reply.into_message(&original);
         gmail_sendable(&content).map_err(invalid)?;
         let raw = gmail_raw(&content, Some(&threading)).map_err(invalid)?;
         let request = RawRequest::post(

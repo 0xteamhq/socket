@@ -246,6 +246,13 @@ async fn a_change_of_labels_sends_the_lists_that_name_one_and_no_other() {
             json!({ "addLabelIds": ["STARRED", "Label_12"], "removeLabelIds": [] }),
             json!({ "addLabelIds": ["STARRED", "Label_12"] }),
         ),
+        // Taking a message out of Spam, or out of the bin, is a change that
+        // can be set back. Only putting one there is refused.
+        (
+            "not spam",
+            json!({ "addLabelIds": ["INBOX"], "removeLabelIds": ["SPAM", "TRASH"] }),
+            json!({ "addLabelIds": ["INBOX"], "removeLabelIds": ["SPAM", "TRASH"] }),
+        ),
     ] {
         let (server, socket, key) = answering(200, gmail_ref(&["IMPORTANT"])).await;
         let mut input = json!({ "message": GMAIL_MESSAGE });
@@ -385,6 +392,29 @@ async fn what_could_only_fail_is_refused_before_google_is_called() {
             "gmail_messages.modify",
             json!({ "message": "", "addLabelIds": ["STARRED"] }),
             "a message id is required",
+        ),
+        // Adding `TRASH` is moving a message to the bin under the name of a
+        // change of labels, and a host asks less before a `write` than
+        // before `gmail_messages.trash`. Marking as spam is not offered.
+        (
+            "gmail_messages.modify",
+            json!({ "message": "m1", "addLabelIds": ["TRASH"] }),
+            "`addLabelIds` cannot hold `TRASH`: use gmail_messages.trash",
+        ),
+        (
+            "gmail_messages.modify",
+            json!({ "message": "m1", "addLabelIds": ["STARRED", " trash "], "removeLabelIds": ["INBOX"] }),
+            "`addLabelIds` cannot hold `TRASH`: use gmail_messages.trash",
+        ),
+        (
+            "gmail_messages.modify",
+            json!({ "message": "m1", "addLabelIds": ["SPAM"] }),
+            "`addLabelIds` cannot hold `SPAM`: marking a message as spam is not offered",
+        ),
+        (
+            "gmail_messages.modify",
+            json!({ "message": "m1", "addLabelIds": ["Spam"], "removeLabelIds": ["INBOX"] }),
+            "`addLabelIds` cannot hold `SPAM`",
         ),
     ] {
         let err = invoke(&socket, &key, name, input.clone()).await.unwrap_err();
@@ -839,6 +869,7 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
         ["IMPORTANT"]
     );
     let reply = GmailReply {
+        to: vec![GmailAddress::named("grace@example.test", "Grace Hopper")],
         text: Some("Monday works.".into()),
         ..GmailReply::default()
     };

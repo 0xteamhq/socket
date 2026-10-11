@@ -64,7 +64,10 @@ fn atom(byte: u8) -> bool {
 /// `text` when it is one mailbox, with the space around it removed.
 ///
 /// Stricter than mail allows: no quoted part, no address in brackets, no
-/// characters outside ASCII. What passes is safe to write in a header as it is.
+/// characters outside ASCII, and nothing that starts an encoded word (`=?`),
+/// which a mail program that reads those words first would turn into other
+/// text, and so into another address. What passes is safe to write in a
+/// header as it is.
 pub(super) fn mailbox(text: &str) -> Option<&str> {
     let text = text.trim();
     let (local, domain) = text.rsplit_once('@')?;
@@ -72,6 +75,7 @@ pub(super) fn mailbox(text: &str) -> Option<&str> {
         && !local.starts_with('.')
         && !local.ends_with('.')
         && !local.contains("..")
+        && !local.contains("=?")
         && local.bytes().all(|byte| atom(byte) || byte == b'.');
     let label = |label: &str| {
         (1..=63).contains(&label.len())
@@ -86,8 +90,13 @@ pub(super) fn mailbox(text: &str) -> Option<&str> {
 /// A name as a header holds it: bare words where they need nothing more,
 /// in quotes where a character has a meaning of its own (`Hopper, Grace`),
 /// and as encoded words where it leaves ASCII or would not fit on a line.
+///
+/// A name that holds either end of an encoded word (`=?`, `?=`) is written
+/// as encoded words too: left as it is, it could be read as one, alone or
+/// together with what stands beside it in the header.
 fn phrase(name: &str) -> Vec<String> {
-    let printable = name.bytes().all(|byte| (0x20..=0x7e).contains(&byte)) && !name.contains("=?");
+    let printable =
+        name.bytes().all(|byte| (0x20..=0x7e).contains(&byte)) && !name.contains("=?") && !name.contains("?=");
     let bare = |word: &str| !word.is_empty() && word.len() <= 60 && word.bytes().all(atom);
     if printable && name.split(' ').all(bare) {
         name.split(' ').map(str::to_owned).collect()
@@ -98,10 +107,45 @@ fn phrase(name: &str) -> Vec<String> {
     }
 }
 
-/// The mailboxes named in a header that was received, such as `From` or
-/// `Reply-To`, as Gmail sent it. What is not one mailbox is left out.
+/// One entry of a header of people that was received.
+enum Entry {
+    /// One mailbox, with the name beside it.
+    Mailbox(GmailAddress),
+    /// What is not one mailbox: a group, a broken address, anything else.
+    Text(String),
+}
+
+/// A header of people that was received, such as `From` or `To`, taken
+/// apart. `header` is the value unfolded, as a message's headers are handed
+/// out, and this is the one place such a value is read: whatever is shown of
+/// it, or done with it, comes from these entries, so no two readers can take
+/// the same header for different people.
+///
+/// A header that ends inside a quoted name or inside a comment is not taken
+/// apart at all. Mail programs disagree on where such a header's addresses
+/// are, and a comment that is never closed would hide the rest of the header
+/// from a reader, so the whole of it is one piece of text.
+fn entries(header: &str) -> Vec<Entry> {
+    let text = |text: &str| Some(gmail_words::readable(text)).filter(|text| !text.is_empty());
+    let Some(pieces) = pieces(header) else {
+        return text(header).map(Entry::Text).into_iter().collect();
+    };
+    let entry = |piece: &String| match one(piece) {
+        Some(address) => Some(Entry::Mailbox(address)),
+        None => text(piece).map(Entry::Text),
+    };
+    pieces.iter().filter_map(entry).collect()
+}
+
+/// The mailboxes a header names. Only the tests read a header this way:
+/// nothing a message says about people decides what is done with it.
+#[cfg(test)]
 pub(super) fn listed(header: &str) -> Vec<GmailAddress> {
-    pieces(header).iter().filter_map(|piece| one(piece)).collect()
+    let mailbox = |entry| match entry {
+        Entry::Mailbox(address) => Some(address),
+        Entry::Text(_) => None,
+    };
+    entries(header).into_iter().filter_map(mailbox).collect()
 }
 
 /// A header of people as a person reads it: `Grace Hopper
@@ -110,35 +154,38 @@ pub(super) fn listed(header: &str) -> Vec<GmailAddress> {
 /// The name beside an address is the sender's own text, and can be written
 /// to look like an address itself: `boss@example.test <eve@example.test>`.
 /// So the header is taken apart before its encoded words are read, and a
-/// name that holds a character with a meaning of its own goes back in
-/// quotes. The mailbox a message really came from is then always the one in
-/// angle brackets, or the one that stands alone. What is not a mailbox at
-/// all is shown as text in quotes, never as an address.
+/// name that is anything but plain words goes back in quotes. The mailbox a
+/// message really came from is then always the one in angle brackets, or the
+/// one that stands alone. What is not a mailbox at all is shown as text in
+/// quotes, never as an address.
 pub(super) fn displayed(header: &str) -> Option<String> {
-    let unfolded = header.replace(['\r', '\n'], "");
-    let shown: Vec<String> = pieces(&unfolded)
-        .iter()
-        .filter_map(|piece| match one(piece) {
-            Some(GmailAddress {
+    let shown: Vec<String> = entries(header)
+        .into_iter()
+        .map(|entry| match entry {
+            Entry::Mailbox(GmailAddress {
                 email,
                 name: Some(name),
-            }) => Some(format!("{} <{email}>", name_shown(&name))),
-            Some(GmailAddress { email, name: None }) => Some(email),
-            None => Some(readable(piece))
-                .filter(|text| !text.is_empty())
-                .map(|text| in_quotes(&text)),
+            }) => format!("{} <{email}>", name_shown(&name)),
+            Entry::Mailbox(GmailAddress { email, name: None }) => email,
+            Entry::Text(text) => in_quotes(&text),
         })
         .collect();
     Some(shown.join(", ")).filter(|shown| !shown.is_empty())
 }
 
-/// A name as it is shown beside its address: as it is, or in quotes when it
-/// holds a character that could be taken for part of an address.
+/// A name as it is shown beside its address: as it is when it is plain
+/// words, and in quotes otherwise.
+///
+/// Plain words are letters and digits of any writing, spaces, and `.`, `-`,
+/// `'` and `_`. Anything else is in quotes: the characters an address is
+/// written with, and every sign that only looks like one of them, as the
+/// full-width `＠`, `＜` and `＞` do.
 fn name_shown(name: &str) -> String {
-    if name.contains(['<', '>', '@', ',', ';', ':', '"', '\\', '(', ')', '[', ']']) {
-        in_quotes(name)
-    } else {
+    let plain = |character: char| character.is_alphanumeric() || matches!(character, ' ' | '.' | '-' | '\'' | '_');
+    if name.chars().all(plain) {
         name.to_owned()
+    } else {
+        in_quotes(name)
     }
 }
 
@@ -146,20 +193,11 @@ fn in_quotes(text: &str) -> String {
     format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// Someone else's text with its encoded words read. Whatever it hides in
-/// one, no control character comes out of it.
-fn readable(text: &str) -> String {
-    let read: String = gmail_words::decoded(text)
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
-    read.trim().to_owned()
-}
-
 /// The addresses of a header, split at the commas between them. A comma
-/// inside a quoted name, a comment in parentheses or the angle brackets
-/// around a mailbox separates nothing, and a comment is left out.
-fn pieces(header: &str) -> Vec<String> {
+/// inside a quoted name or a comment in parentheses separates nothing, and a
+/// comment is left out. `None` when the header ends inside a quoted name or
+/// inside a comment.
+fn pieces(header: &str) -> Option<Vec<String>> {
     let mut pieces = vec![String::new()];
     let (mut quoted, mut comment, mut escaped) = (false, 0_u32, false);
     for character in header.chars() {
@@ -182,7 +220,7 @@ fn pieces(header: &str) -> Vec<String> {
             piece.push(character);
         }
     }
-    pieces
+    (!quoted && comment == 0).then_some(pieces)
 }
 
 fn one(piece: &str) -> Option<GmailAddress> {
@@ -220,9 +258,9 @@ fn one(piece: &str) -> Option<GmailAddress> {
             };
             name.chars().filter(kept).collect::<String>()
         });
-    // The name is someone else's text. Whatever it hides in an encoded word,
-    // it is written out again by `written`, which lets no control character by.
-    let name = readable(unquoted.as_deref().unwrap_or(name));
+    // The name is someone else's text: its encoded words are read only now,
+    // when it is known to be a name, and nothing that is not seen stays in it.
+    let name = gmail_words::readable(unquoted.as_deref().unwrap_or(name));
     Some(GmailAddress {
         email: mailbox(email)?.to_owned(),
         name: Some(name).filter(|name| !name.is_empty()),
@@ -280,7 +318,7 @@ mod tests {
             Some("Zoë Müller <zoe@example.test>")
         );
         assert_eq!(
-            displayed("ada@example.test,\r\n \"Hopper, Grace\" <grace@example.test> (her own)").as_deref(),
+            displayed("ada@example.test, \"Hopper, Grace\" <grace@example.test> (her own)").as_deref(),
             Some("ada@example.test, \"Hopper, Grace\" <grace@example.test>")
         );
         // A line break an encoded word was hiding does not come out of a name.
@@ -290,6 +328,133 @@ mod tests {
         );
         assert_eq!(displayed(""), None);
         assert_eq!(displayed(" , "), None);
+    }
+
+    #[test]
+    fn a_header_that_ends_inside_a_comment_or_a_quoted_name_is_text_and_names_no_mailbox() {
+        // A comment that is never closed hid the rest of the header: this was
+        // shown as `boss@corp.test` alone, with the address in brackets gone.
+        for (header, shown) in [
+            ("boss@corp.test (<eve@evil.test>", "\"boss@corp.test (<eve@evil.test>\""),
+            (
+                "boss@corp.test, (a (b) <eve@evil.test>",
+                "\"boss@corp.test, (a (b) <eve@evil.test>\"",
+            ),
+            // A quoted name that is never closed, after an address that was whole.
+            (
+                "boss@corp.test, \"Eve <eve@evil.test>",
+                "\"boss@corp.test, \\\"Eve <eve@evil.test>\"",
+            ),
+            ("\"boss@corp.test\\", "\"\\\"boss@corp.test\\\\\""),
+            // A closing bracket that an escape took: the comment runs to the end.
+            (
+                "(\\) <eve@evil.test>, <boss@corp.test>",
+                "\"(\\\\) <eve@evil.test>, <boss@corp.test>\"",
+            ),
+        ] {
+            assert_eq!(displayed(header).as_deref(), Some(shown), "{header}");
+            assert_eq!(listed(header), [], "{header}");
+        }
+        // Closed, a comment is left out and a quoted name is a name.
+        assert_eq!(
+            displayed("boss@corp.test (<eve@evil.test>)").as_deref(),
+            Some("boss@corp.test")
+        );
+        assert_eq!(
+            displayed("\"Eve (\" <eve@evil.test>").as_deref(),
+            Some("\"Eve (\" <eve@evil.test>")
+        );
+    }
+
+    #[test]
+    fn a_name_is_shown_bare_only_when_it_is_plain_words() {
+        let shown = |name: &str| {
+            let word = base64::engine::general_purpose::STANDARD.encode(name);
+            displayed(&format!("=?UTF-8?B?{word}?= <eve@evil.test>")).unwrap()
+        };
+        for plain in ["Grace Hopper", "Zoë Müller", "日本 語", "O'Brien-Smith Jr.", "ada_1"] {
+            assert_eq!(shown(plain), format!("{plain} <eve@evil.test>"));
+        }
+        // Signs that only look like the ones an address is written with:
+        // this was shown bare, as a name and an address before the real one.
+        assert_eq!(
+            shown("boss＠corp.test ＜boss＠corp.test＞"),
+            "\"boss＠corp.test ＜boss＠corp.test＞\" <eve@evil.test>"
+        );
+        for odd in [
+            "a@b",
+            "a<b",
+            "a>b",
+            "a,b",
+            "a;b",
+            "a:b",
+            "a(b",
+            "a[b",
+            "a\\b",
+            "a\"b",
+            "a/b",
+            "a=b",
+            "a!b",
+            "a＠b",
+            "a﹫b",
+            "a‹b",
+            "a\u{a0}b",
+            "a\u{3000}b",
+            "a🚀b",
+        ] {
+            let quoted = format!("\"{}\"", odd.replace('\\', "\\\\").replace('"', "\\\""));
+            assert_eq!(shown(odd), format!("{quoted} <eve@evil.test>"), "{odd}");
+        }
+        // A mark that turns the writing around, so that the name reads as an
+        // address from right to left, is a space by the time it is shown.
+        assert_eq!(
+            shown("\u{202e}<tset.proc@ssob>\u{202c}"),
+            "\"<tset.proc@ssob>\" <eve@evil.test>"
+        );
+        assert_eq!(
+            shown("Gra\u{200b}ce\u{feff} Hop\u{ad}per"),
+            "Gra ce  Hop per <eve@evil.test>"
+        );
+        // A name made only of what is not seen is no name.
+        assert_eq!(shown("\u{200b}\u{202e}"), "eve@evil.test");
+    }
+
+    #[test]
+    fn an_encoded_word_is_never_part_of_an_address_read_or_written() {
+        // As a mailbox this was accepted, and written bare into `To`. A mail
+        // program that reads encoded words first sees `boss@corp.test,` in it.
+        let disguised = "=?utf-8?q?boss=40corp.test=2C?=@evil.test";
+        assert_eq!(mailbox(disguised), None);
+        assert!(GmailAddress::new(disguised).written().is_err());
+        assert_eq!(listed(disguised), []);
+        assert_eq!(
+            displayed(disguised).as_deref(),
+            Some("\"boss@corp.test,@evil.test\""),
+            "text in quotes, not a mailbox"
+        );
+        // A comma inside a word that was not encoded as it should be: this
+        // was read as two mailboxes, the first of them `=?UTF-8?Q?boss@corp.test`.
+        let split = "=?UTF-8?Q?boss@corp.test,?= <eve@evil.test>";
+        assert_eq!(listed(split), [GmailAddress::named("eve@evil.test", "?=")]);
+        assert_eq!(
+            displayed(split).as_deref(),
+            Some("\"=?UTF-8?Q?boss@corp.test\", \"?=\" <eve@evil.test>")
+        );
+        // Either end of a word in a name is written encoded, so that it
+        // cannot join what stands beside it in the header into a word.
+        for name in ["?=", "x ?= y", "=?", "a =?UTF-8?Q?b"] {
+            let written = GmailAddress::named("grace@example.test", name).written().unwrap();
+            let base64 = base64::engine::general_purpose::STANDARD.encode(name);
+            assert_eq!(
+                written,
+                [format!("=?UTF-8?B?{base64}?="), "<grace@example.test>".to_owned()]
+            );
+            assert_eq!(
+                listed(&written.join(" ")),
+                [GmailAddress::named("grace@example.test", name)]
+            );
+        }
+        assert_eq!(mailbox("a=b?c@example.test"), Some("a=b?c@example.test"));
     }
 
     #[test]

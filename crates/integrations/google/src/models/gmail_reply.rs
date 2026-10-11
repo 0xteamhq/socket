@@ -7,60 +7,43 @@ use serde::{Deserialize, Serialize};
 use super::gmail_rfc2822::message_ids;
 use super::{GmailAddress, GmailSendMessage, GmailThreading, GmailWireMessage};
 
-/// The content of a reply. Only the body is needed: who it goes to and its
-/// subject are taken from the message that is answered.
+/// The content of a reply: who it goes to and what it says. The thread it
+/// stays in, and its subject when none is given, are taken from the message
+/// that is answered. Nothing else is.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct GmailReply {
-    /// Who the reply goes to. When not given, the original's sender
-    /// (`from`). It has to be given when the original asks for its replies
-    /// to go somewhere else (`replyTo`): that address is the sender's to
-    /// choose and nobody has looked at it, so it is never used unasked.
-    pub to: Option<Vec<GmailAddress>>,
+    /// Who the reply goes to: at least one person, always given. Nothing in
+    /// the message that is answered decides it. A reply is approved by the
+    /// input a person is shown, so the recipients are in that input. What
+    /// the message says about where its answers should go, its `from` and
+    /// its `replyTo`, is the sender's own text: read it with
+    /// `gmail_messages.get`, decide, and name the people here.
+    pub to: Vec<GmailAddress>,
     /// Who receives a copy. Nobody when not given: the people in copy on
     /// the original are not added.
+    #[serde(default)]
     pub cc: Option<Vec<GmailAddress>>,
     /// Who receives a copy the others are not told about.
+    #[serde(default)]
     pub bcc: Option<Vec<GmailAddress>>,
     /// The subject. When not given, the original's with `Re: ` before it.
     /// Gmail keeps a reply in its thread only while the subjects match.
+    #[serde(default)]
     pub subject: Option<String>,
     /// The body as plain text.
+    #[serde(default)]
     pub text: Option<String>,
     /// The body as HTML.
+    #[serde(default)]
     pub html: Option<String>,
 }
 
 impl GmailReply {
-    /// The message to send in answer to `original`. The error says what the
-    /// caller has to give because the original does not.
-    pub(crate) fn into_message(self, original: &GmailWireMessage) -> Result<GmailSendMessage, String> {
-        let to = match self.to.filter(|to| !to.is_empty()) {
-            Some(to) => to,
-            None => {
-                // A reply goes to whoever the message is seen to be from. The
-                // address a message asks its replies to go to is set by its
-                // sender and shown nowhere: mail that seems to come from a
-                // colleague can ask for its answers to go to a stranger. A
-                // person approves a reply by what they are shown, so that
-                // address is used only when the caller names it.
-                let from = original.mailboxes("From");
-                let asked = original.mailboxes("Reply-To");
-                let elsewhere =
-                    |asked: &GmailAddress| !from.iter().any(|from| from.email.eq_ignore_ascii_case(&asked.email));
-                if asked.iter().any(elsewhere) {
-                    return Err(
-                        "the message being answered asks for its replies to go to an address that is not its sender's; \
-                         read its `replyTo` and give `to`"
-                            .to_owned(),
-                    );
-                }
-                if from.is_empty() {
-                    return Err("the message being answered names no one to reply to; give `to`".to_owned());
-                }
-                from
-            }
-        };
+    /// The message to send in answer to `original`. The original gives the
+    /// subject when the caller gave none, and nothing else: who the message
+    /// goes to is what the caller wrote.
+    pub(crate) fn into_message(self, original: &GmailWireMessage) -> GmailSendMessage {
         let subject = match self.subject.filter(|subject| !subject.trim().is_empty()) {
             Some(subject) => subject,
             None => {
@@ -73,27 +56,32 @@ impl GmailReply {
                 }
             }
         };
-        Ok(GmailSendMessage {
-            to: Some(to),
+        GmailSendMessage {
+            to: Some(self.to),
             cc: self.cc,
             bcc: self.bcc,
             subject: Some(subject),
             text: self.text,
             html: self.html,
-        })
+        }
     }
 }
 
 impl GmailWireMessage {
     /// What a reply to this message carries so that every mail program
     /// files it in the same thread: this message's id, after the ids of the
-    /// thread before it. `None` when the message has no `Message-ID`.
+    /// thread before it. `None` when the message carries no `Message-ID`
+    /// that can be written into a header.
+    ///
+    /// The id is read from the `Message-ID` that `read` shows: the first
+    /// that says anything.
     pub(crate) fn threading(&self) -> Option<GmailThreading> {
-        let in_reply_to = message_ids(self.header("Message-ID")?).into_iter().next()?;
-        let mut references = self.header("References").map(message_ids).unwrap_or_default();
+        let in_reply_to = message_ids(&self.header("Message-ID")?).into_iter().next()?;
+        let listed = |name: &str| self.header(name).map(|value| message_ids(&value));
+        let mut references = listed("References").unwrap_or_default();
         if references.is_empty() {
             // A message that answers another without listing the thread.
-            references = self.header("In-Reply-To").map(message_ids).unwrap_or_default();
+            references = listed("In-Reply-To").unwrap_or_default();
         }
         if references.last() != Some(&in_reply_to) {
             references.push(in_reply_to.clone());
@@ -121,92 +109,51 @@ mod tests {
         serde_json::from_value(json!({ "id": "m2", "threadId": "t1", "payload": { "headers": headers } })).unwrap()
     }
 
-    fn answer(headers: Value, reply: GmailReply) -> GmailSendMessage {
-        reply.into_message(&original(headers)).unwrap()
-    }
-
-    #[test]
-    fn a_reply_is_never_sent_to_an_address_the_original_chose_unseen() {
-        // Mail that seems to come from a colleague, asking for its answers
-        // to go to someone else. One other address among the sender's own
-        // is enough.
-        for asked in [
-            "eve@elsewhere.test",
-            "Grace Hopper <eve@elsewhere.test>",
-            "grace@example.test, eve@elsewhere.test",
-        ] {
-            let redirected = json!({ "From": "Grace Hopper <grace@example.test>", "Reply-To": asked });
-            let refused = GmailReply::default()
-                .into_message(&original(redirected.clone()))
-                .unwrap_err();
-            assert!(refused.contains("`replyTo`") && refused.contains("`to`"), "{refused}");
-            assert!(!refused.contains("eve"), "the address is not repeated: {refused}");
-
-            // Named by the caller, it is where the reply goes.
-            let chosen = GmailReply {
-                to: Some(vec![GmailAddress::new("eve@elsewhere.test")]),
-                ..GmailReply::default()
-            };
-            assert_eq!(
-                answer(redirected, chosen).to,
-                Some(vec![GmailAddress::new("eve@elsewhere.test")])
-            );
-        }
-        // A sender written twice is both of them, as it is shown.
-        let wire: GmailWireMessage =
-            serde_json::from_value(json!({ "id": "m2", "threadId": "t1", "payload": { "headers": [
-            { "name": "From", "value": "grace@example.test" },
-            { "name": "from", "value": "ada@example.test" },
-            { "name": "Reply-To", "value": "ada@example.test" }
-        ] } }))
-            .unwrap();
-        assert_eq!(
-            GmailReply::default().into_message(&wire).unwrap().to,
-            Some(vec![
-                GmailAddress::new("grace@example.test"),
-                GmailAddress::new("ada@example.test")
-            ])
-        );
-    }
-
-    #[test]
-    fn a_reply_goes_to_the_sender_unless_the_caller_says_otherwise() {
-        let sender = json!({ "From": "Grace Hopper <grace@example.test>", "Subject": "Plan" });
-        let sent = answer(sender.clone(), GmailReply::default());
-        assert_eq!(
-            sent.to,
-            Some(vec![GmailAddress::named("grace@example.test", "Grace Hopper")])
-        );
-        assert_eq!((sent.cc, sent.bcc), (None, None));
-
-        // A Reply-To that names the sender again changes nothing, and one
-        // with no mailbox in it does not leave the reply without one.
-        for same in [
-            "GRACE@example.test",
-            "Grace <grace@example.test>",
-            "undisclosed-recipients:;",
-        ] {
-            let again = json!({ "From": "grace@example.test", "Reply-To": same });
-            assert_eq!(
-                answer(again, GmailReply::default()).to,
-                Some(vec![GmailAddress::new("grace@example.test")]),
-                "{same}"
-            );
-        }
-
-        let chosen = GmailReply {
-            to: Some(vec![GmailAddress::new("alan@example.test")]),
-            cc: Some(vec![GmailAddress::new("ada@example.test")]),
+    fn to_alan() -> GmailReply {
+        GmailReply {
+            to: vec![GmailAddress::new("alan@example.test")],
             ..GmailReply::default()
-        };
-        let sent = answer(sender, chosen);
-        assert_eq!(sent.to, Some(vec![GmailAddress::new("alan@example.test")]));
-        assert_eq!(sent.cc, Some(vec![GmailAddress::new("ada@example.test")]));
-
-        for nobody in [json!({}), json!({ "From": "not an address" })] {
-            let refused = GmailReply::default().into_message(&original(nobody)).unwrap_err();
-            assert!(refused.contains("`to`"), "{refused}");
         }
+    }
+
+    fn answer(headers: Value, reply: GmailReply) -> GmailSendMessage {
+        reply.into_message(&original(headers))
+    }
+
+    #[test]
+    fn a_reply_goes_to_the_people_the_caller_named_whatever_the_original_says() {
+        // Each of these once decided, or could have decided, who a reply
+        // went to: the sender, a second sender, an address to answer to, and
+        // a sender written so that two readers found two different people.
+        for headers in [
+            json!({ "From": "Grace Hopper <grace@example.test>" }),
+            json!({ "From": "Grace <grace@corp.test>, eve@evil.test" }),
+            json!({ "From": "grace@example.test", "Reply-To": "eve@evil.test" }),
+            json!({ "From": "(\\\r) <eve@evil.test>, ) <boss@corp\r.test>" }),
+            json!({ "From": "boss@corp.test (<eve@evil.test>", "Sender": "eve@evil.test", "Mail-Followup-To": "eve@evil.test" }),
+            json!({}),
+        ] {
+            let chosen = GmailReply {
+                cc: Some(vec![GmailAddress::new("ada@example.test")]),
+                ..to_alan()
+            };
+            let sent = answer(headers.clone(), chosen);
+            assert_eq!(sent.to, Some(vec![GmailAddress::new("alan@example.test")]), "{headers}");
+            assert_eq!(sent.cc, Some(vec![GmailAddress::new("ada@example.test")]), "{headers}");
+            assert_eq!(sent.bcc, None, "{headers}");
+        }
+    }
+
+    #[test]
+    fn who_a_reply_goes_to_is_a_field_that_has_to_be_given() {
+        let read = |input: Value| serde_json::from_value::<GmailReply>(input);
+        let missing = read(json!({ "text": "Agreed." })).unwrap_err();
+        assert!(missing.to_string().contains("missing field `to`"), "{missing}");
+        assert!(read(json!({ "to": null, "text": "Agreed." })).is_err());
+        let given = read(json!({ "to": [{ "email": "alan@example.test" }] })).unwrap();
+        assert_eq!(given, to_alan(), "and nothing else has to be");
+        let schema = serde_json::to_value(schemars::schema_for!(GmailReply)).unwrap();
+        assert_eq!(schema["required"], json!(["to"]));
     }
 
     #[test]
@@ -219,18 +166,17 @@ mod tests {
             ("Report", "Re: Report"),
             ("=?UTF-8?B?UGzDpG5l?=", "Re: Pläne"),
             ("Ré", "Re: Ré"),
+            // What is not seen in the original's subject is not carried into the reply's.
+            ("Pl\u{202e}an\u{200b}", "Re: Pl an"),
         ] {
-            let sent = answer(
-                json!({ "From": "grace@example.test", "Subject": subject }),
-                GmailReply::default(),
-            );
+            let sent = answer(json!({ "From": "grace@example.test", "Subject": subject }), to_alan());
             assert_eq!(sent.subject.as_deref(), Some(expected), "{subject}");
         }
-        let untitled = answer(json!({ "From": "grace@example.test" }), GmailReply::default());
+        let untitled = answer(json!({ "From": "grace@example.test" }), to_alan());
         assert_eq!(untitled.subject.as_deref(), Some("Re:"));
         let own = GmailReply {
             subject: Some("Another matter".into()),
-            ..GmailReply::default()
+            ..to_alan()
         };
         let sent = answer(json!({ "From": "grace@example.test", "Subject": "Plan" }), own);
         assert_eq!(sent.subject.as_deref(), Some("Another matter"));
@@ -262,8 +208,36 @@ mod tests {
             json!({}),
             json!({ "Message-ID": "m2@x.test" }),
             json!({ "Message-ID": "<m2@x.test\r\nBcc: eve@x.test>" }),
+            json!({ "Message-ID": " \r\n " }),
         ] {
             assert!(original(missing).threading().is_none());
         }
+    }
+
+    #[test]
+    fn a_reply_names_the_message_id_that_reading_the_message_shows() {
+        // A blank `Message-ID` before the real one: reading showed the
+        // second, and a reply looked only at the first and found none.
+        let wire = |headers: Value| -> GmailWireMessage {
+            serde_json::from_value(json!({ "id": "m2", "threadId": "t1", "payload": { "headers": headers } })).unwrap()
+        };
+        let twice = || {
+            wire(json!([
+                { "name": "Message-ID", "value": " " },
+                { "name": "message-id", "value": "<m2@x.test>" },
+                { "name": "References", "value": "" },
+                { "name": "references", "value": "<m1@x.test>" }
+            ]))
+        };
+        let thread = twice().threading().unwrap();
+        assert_eq!(thread.in_reply_to, "<m2@x.test>");
+        assert_eq!(thread.references, ["<m1@x.test>", "<m2@x.test>"]);
+        assert_eq!(twice().read().message_id.as_deref(), Some("<m2@x.test>"));
+
+        // A value is unfolded once, for both: a line break inside an id is
+        // gone from what is shown and from what a reply names alike.
+        let folded = || wire(json!([{ "name": "Message-ID", "value": "<m2@x\r.test>" }]));
+        assert_eq!(folded().threading().unwrap().in_reply_to, "<m2@x.test>");
+        assert_eq!(folded().read().message_id.as_deref(), Some("<m2@x.test>"));
     }
 }

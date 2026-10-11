@@ -72,12 +72,23 @@ pub(super) fn text_in(named: Option<&str>, bytes: &[u8]) -> String {
 /// The encoded word `text` starts with: its character set, the bytes it
 /// holds, and its length. `None` when it is not one, or names a character
 /// set that is not known, and so is left as it stands.
+///
+/// A word is `=?set?B?content?=` with no space in it, so each of its three
+/// parts is looked for only as far as the next `?` or the next space. Text
+/// that says `=?` again and again and never ends a word is then read once,
+/// not once for every `=?` in it.
 fn word(text: &str) -> Option<(Charset, Vec<u8>, usize)> {
+    /// What stands before the next `?`, and what follows it. `None` when a
+    /// space comes first, or no `?` at all.
+    fn part(text: &str) -> Option<(&str, &str)> {
+        let end = text.find(|c: char| c == '?' || c.is_whitespace())?;
+        text[end..].strip_prefix('?').map(|rest| (&text[..end], rest))
+    }
     let rest = text.strip_prefix("=?")?;
-    let (name, rest) = rest.split_once('?')?;
-    let (encoding, rest) = rest.split_once('?')?;
-    let (content, _) = rest.split_once("?=")?;
-    if content.contains(|c: char| c.is_whitespace() || c == '?') {
+    let (name, rest) = part(rest)?;
+    let (encoding, rest) = part(rest)?;
+    let (content, rest) = part(rest)?;
+    if !rest.starts_with('=') {
         return None;
     }
     let bytes = match encoding {
@@ -89,7 +100,8 @@ fn word(text: &str) -> Option<(Charset, Vec<u8>, usize)> {
     Some((charset(name)?, bytes, length))
 }
 
-/// The bytes of a `Q` word: `_` is a space, and `=41` is the byte 0x41.
+/// The bytes of a `Q` word: `_` is a space, and `=41` is the byte 0x41. What
+/// follows `=` is two hexadecimal digits and nothing else: a sign is not one.
 fn quoted(content: &str) -> Option<Vec<u8>> {
     let mut bytes = Vec::with_capacity(content.len());
     let mut rest = content.as_bytes();
@@ -98,7 +110,8 @@ fn quoted(content: &str) -> Option<Vec<u8>> {
         match byte {
             b'_' => bytes.push(b' '),
             b'=' => {
-                let hex = std::str::from_utf8(rest.get(..2)?).ok()?;
+                let hex = rest.get(..2).filter(|hex| hex.iter().all(u8::is_ascii_hexdigit))?;
+                let hex = std::str::from_utf8(hex).ok()?;
                 bytes.push(u8::from_str_radix(hex, 16).ok()?);
                 rest = &rest[2..];
             }
@@ -150,6 +163,40 @@ pub(super) fn decoded(value: &str) -> String {
     flush(&mut out, &mut held);
     out.push_str(rest);
     out
+}
+
+/// Whether a character shows as nothing, or changes how the text around it
+/// is shown: a control character, a character that only formats (a soft
+/// hyphen, a zero-width space or joiner, a mark that turns the direction of
+/// writing around, a tag), or a separator of lines.
+///
+/// Someone else's text can use these to hide what it says from a person and
+/// not from a program, or to show an address written backwards.
+fn unseen(character: char) -> bool {
+    character.is_control()
+        || matches!(
+            character,
+            '\u{ad}'
+                | '\u{61c}'
+                | '\u{180e}'
+                | '\u{200b}'..='\u{200f}'
+                | '\u{2028}'..='\u{202e}'
+                | '\u{2060}'..='\u{206f}'
+                | '\u{feff}'
+                | '\u{fff9}'..='\u{fffb}'
+                | '\u{e0000}'..='\u{e007f}'
+        )
+}
+
+/// Someone else's text as a person reads it: its encoded words read, and a
+/// space where it held a character that is not seen. Whatever it hides in
+/// an encoded word, no such character comes out of it.
+pub(super) fn readable(value: &str) -> String {
+    let read: String = decoded(value)
+        .chars()
+        .map(|character| if unseen(character) { ' ' } else { character })
+        .collect();
+    read.trim().to_owned()
 }
 
 /// `text` as encoded words in UTF-8, to be written with a space or a line
@@ -259,5 +306,104 @@ mod tests {
             assert_eq!(decoded(&words.join("\r\n ").replace("\r\n", "")), text);
         }
         assert!(encoded("").is_empty());
+    }
+
+    #[test]
+    fn a_sign_is_not_a_hexadecimal_digit_of_a_q_word() {
+        // `=+A` was read as the byte 0x0A, a line break. It is not a word at all.
+        for broken in [
+            "=?UTF-8?Q?a=+Ab?=",
+            "=?UTF-8?Q?a=+4b?=",
+            "=?UTF-8?Q?=-1?=",
+            "=?UTF-8?Q?=4?=",
+            "=?UTF-8?Q?=G0?=",
+            "=?UTF-8?Q?=?=",
+        ] {
+            assert_eq!(decoded(broken), broken, "{broken}");
+        }
+        assert_eq!(decoded("=?UTF-8?Q?=4a=4B?="), "JK");
+    }
+
+    #[test]
+    fn a_word_has_no_space_in_it_and_ends_where_it_says() {
+        for plain in [
+            "=?UTF-8 ?Q?a?=",
+            "=?UTF-8?Q ?a?=",
+            "=?UTF-8?Q?a? =",
+            "=?UTF-8?Q?a?b?=",
+            "=?UTF-8?Q?a",
+            "=?UTF-8?Q",
+            "=?",
+        ] {
+            assert_eq!(decoded(plain), plain, "{plain}");
+        }
+        // A word with nothing in it is nothing, and what follows it is kept.
+        assert_eq!(decoded("=?UTF-8?B??= x"), " x");
+        assert_eq!(decoded("a=?UTF-8?Q?b?=c"), "abc");
+    }
+
+    #[test]
+    fn text_that_starts_a_word_again_and_again_is_read_once() {
+        // Each `=?` used to be read to the end of the text: 400 KB of this
+        // took seconds, and a subject is a stranger's to write.
+        for start in ["=?x?Q?a", "plain words and =? only "] {
+            let subject = start.repeat(400 * 1024 / start.len());
+            let began = std::time::Instant::now();
+            assert_eq!(decoded(&subject), subject);
+            let took = began.elapsed();
+            assert!(took < std::time::Duration::from_secs(2), "{start:?} took {took:?}");
+        }
+    }
+
+    #[test]
+    fn what_is_not_seen_becomes_a_space_and_never_reaches_a_reader() {
+        // A line break, a mark that turns the writing around, a zero-width
+        // space, a soft hyphen, a separator of lines, a byte order mark, a tag.
+        for hidden in [
+            '\n',
+            '\0',
+            '\u{85}',
+            '\u{ad}',
+            '\u{61c}',
+            '\u{180e}',
+            '\u{200b}',
+            '\u{200d}',
+            '\u{200f}',
+            '\u{2028}',
+            '\u{2029}',
+            '\u{202a}',
+            '\u{202e}',
+            '\u{2060}',
+            '\u{2066}',
+            '\u{2069}',
+            '\u{206f}',
+            '\u{feff}',
+            '\u{fff9}',
+            '\u{fffb}',
+            '\u{e0001}',
+            '\u{e0041}',
+            '\u{e007f}',
+        ] {
+            assert_eq!(readable(&format!("a{hidden}b")), "a b", "{:?}", u32::from(hidden));
+            let word = base64::engine::general_purpose::STANDARD.encode(format!("a{hidden}b"));
+            assert_eq!(readable(&format!("=?UTF-8?B?{word}?=")), "a b", "encoded");
+            assert_eq!(
+                readable(&format!("{hidden}ab{hidden}")),
+                "ab",
+                "at the ends it is nothing"
+            );
+        }
+        // What is seen is kept: letters of any writing, signs, a space that does not break.
+        for seen in [
+            "Zoë Müller",
+            "日本語",
+            "שלום",
+            "a\u{a0}b",
+            "Plan 🚀",
+            "a\u{202f}b",
+            "boss＠corp.test",
+        ] {
+            assert_eq!(readable(seen), seen);
+        }
     }
 }

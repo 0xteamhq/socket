@@ -137,7 +137,7 @@ None of the Gmail scopes is a default of the provider. Name the ones you need in
 | `gmail_messages.get(message, GmailGetMessage)` | `GmailMessage`: headers, text, HTML, attachments without their content | read | `GMAIL_READONLY` |
 | `gmail_messages.attachment_get(message, attachment)` | `GmailAttachmentBody`: one attachment's content in URL-safe base64, and its size | read | `GMAIL_READONLY` |
 | `gmail_messages.send(GmailSendMessage)` | `GmailMessageRef`: sends at once | destructive | `GMAIL_SEND` |
-| `gmail_messages.reply(message, GmailReply)` | `GmailMessageRef`: answers in the same thread, at once | destructive | `GMAIL_READONLY` and `GMAIL_SEND` |
+| `gmail_messages.reply(message, GmailReply)` | `GmailMessageRef`: answers in the same thread, at once, to the people named in `to` | destructive | `GMAIL_READONLY` and `GMAIL_SEND` |
 | `gmail_messages.send_draft(draft)` | `GmailMessageRef`: sends a draft as it stands | destructive | `GMAIL_COMPOSE` |
 | `gmail_messages.modify(message, GmailModifyMessage)` | `GmailMessageRef`: adds and removes labels | write | `GMAIL_MODIFY` |
 | `gmail_messages.trash(message)` | `GmailMessageRef`: to the bin | destructive | `GMAIL_MODIFY` |
@@ -156,7 +156,9 @@ None of the Gmail scopes is a default of the provider. Name the ones you need in
 Each is also a named operation: `google.gmail_messages.list`, `google.gmail_drafts.create`, and so on. In an operation's input the plain arguments are `message`, `attachment`, `thread`, `label` and `draft`, the options sit beside them under Gmail's own names, and paging is `cursor` and `limit`.
 
 ```rust
-use socketkit::google::models::{GmailGetMessage, GmailListMessages, GmailModifyMessage, GmailReply, Paging};
+use socketkit::google::models::{
+    GmailAddress, GmailGetMessage, GmailListMessages, GmailModifyMessage, GmailReply, Paging,
+};
 
 let messages = google.gmail_messages(&connection);
 
@@ -175,8 +177,11 @@ for row in &unread.items {
     println!("{:?}: {:?}", message.from, message.subject);
     let said = message.text.or(message.html).unwrap_or_default();
 
-    // Answer in the same thread, then archive and mark as read.
+    // Answer in the same thread, then archive and mark as read. Who the
+    // answer goes to is said here: the message's own `from` is its sender's
+    // text, and is never used unasked.
     messages.reply(&row.id, GmailReply {
+        to: vec![GmailAddress::new("grace@example.test")],
         text: Some(format!("Thanks, I have read all {} characters.", said.len())),
         ..Default::default()
     }).await?;
@@ -199,6 +204,8 @@ for row in &unread.items {
 
 - Header names are matched in any case. A header mail allows once (`subject`, `from`, `date`) is its first occurrence. A list of people written as several headers is joined with commas.
 - Header values are returned with RFC 2047 encoded words read (`=?UTF-8?B?…?=`), in UTF-8, ISO-8859-1 and Windows-1252. A word in another character set is left as it was sent.
+- A header, a subject and a file name are a stranger's text, so what a person would not see in them is returned as a space: control characters, zero-width characters and joiners, soft hyphens, line separators, and the marks that turn the direction of writing around (which can make `exe.fdp` read as `pdf.exe`, or a name read as an address). An emoji joined from several is returned as its parts.
+- `from`, `to`, `cc`, `bcc` and `replyTo` are written so that the mailbox cannot be mistaken: it is the address in angle brackets, or the one that stands alone. A name beside it is bare only when it is plain words (letters, digits, spaces, `.`, `-`, `'`, `_`), and in quotes otherwise, so a name written to look like an address, with `@` and `<` or with the full-width signs that resemble them, stays a quoted name. What is not one plain mailbox is returned as text in quotes and never as an address: a group, an address with a quoted part or an encoded word in it, and a whole header that ends inside a comment or a quoted name. These fields are for a person or a program to read and decide on. Nothing Socket does is decided by them.
 - `text` is every `text/plain` part that is not a file, and `html` every `text/html` part. Of the alternatives of one message (`multipart/alternative`) one text and one HTML are kept. A body is read in the character set its part names; UTF-8, ASCII, ISO-8859-1 and Windows-1252 are read exactly, and anything else is read as UTF-8 with the replacement character where it is not.
 - `attachments` lists every part that is a file: `attachmentId`, `filename`, `mimeType`, `size`, `inline`, `contentId` and `partId`. A text file that was attached is listed here and is not part of `text`. `inline` is `true` for a part the sender marked to be shown in the body, such as a picture in a signature, which the HTML refers to as `cid:` and its `contentId`.
 - `format` chooses how much comes back: `full` (the default), `metadata` (headers, no body, no attachments) or `minimal` (ids and labels). Gmail's `raw` format is not offered, since it is the undecoded message.
@@ -214,15 +221,15 @@ for row in &unread.items {
 - The message goes out from the account's own address. There is no `from`; Gmail writes it, with the date and the message's id.
 - People in `bcc` are sent to Gmail with the rest. Gmail delivers to them and leaves them out of what the others receive.
 
-**What is refused, and why.** A line break or any other control character in `subject` or in a `name` is refused with `InvalidInput`, and so is an `email` that is not exactly one mailbox in ASCII (`grace@example.test`): no list, no `Name <address>`, no quoted part. A line break in a header would end it and begin another, which is how a subject becomes a hidden `Bcc`. Nothing is sent to Google when a message is refused, and the error names the field (`to[1]`) without repeating it. In a named operation a field that is not one of the six, such as `from` or `raw`, is refused too and not dropped.
+**What is refused, and why.** A line break or any other control character in `subject` or in a `name` is refused with `InvalidInput`, and so is an `email` that is not exactly one mailbox in ASCII (`grace@example.test`): no list, no `Name <address>`, no quoted part, no encoded word (`=?`). A line break in a header would end it and begin another, which is how a subject becomes a hidden `Bcc`. Nothing is sent to Google when a message is refused, and the error names the field (`to[1]`) without repeating it. In a named operation a field that is not one of the six, such as `from` or `raw`, is refused too and not dropped.
 
-**Replying.** `reply(message, GmailReply)` reads the original's headers (one more request, without its body) and sends an answer that stays in the thread: it carries the original's `threadId`, names the original in `In-Reply-To`, and lists the thread so far in `References`.
+**Replying.** `reply(message, GmailReply)` sends an answer to the people named in `to`, and keeps it in the thread of the message it answers. It reads the original's headers first (one more request, without its body): the reply carries the original's `threadId`, names the original in `In-Reply-To`, and lists the thread so far in `References`.
 
-- It goes to the original's sender (`from`). Nobody else is added: this is "reply", not "reply all". Set `to`, `cc` and `bcc` to choose the recipients yourself. Replying to a message the account itself sent therefore addresses the account, unless `to` says otherwise.
-- **A message that asks for its replies to go elsewhere is not answered unasked.** A sender can set `Reply-To` to any address, and no mail program shows it until a reply is written: mail that seems to come from a colleague can ask for its answers to go to a stranger. A person approves a reply by what they were shown, so when `replyTo` names a mailbox that is not the sender's, `reply` fails with `InvalidInput` and sends nothing. Read the message's `replyTo`, decide, and give `to`.
+- **`to` is required, and nothing in the original decides who a reply goes to.** A person approves a reply by the input they are shown, so the recipients are in that input. What a message says about where its answers should go is its sender's own text: `from` can be written to look like someone else, and `replyTo` can be any address at all, so mail that seems to come from a colleague can ask for its answers to go to a stranger. Read the message's `from` and `replyTo` with `get`, decide, and name the people in `to`. A reply without `to`, or with an empty one, fails with `InvalidInput` before anything is read or sent.
+- It goes to the people in `to`, `cc` and `bcc` and to nobody else. The original's sender and the people it had in copy are not added.
 - The subject is the original's with `Re: ` before it, and an original that already starts with `Re:` is not marked twice. Gmail keeps a reply in its thread only while the subjects match, so setting `subject` can start a new thread.
 - A reply needs `text` or `html`. The original is not quoted beneath it.
-- An original with no `Message-ID` cannot be answered in its thread, and `reply` fails with `Decode` and sends nothing. So does one that names no mailbox to answer, with `InvalidInput`, unless `to` is given.
+- An original that carries no `Message-ID` cannot be answered in its thread: `reply` fails with `InvalidInput`, says that the message carries none, and sends nothing. When a message has the header more than once, the one a reply names is the one `get` returns as `messageId`.
 
 **Sending cannot be taken back.** `send`, `reply` and `send_draft` are `destructive` for that reason, and a host that asks a person before a destructive operation asks before each. They are sent once: if Google answers with a server error, Socket does not try again, because the message may have gone.
 
@@ -238,7 +245,7 @@ for row in &unread.items {
 | star | `addLabelIds: ["STARRED"]` |
 | file under a label of the person's | `addLabelIds: ["Label_12"]` |
 
-Up to 100 labels can be added and 100 removed in one call. `SENT` and `DRAFT` are Gmail's to set and cannot be added. `gmail_labels.list` gives every label's `id`, `name` and `type` (`system` or `user`); the counts (`messagesTotal`, `messagesUnread`, `threadsTotal`, `threadsUnread`) come with `gmail_labels.get`.
+Up to 100 labels can be added and 100 removed in one call. `SENT` and `DRAFT` are Gmail's to set and cannot be added. `TRASH` and `SPAM` are refused in `addLabelIds` with `InvalidInput`, before Google is called: adding `TRASH` is moving a message to the bin, which is `trash` and is `destructive`, and marking a message as spam is not offered; both can be removed. `gmail_labels.list` gives every label's `id`, `name` and `type` (`system` or `user`); the counts (`messagesTotal`, `messagesUnread`, `threadsTotal`, `threadsUnread`) come with `gmail_labels.get`.
 
 **The bin.** `trash` moves a message to the bin and `untrash` brings it back. Gmail empties the bin by itself, and what was in it is then gone for good, so `trash` is `destructive` and a host asks a person first; `untrash` is `write`. Nothing here deletes a message at once.
 
@@ -676,9 +683,9 @@ A field an operation does not know is refused and named, not dropped. `socket.op
 | `google.gmail_messages.get` | read | `gmail.readonly` | Get one Gmail message, decoded: its headers, its body as plain text and as HTML, and its attachments without their content. |
 | `google.gmail_messages.attachment_get` | read | `gmail.readonly` | Get the content of one attachment of a Gmail message, in URL-safe base64, with its size. A file over about 7 MB cannot be read yet. |
 | `google.gmail_messages.send` | destructive | `gmail.send` | Send a message at once from the Gmail account's own address. It cannot be taken back. |
-| `google.gmail_messages.reply` | destructive | `gmail.readonly`, `gmail.send` | Answer a Gmail message in its thread and send the answer at once, to its sender unless `to` names someone else. A message that asks for its replies to go to another address is answered only when `to` is given. It cannot be taken back. |
+| `google.gmail_messages.reply` | destructive | `gmail.readonly`, `gmail.send` | Answer a Gmail message in its thread and send the answer at once, to the people named in `to` and nobody else. `to` is required: nothing in the message answered decides who a reply goes to, so read its `from` and `replyTo` and name them. It cannot be taken back. |
 | `google.gmail_messages.send_draft` | destructive | `gmail.compose` | Send a Gmail draft as it stands. It cannot be taken back, and the draft is gone once it is sent. |
-| `google.gmail_messages.modify` | write | `gmail.modify` | Add labels to a Gmail message and remove others: remove INBOX to archive, remove UNREAD to mark as read, add STARRED to star. |
+| `google.gmail_messages.modify` | write | `gmail.modify` | Add labels to a Gmail message and remove others: remove INBOX to archive, remove UNREAD to mark as read, add STARRED to star. TRASH and SPAM cannot be added: gmail_messages.trash moves a message to the bin. |
 | `google.gmail_messages.trash` | destructive | `gmail.modify` | Move a Gmail message to the bin. It can be brought back with gmail_messages.untrash until Gmail empties the bin, after which it is gone for good. |
 | `google.gmail_messages.untrash` | write | `gmail.modify` | Take a Gmail message out of the bin. |
 | `google.gmail_threads.list` | read | `gmail.readonly` | List the Gmail threads a search finds. Each is its id and a snippet, without its messages. Read one with gmail_threads.get. |
@@ -773,7 +780,7 @@ Confirmed:
 - `POST users/me/messages/{id}/trash` and `/untrash`, which return the message, under `gmail.modify`. ([trash](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/trash), [untrash](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/untrash))
 - `GET users/me/threads` with the same parameters as messages, that a row carries no messages, `GET users/me/threads/{id}` with `format`, and the fields of a thread. ([users.threads/list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/list), [get](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads/get), [users.threads](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.threads))
 - `GET users/me/labels`, which takes no paging and returns each label's id, name, visibility and type only; `GET users/me/labels/{id}`; the fields of a label and the values of `type` and of the two visibilities. ([users.labels/list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels/list), [get](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels/get), [users.labels](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels))
-- Which of Gmail's own labels can be applied by hand, and that `SENT` and `DRAFT` cannot. ([labels](https://developers.google.com/workspace/gmail/api/guides/labels))
+- Which of Gmail's own labels can be applied by hand, that `SENT` and `DRAFT` cannot, and that `TRASH` and `SPAM` can, which is why `modify` refuses to add them. ([labels](https://developers.google.com/workspace/gmail/api/guides/labels))
 - `GET users/me/profile` and its four fields. ([users/getProfile](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/getProfile))
 - `GET users/me/drafts` with `q`, `includeSpamTrash`, `maxResults` and `pageToken`, each row a draft id and its message's ids; `GET users/me/drafts/{id}` with `format`; `POST users/me/drafts` and `PUT users/me/drafts/{id}` with `{ "message": { "raw": … } }`; that an update replaces the draft's message; `DELETE users/me/drafts/{id}`, which is permanent; `POST users/me/drafts/send` with the draft's `id`, after which the draft is deleted and the sent message has a new id. ([users.drafts](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts), [list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/list), [get](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/get), [create](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/create), [update](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/update), [delete](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/delete), [send](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/send), [drafts](https://developers.google.com/workspace/gmail/api/guides/drafts))
 - The scopes each method accepts. `gmail.readonly` covers every read here, drafts and the profile included. `drafts.send` accepts `gmail.compose`, `gmail.modify` and full access, and not `gmail.send`.
@@ -953,6 +960,7 @@ Across all of Google: incoming events (push notifications and watch channels), i
 - **Attachments over about 7 MB**, until the transport can return content as it is (issue #6).
 - **A draft that is a reply.** `reply` sends at once; `gmail_drafts.create` starts a new thread.
 - **Reply all, and forwarding.** Give `reply` the `to` and `cc` you want.
+- **Marking a message as spam.** `modify` refuses `SPAM` in `addLabelIds`. Removing it is not refused.
 - **Sending as another address** (`From`, send-as aliases), and **`Reply-To`** on what is sent.
 - **Addresses outside ASCII** (`grüße@example.test`), which need a mail server that accepts them.
 - **Character sets other than UTF-8, ISO-8859-1 and Windows-1252** on reading. Such a body or header is returned, with what could not be read replaced or left encoded.

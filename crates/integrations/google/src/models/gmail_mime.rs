@@ -2,11 +2,13 @@
 //! headers and its body in base64. Reading that tree into a [`GmailMessage`]
 //! is the work of this file, so that no caller has to.
 
+use std::borrow::Cow;
+
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
-use super::gmail_address::{displayed, listed};
-use super::{GmailAddress, GmailAttachment, GmailMessage, gmail_words};
+use super::gmail_address::displayed;
+use super::{GmailAttachment, GmailMessage, gmail_words};
 
 /// A message in Gmail's own shape. It has no `Debug`: it holds someone's mail.
 #[derive(Default, Deserialize)]
@@ -87,15 +89,25 @@ impl Found {
     }
 }
 
-/// A header's value as a person reads it: unfolded, with its encoded words
-/// read. A control character an encoded word was hiding becomes a space.
+/// A header's value without the line breaks it was folded at.
+///
+/// This is done once, where a value leaves the message ([`Part::values`]),
+/// and nowhere else. A value read folded in one place and unfolded in
+/// another is two different texts: a backslash before a line break escapes
+/// the break in the first and whatever follows it in the second, which is
+/// enough for the two to find different addresses in one header.
+fn unfolded(value: &str) -> Cow<'_, str> {
+    if value.contains(['\r', '\n']) {
+        Cow::Owned(value.replace(['\r', '\n'], ""))
+    } else {
+        Cow::Borrowed(value)
+    }
+}
+
+/// A value as a person reads it: its encoded words read, and a space where
+/// one was hiding a character that is not seen. `None` when nothing is left.
 fn shown(value: &str) -> Option<String> {
-    let unfolded = value.replace(['\r', '\n'], "");
-    let text: String = gmail_words::decoded(&unfolded)
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
-    Some(text.trim().to_owned()).filter(|text| !text.is_empty())
+    Some(gmail_words::readable(value)).filter(|text| !text.is_empty())
 }
 
 /// One parameter of a header such as `text/plain; charset="utf-8"`.
@@ -109,23 +121,26 @@ fn parameter(value: &str, name: &str) -> Option<String> {
 }
 
 impl Part {
-    /// Every value of the header `name`, as sent. Mail writes header names
+    /// Every value of the header `name`, unfolded. Mail writes header names
     /// in any case: `Message-ID`, `Message-Id`, `message-id`.
-    fn values<'a>(&'a self, name: &str) -> impl Iterator<Item = &'a str> {
+    ///
+    /// Everything that reads a header reads it from here, so all of it reads
+    /// the same text.
+    fn values<'a>(&'a self, name: &str) -> impl Iterator<Item = Cow<'a, str>> {
         let named = move |header: &&Header| header.name.trim().eq_ignore_ascii_case(name);
-        self.headers.iter().filter(named).map(|header| header.value.as_str())
+        self.headers.iter().filter(named).map(|header| unfolded(&header.value))
     }
 
     /// The first value of a header that mail allows only once.
     fn one(&self, name: &str) -> Option<String> {
-        self.values(name).find_map(shown)
+        self.values(name).find_map(|value| shown(&value))
     }
 
     /// The people a header names, as a person reads them. Some senders
     /// write a list as several headers; every one of them is shown.
     fn people(&self, name: &str) -> Option<String> {
-        let joined = self.values(name).filter_map(displayed).collect::<Vec<_>>().join(", ");
-        Some(joined).filter(|joined| !joined.is_empty())
+        let shown: Vec<String> = self.values(name).filter_map(|value| displayed(&value)).collect();
+        Some(shown.join(", ")).filter(|joined| !joined.is_empty())
     }
 
     /// Reads this part and the parts inside it.
@@ -177,7 +192,7 @@ impl Part {
             let charset = self
                 .values("Content-Type")
                 .next()
-                .and_then(|value| parameter(value, "charset"));
+                .and_then(|value| parameter(&value, "charset"));
             *said = data
                 .filter(|data| !data.is_empty())
                 .map(|data| gmail_words::text_in(charset.as_deref(), data));
@@ -208,16 +223,12 @@ impl Part {
 }
 
 impl GmailWireMessage {
-    /// The first value of one of the message's own headers, as Gmail sent it.
-    pub(crate) fn header(&self, name: &str) -> Option<&str> {
-        self.payload.as_ref()?.values(name).next()
-    }
-
-    /// The mailboxes a header of the message names, in every place the
-    /// header is written: the same people `read` shows for it.
-    pub(crate) fn mailboxes(&self, name: &str) -> Vec<GmailAddress> {
-        let headers = self.payload.iter().flat_map(|payload| payload.values(name));
-        headers.flat_map(listed).collect()
+    /// The first value of one of the message's own headers that says
+    /// anything, unfolded and otherwise as it was sent. It is the value
+    /// `read` shows for a header mail allows once.
+    pub(crate) fn header(&self, name: &str) -> Option<Cow<'_, str>> {
+        let mut values = self.payload.as_ref()?.values(name);
+        values.find(|value| shown(value).is_some())
     }
 
     /// The subject as a person reads it.
@@ -465,6 +476,62 @@ mod tests {
         );
         assert_eq!(message.date.as_deref(), Some("Fri, 9 Oct 2026 08:15:00 +0000"));
         assert_eq!((message.cc, message.reply_to, message.text), (None, None, None));
+    }
+
+    #[test]
+    fn a_header_is_unfolded_once_so_every_reader_sees_the_same_people() {
+        let from = |value: &str| read(json!({ "headers": [{ "name": "From", "value": value }] })).from;
+        // A backslash before a line break. Read folded, it escapes the break
+        // and the comment ends at the bracket after it, leaving the first
+        // address; read unfolded, it escapes that bracket and the comment
+        // runs on over the first address. One reader showed
+        // `boss@corp.test` and another found `eve@evil.test` to answer.
+        // There is one text now, the unfolded one, and one reader of it.
+        for line_break in ["\r", "\n", "\r\n"] {
+            let header = format!("(\\{line_break}) <eve@evil.test>, ) <boss@corp{line_break}.test>");
+            assert_eq!(from(&header).as_deref(), Some("boss@corp.test"), "{header:?}");
+            assert_eq!(from(&header), from("(\\) <eve@evil.test>, ) <boss@corp.test>"));
+        }
+        // The same in a quoted name: the quote the break stood before is
+        // part of the name, and the name runs to the next one.
+        let quoted = "\"Boss\\\r\" <eve@evil.test>, \" <boss@corp.test>";
+        assert_eq!(
+            from(quoted).as_deref(),
+            Some("\"Boss\\\" <eve@evil.test>,\" <boss@corp.test>")
+        );
+        // A header folded as mail folds one reads as it always did.
+        assert_eq!(
+            from("Grace Hopper\r\n <grace@example.test>,\r\n\tada@example.test").as_deref(),
+            Some("Grace Hopper <grace@example.test>, ada@example.test")
+        );
+        // Every other header is read from the same unfolded text.
+        let message = read(json!({ "headers": [
+            { "name": "Subject", "value": "Q3\r\n plan" },
+            { "name": "Message-ID", "value": "<m1@mail\r.example.test>" },
+            { "name": "Content-Type", "value": "text/plain;\r\n charset=\"iso-8859-1\"" }
+        ], "mimeType": "text/plain", "body": { "data": URL_SAFE_NO_PAD.encode(b"Caf\xe9") } }));
+        assert_eq!(message.subject.as_deref(), Some("Q3 plan"));
+        assert_eq!(message.message_id.as_deref(), Some("<m1@mail.example.test>"));
+        assert_eq!(message.text.as_deref(), Some("Café"));
+    }
+
+    #[test]
+    fn what_is_not_seen_in_a_header_or_a_file_name_is_a_space() {
+        let hidden = |text: &str| format!("=?UTF-8?B?{}?=", base64::engine::general_purpose::STANDARD.encode(text));
+        let message = read(json!({
+            "mimeType": "multipart/mixed",
+            "headers": [
+                { "name": "From", "value": format!("{} <eve@evil.test>", hidden("\u{202e}<tset.proc@ssob>\u{202c}")) },
+                { "name": "Subject", "value": hidden("Invoice\u{200b}\u{2028}paid\u{202e}") },
+                { "name": "Date", "value": "Fri,\u{feff} 9 Oct 2026" }
+            ],
+            "parts": [file("application/pdf", "plan\u{202e}fdp.exe", json!([]))]
+        }));
+        assert_eq!(message.from.as_deref(), Some("\"<tset.proc@ssob>\" <eve@evil.test>"));
+        assert_eq!(message.subject.as_deref(), Some("Invoice  paid"));
+        assert_eq!(message.date.as_deref(), Some("Fri,  9 Oct 2026"));
+        // A name written to be read backwards, as `planexe.pdf`.
+        assert_eq!(message.attachments[0].filename, "plan fdp.exe");
     }
 
     #[test]
