@@ -1,16 +1,37 @@
 //! Socket integration for Google.
 //!
 //! One provider covers Google's products, because they share one OAuth
-//! provider. Offers the provider definition, `google.identity.get` and
-//! `google.resource.resolve` (a Drive file or folder, which includes Docs and Sheets).
+//! provider. Offers the provider definition, `google.identity.get`,
+//! `google.resource.resolve` (a Drive file or folder, which includes Docs and
+//! Sheets), and typed methods grouped the way Google groups its own APIs.
+//! Every typed method is also a named operation. See
+//! `docs/integrations/google.md`.
+
+mod client;
+pub mod models;
+mod operations;
+pub mod scopes;
+
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
 use socketkit_core::{
-    Access, Account, AuthScheme, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec, OAuthClient,
-    OperationInfo, ProviderId, ProviderSpec, RawRequest, Resource, Result, SecretString, TokenSet, identity_operation,
-    resolve_input, resolve_operation, to_output,
+    Access, Account, AuthScheme, Classifier, ClientAuth, Connection, Error, ErrorKind, Integration, OAuth2Spec,
+    OAuthClient, OperationInfo, ProviderId, ProviderSpec, RawRequest, RawResponse, Resource, Result, Retry,
+    SecretString, StandardClassifier, TokenSet, identity_operation, provider_message, resolve_input, resolve_operation,
+    to_output,
 };
+
+// ── gmail: groups ──
+
+// ── calendar: groups ──
+
+// ── meet: groups ──
+
+// ── drive: groups ──
+
+// ── docs and sheets: groups ──
 
 /// This provider's id, as used in connection keys and operation names.
 pub const PROVIDER_ID: &str = "google";
@@ -28,9 +49,11 @@ pub fn provider() -> ProviderSpec {
         allowed_hosts: vec![
             "www.googleapis.com".into(),
             "oauth2.googleapis.com".into(),
-            // The Docs and Sheets APIs, which the default scopes cover, live on their own hosts.
+            // Docs, Sheets, Gmail and Meet each live on a host of their own.
             "docs.googleapis.com".into(),
             "sheets.googleapis.com".into(),
+            "gmail.googleapis.com".into(),
+            "meet.googleapis.com".into(),
         ],
         content_hosts: Vec::new(),
         auth: AuthScheme::OAuth2(OAuth2Spec {
@@ -38,10 +61,7 @@ pub fn provider() -> ProviderSpec {
                 .parse()
                 .expect("a valid URL"),
             token_url: "https://oauth2.googleapis.com/token".parse().expect("a valid URL"),
-            default_scopes: vec![
-                "https://www.googleapis.com/auth/drive.readonly".into(),
-                "https://www.googleapis.com/auth/documents.readonly".into(),
-            ],
+            default_scopes: vec![scopes::DRIVE_READONLY.into(), scopes::DOCUMENTS_READONLY.into()],
             scope_separator: " ".into(),
             pkce: false,
             client_auth: ClientAuth::Body,
@@ -51,6 +71,60 @@ pub fn provider() -> ProviderSpec {
                 ("prompt".into(), "consent".into()),
             ],
         }),
+    }
+}
+
+/// Google follows HTTP conventions, with a few statuses that mean something
+/// else than they do elsewhere.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GoogleClassifier;
+
+impl Classifier for GoogleClassifier {
+    fn classify(&self, provider: &ProviderId, response: &RawResponse) -> Result<()> {
+        let error = |kind, message: String| Error::new(kind, message).with_provider(provider.clone());
+        // Google states why in `error.errors[].reason`, and its newer APIs in `error.status`.
+        let because = |reasons: &[&str]| {
+            let stated = response.body["error"]["errors"].as_array();
+            let listed = stated
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry["reason"].as_str());
+            listed
+                .chain(response.body["error"]["status"].as_str())
+                .any(|reason| reasons.contains(&reason))
+        };
+        match response.status {
+            // Google throttles with a 403 as well as a 429, and says to treat
+            // them alike. It is not a refusal: trying again later succeeds.
+            // With a Retry-After the standard rules already read it as a
+            // throttle, and keep the wait.
+            403 if response.header("retry-after").is_none()
+                && because(&["rateLimitExceeded", "userRateLimitExceeded", "RESOURCE_EXHAUSTED"]) =>
+            {
+                Err(
+                    error(ErrorKind::RateLimited, format!("{provider} is rate limiting requests"))
+                        .with_retry(Retry::Later),
+                )
+            }
+            // Not something that is gone: a list was asked for changes since
+            // a time, or a point, that Google no longer keeps.
+            410 if because(&["updatedMinTooLongAgo", "fullSyncRequired"]) => Err(error(
+                ErrorKind::InvalidInput,
+                format!("{provider} rejected the request: {}", provider_message(&response.body)),
+            )),
+            // The thing was deleted: an event that is already gone, for one.
+            410 => Err(error(
+                ErrorKind::NotFound,
+                format!("{provider} no longer has that resource"),
+            )),
+            // A change that named the version it was changing, which is no
+            // longer the current one. Reading again and repeating it works.
+            412 => Err(error(
+                ErrorKind::InvalidInput,
+                format!("{provider} did not make the change: what it would have changed was changed first"),
+            )),
+            _ => StandardClassifier.classify(provider, response),
+        }
     }
 }
 
@@ -279,6 +353,20 @@ impl Google {
         self
     }
 
+    // ── gmail: groups ──
+
+    // ── calendar: groups ──
+
+    // ── meet: groups ──
+
+    // ── drive: groups ──
+
+    // ── docs and sheets: groups ──
+
+    fn error(&self, kind: ErrorKind, message: impl Into<String>) -> Error {
+        Error::new(kind, message).with_provider(self.spec.id.clone())
+    }
+
     /// The account the connection is authorised as.
     ///
     /// Read from Drive's `about` resource, which the Drive scopes cover. When a
@@ -345,11 +433,21 @@ impl Integration for Google {
         self.spec.clone()
     }
 
+    /// Google's operations are named `google.…`, so the definition must keep that id.
     fn check(&self) -> Result<()> {
-        match &self.problem {
-            Some(problem) => Err(Error::new(ErrorKind::Config, problem.clone()).with_provider(self.spec.id.clone())),
-            None => Ok(()),
+        if let Some(problem) = &self.problem {
+            return Err(self.error(ErrorKind::Config, problem.clone()));
         }
+        if self.spec.id.as_str() == PROVIDER_ID {
+            return Ok(());
+        }
+        Err(self.error(
+            ErrorKind::Config,
+            format!(
+                "the Google integration needs the provider id {PROVIDER_ID:?}, not {:?}",
+                self.spec.id.as_str()
+            ),
+        ))
     }
 
     fn oauth_client(&self) -> Option<OAuthClient> {
@@ -361,10 +459,12 @@ impl Integration for Google {
     }
 
     fn operations(&self) -> Vec<OperationInfo> {
-        vec![
+        let mut operations = vec![
             identity_operation(&self.spec.id),
             resolve_operation(&self.spec.id, "a Google Drive, Docs or Sheets URL, or a file id"),
-        ]
+        ];
+        operations.extend(operations::all().iter().map(|operation| operation.info.clone()));
+        operations
     }
 
     async fn invoke(&self, connection: Connection, operation: String, input: Value) -> Result<Value> {
@@ -372,11 +472,15 @@ impl Integration for Google {
         match operation.strip_prefix(&format!("{id}.")) {
             Some("identity.get") => to_output(id, &self.identity(&connection).await?),
             Some("resource.resolve") => to_output(id, &self.resolve(&connection, &resolve_input(id, &input)?).await?),
-            _ => Err(
-                Error::new(ErrorKind::Unsupported, format!("google has no operation {operation:?}"))
-                    .with_provider(id.clone()),
-            ),
+            _ => match operations::all().iter().find(|known| known.info.name == operation) {
+                Some(known) => known.run(self.clone(), connection, input).await,
+                None => Err(self.error(ErrorKind::Unsupported, format!("google has no operation {operation:?}"))),
+            },
         }
+    }
+
+    fn classifier(&self) -> Arc<dyn Classifier> {
+        Arc::new(GoogleClassifier)
     }
 }
 
