@@ -389,6 +389,9 @@ impl Inner {
             )
             .with_provider(provider.clone()));
         }
+        // Before anything is stored: an address outside the provider's own
+        // hosts must never become where this connection's token is sent.
+        named_api_base(&registered.spec, &tokens)?;
         // Under the connection's refresh lock, so a refresh that was in flight
         // for the previous authorization cannot save its tokens over these.
         let slot = self.refresh_slot(&pending.key);
@@ -463,6 +466,7 @@ impl Inner {
                 format!("the stored connection for {provider} has no access token"),
             ));
         }
+        stored_api_base(&registered.spec, &tokens)?;
         if !tokens.is_expired(SystemTime::now(), EXPIRY_SKEW) {
             return Ok(tokens);
         }
@@ -554,7 +558,11 @@ impl Inner {
             )
             .with_provider(provider.clone()));
         }
-        let fresh = registered.flow().refresh(self.context(registered)?, current).await?;
+        // Before the refresh token is spent: tokens that could not be stored
+        // afterwards would be lost, and the connection with them.
+        stored_api_base(&registered.spec, &current)?;
+        let api_base = current.api_base.clone();
+        let mut fresh = registered.flow().refresh(self.context(registered)?, current).await?;
         if fresh.access_token.expose().is_empty() {
             return Err(Error::new(
                 ErrorKind::Decode,
@@ -562,6 +570,13 @@ impl Inner {
             )
             .with_provider(provider.clone()));
         }
+        // A connection keeps its own API address through a refresh whose
+        // answer names none, whatever the flow did with it. One that names
+        // another is held to the same rule as the first.
+        if fresh.api_base.is_none() {
+            fresh.api_base = api_base;
+        }
+        named_api_base(&registered.spec, &fresh)?;
         // Remembered before the save is awaited: if the save fails, or the
         // caller stops waiting, the rotated token is not lost.
         *unsaved = Some(Unsaved {
@@ -609,6 +624,37 @@ impl Inner {
         if idle {
             slots.remove(key);
         }
+    }
+}
+
+/// Refuses tokens whose own API address is not one the provider's definition allows.
+fn named_api_base(spec: &ProviderSpec, tokens: &TokenSet) -> Result<()> {
+    match &tokens.api_base {
+        Some(base) if !spec.allows_api_base(base) => Err(Error::new(
+            ErrorKind::Decode,
+            format!(
+                "{} named an API address outside the hosts its definition allows",
+                spec.id
+            ),
+        )
+        .with_provider(spec.id.clone())),
+        _ => Ok(()),
+    }
+}
+
+/// Refuses stored tokens whose own API address is not one the provider's
+/// definition allows: it was altered in the store, or the definition has
+/// changed since. A new authorisation names the address again.
+fn stored_api_base(spec: &ProviderSpec, tokens: &TokenSet) -> Result<()> {
+    match &tokens.api_base {
+        Some(base) if !spec.allows_api_base(base) => Err(reconnect(
+            &spec.id,
+            format!(
+                "the stored connection for {} has an API address outside the hosts its definition allows",
+                spec.id
+            ),
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -753,6 +799,15 @@ impl SocketBuilder {
                 .is_some_and(|token| token.access_token.expose().trim().is_empty())
             {
                 return Err(config(format!("the token given to {id} is blank")));
+            }
+            if fixed_token
+                .as_ref()
+                .and_then(|token| token.api_base.as_ref())
+                .is_some_and(|base| !spec.allows_api_base(base))
+            {
+                return Err(config(format!(
+                    "the token given to {id} names an API address outside the hosts its definition allows"
+                )));
             }
             if let Some(client) = given_client {
                 clients_from_integrations.push((id.clone(), client));

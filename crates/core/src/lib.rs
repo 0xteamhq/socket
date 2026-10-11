@@ -26,6 +26,7 @@ pub use operation::{
 };
 pub use provider::{
     ApiKeySpec, AuthScheme, ClientAuth, ContentHost, KeyPlacement, OAuth2Spec, ProviderId, ProviderSpec,
+    TENANT_PLACEHOLDER,
 };
 pub use secret::{SecretString, TokenSet};
 pub use socket::{Socket, SocketBuilder};

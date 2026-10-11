@@ -2,6 +2,7 @@ use std::fmt;
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 /// A secret value that never appears in `Debug` output and has no `Display`.
 ///
@@ -38,6 +39,15 @@ pub struct TokenSet {
     #[serde(with = "epoch_secs")]
     pub expires_at: Option<SystemTime>,
     pub scopes: Vec<String>,
+    /// This connection's own API address, for a provider that gives each
+    /// customer their own host and names it when the customer authorises.
+    /// `None` means the provider's `api_base`.
+    ///
+    /// Socket checks it against the provider's allowed hosts before it is
+    /// stored and again before every request, and keeps it through a refresh
+    /// whose answer names none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_base: Option<Url>,
 }
 
 impl TokenSet {
@@ -48,7 +58,14 @@ impl TokenSet {
             refresh_token: None,
             expires_at: None,
             scopes: Vec::new(),
+            api_base: None,
         }
+    }
+
+    /// These tokens for a connection whose API is at `api_base`.
+    pub fn with_api_base(mut self, api_base: Url) -> Self {
+        self.api_base = Some(api_base);
+        self
     }
 
     /// True when the token expires at or before `now + skew`.
@@ -96,6 +113,7 @@ mod tests {
             refresh_token: Some(SecretString::new("xoxe-refresh")),
             expires_at: None,
             scopes: vec!["chat:write".into()],
+            api_base: None,
         };
         let shown = format!("{tokens:?} {:#?}", tokens.access_token);
         assert!(!shown.contains("xoxb-access"), "{shown}");
@@ -110,6 +128,7 @@ mod tests {
             refresh_token: Some(SecretString::new("r")),
             expires_at: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000)),
             scopes: vec!["repo".into()],
+            api_base: None,
         };
         let json = serde_json::to_string(&tokens).unwrap();
         assert!(
@@ -119,6 +138,22 @@ mod tests {
         let back: TokenSet = serde_json::from_str(&json).unwrap();
         assert_eq!(back, tokens);
         assert_eq!(back.access_token.expose(), "a");
+    }
+
+    #[test]
+    fn a_connections_own_api_address_is_stored_with_its_tokens_and_absent_when_it_has_none() {
+        let own: Url = "https://acme.my.salesforce.com/services/data/v62.0/".parse().unwrap();
+        let tokens = TokenSet::bearer("a").with_api_base(own.clone());
+        let json = serde_json::to_string(&tokens).unwrap();
+        let back: TokenSet = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.api_base, Some(own));
+
+        // What a store already holds is unchanged, and still reads.
+        let plain = serde_json::to_string(&TokenSet::bearer("a")).unwrap();
+        assert!(!plain.contains("api_base"), "{plain}");
+        let before: TokenSet =
+            serde_json::from_str(r#"{"access_token":"a","refresh_token":null,"expires_at":null,"scopes":[]}"#).unwrap();
+        assert_eq!(before, TokenSet::bearer("a"));
     }
 
     #[test]

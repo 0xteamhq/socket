@@ -6,6 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use url::Url;
 
 use crate::auth::OAuthClient;
 use crate::error::{Error, ErrorKind, Result};
@@ -184,6 +185,13 @@ impl Connection {
     /// The provider this connection belongs to.
     pub fn provider(&self) -> &ProviderSpec {
         &self.spec
+    }
+
+    /// The address this connection's requests are resolved against: its own,
+    /// when its authorisation named one, and the provider's otherwise.
+    pub fn api_base(&self) -> Url {
+        let tokens = self.renewed().unwrap_or_else(|| self.tokens.clone());
+        tokens.api_base.unwrap_or_else(|| self.spec.api_base.clone())
     }
 
     /// Sends `request` with this connection's credentials through the shared transport.

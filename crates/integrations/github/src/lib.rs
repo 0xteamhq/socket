@@ -158,6 +158,7 @@ impl GitHub {
             refresh_token: None,
             expires_at: None,
             scopes: Vec::new(),
+            api_base: None,
         });
         this
     }

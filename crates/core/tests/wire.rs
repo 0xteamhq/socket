@@ -95,6 +95,7 @@ fn expired(refresh: Option<&str>) -> TokenSet {
         refresh_token: refresh.map(SecretString::new),
         expires_at: Some(SystemTime::now() - Duration::from_secs(10)),
         scopes: vec!["read".into()],
+        api_base: None,
     }
 }
 
@@ -2116,6 +2117,7 @@ fn never_expiring(access: &str, refresh: &str) -> TokenSet {
         refresh_token: Some(SecretString::new(refresh)),
         expires_at: None,
         scopes: Vec::new(),
+        api_base: None,
     }
 }
 
@@ -2778,4 +2780,404 @@ fn asking_for_text_is_part_of_a_request_as_data_and_absent_unless_asked() {
     let read: RawRequest =
         serde_json::from_value(json!({ "method": "GET", "path": "transcript", "text": true })).unwrap();
     assert_eq!(read, text);
+}
+
+// ── A connection's own API host ───────────────────────────────────────────────
+
+/// A provider that gives each customer their own API host, and names it in
+/// the token response as `instance_url`.
+#[derive(Clone)]
+struct PerCustomer {
+    spec: ProviderSpec,
+    token: Option<TokenSet>,
+}
+
+#[async_trait]
+impl OAuthFlow for PerCustomer {
+    fn parse_token_response(&self, provider: ProviderId, raw: Value, now: SystemTime) -> Result<TokenSet> {
+        let mut tokens = socketkit_core::standard_token_response(&provider, &raw, now)?;
+        if let Some(instance) = raw["instance_url"].as_str() {
+            let named = format!("{}/tenant-api/", instance.trim_end_matches('/'));
+            tokens.api_base = Some(named.parse().map_err(|_| {
+                socketkit_core::Error::new(ErrorKind::Decode, "acme named an address that is not a URL")
+            })?);
+        }
+        Ok(tokens)
+    }
+}
+
+#[async_trait]
+impl Integration for PerCustomer {
+    fn provider(&self) -> ProviderSpec {
+        self.spec.clone()
+    }
+    fn operations(&self) -> Vec<OperationInfo> {
+        Vec::new()
+    }
+    async fn invoke(&self, _connection: Connection, _operation: String, _input: Value) -> Result<Value> {
+        Ok(Value::Null)
+    }
+    fn oauth_client(&self) -> Option<OAuthClient> {
+        Some(client())
+    }
+    fn fixed_token(&self) -> Option<TokenSet> {
+        self.token.clone()
+    }
+    fn oauth_flow(&self) -> Arc<dyn OAuthFlow> {
+        Arc::new(self.clone())
+    }
+}
+
+/// A definition whose sign-in is on `sign_in` and whose customers' hosts are
+/// the servers in `customers` and anything under `customers.example`.
+fn per_customer_spec(sign_in: &MockServer, customers: &[&MockServer]) -> ProviderSpec {
+    let mut spec = oauth_spec(sign_in, ClientAuth::Body, false);
+    spec.allowed_hosts
+        .extend(customers.iter().map(|server| host_entry(server)));
+    spec.allowed_hosts.push("*.customers.example".into());
+    spec
+}
+
+fn per_customer(spec: ProviderSpec) -> (Socket, Arc<MemoryTokenStore>) {
+    let store = Arc::new(MemoryTokenStore::new());
+    let socket = Socket::builder(store.clone())
+        .integration(Arc::new(PerCustomer { spec, token: None }))
+        .state_secret(STATE_SECRET)
+        .retry(fast_retry())
+        .build()
+        .unwrap();
+    (socket, store)
+}
+
+async fn authorize(socket: &Socket) -> Result<TokenSet> {
+    let begun = socket.begin_authorization(key(), None).unwrap();
+    let state = begun.pending.state.clone();
+    socket
+        .complete_authorization(begun.pending, "the-code".into(), state)
+        .await
+}
+
+#[tokio::test]
+async fn a_connection_calls_the_host_its_authorization_named_and_a_refresh_keeps_it() {
+    let sign_in = MockServer::start().await;
+    let customer = MockServer::start().await;
+    // The first answer names the customer's host and a token that has all
+    // but expired. The refresh that follows names no host at all.
+    Mock::given(path("/token"))
+        .and(body_string_contains("grant_type=authorization_code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "first", "refresh_token": "R1", "expires_in": 1, "instance_url": customer.uri()
+        })))
+        .expect(1)
+        .mount(&sign_in)
+        .await;
+    Mock::given(path("/token"))
+        .and(body_string_contains("grant_type=refresh_token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "access_token": "second", "expires_in": 3600 })))
+        .expect(1)
+        .mount(&sign_in)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/tenant-api/things"))
+        .and(header("authorization", "Bearer second"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "from": "the customer's host" })))
+        .expect(1)
+        .mount(&customer)
+        .await;
+    let (socket, store) = per_customer(per_customer_spec(&sign_in, &[&customer]));
+
+    let granted = authorize(&socket).await.unwrap();
+    let named: url::Url = format!("{}/tenant-api/", customer.uri()).parse().unwrap();
+    assert_eq!(granted.api_base.as_ref(), Some(&named));
+    assert_eq!(
+        store.load(key()).await.unwrap().unwrap().api_base,
+        Some(named.clone()),
+        "the address is stored with the tokens"
+    );
+
+    let answer = socket.request(key(), RawRequest::get("things")).await.unwrap();
+    assert_eq!(answer.body["from"], "the customer's host");
+    assert_eq!(
+        hits(&sign_in, "/api/things").await,
+        0,
+        "nothing went to the provider's own base"
+    );
+    let refreshed = store.load(key()).await.unwrap().unwrap();
+    assert_eq!(refreshed.access_token.expose(), "second");
+    assert_eq!(
+        refreshed.api_base,
+        Some(named.clone()),
+        "a refresh that names no host keeps the one the connection has"
+    );
+    let connection = socket.connection(key()).await.unwrap();
+    assert_eq!(connection.api_base(), named);
+}
+
+#[tokio::test]
+async fn content_named_by_a_path_is_fetched_from_the_connections_own_host() {
+    let sign_in = MockServer::start().await;
+    let customer = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tenant-api/files/1/content"))
+        .and(header("authorization", "Bearer acme-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"the file".to_vec()))
+        .expect(1)
+        .mount(&customer)
+        .await;
+    let (socket, store) = per_customer(per_customer_spec(&sign_in, &[&customer]));
+    let own: url::Url = format!("{}/tenant-api/", customer.uri()).parse().unwrap();
+    store
+        .save(key(), TokenSet::bearer("acme-token").with_api_base(own))
+        .await
+        .unwrap();
+
+    let content = socket
+        .fetch(key(), socketkit_core::ContentRequest::get("files/1/content"))
+        .await
+        .unwrap();
+    assert_eq!(content.bytes, b"the file");
+    assert!(sign_in.received_requests().await.unwrap().is_empty());
+
+    // Another customer's host is not somewhere this connection fetches from.
+    let other = socket
+        .fetch(
+            key(),
+            socketkit_core::ContentRequest::get("https://globex.customers.example/tenant-api/files/1/content"),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(other.kind(), ErrorKind::InvalidInput, "{other}");
+}
+
+#[tokio::test]
+async fn a_refresh_may_move_a_connection_to_another_of_the_providers_hosts() {
+    let sign_in = MockServer::start().await;
+    let before = MockServer::start().await;
+    let after = MockServer::start().await;
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "moved", "expires_in": 3600, "instance_url": after.uri()
+        })))
+        .expect(1)
+        .mount(&sign_in)
+        .await;
+    Mock::given(path("/tenant-api/things"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(&after)
+        .await;
+    let (socket, store) = per_customer(per_customer_spec(&sign_in, &[&before, &after]));
+    let old: url::Url = format!("{}/tenant-api/", before.uri()).parse().unwrap();
+    store.save(key(), expired(Some("R1")).with_api_base(old)).await.unwrap();
+
+    socket.request(key(), RawRequest::get("things")).await.unwrap();
+    assert!(before.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn an_authorization_that_names_a_host_outside_the_providers_rules_is_refused_and_nothing_is_stored() {
+    for outside in [
+        "https://elsewhere.example",
+        "https://customers.example",
+        "https://acme.customers.example.evil.test",
+        "http://acme.customers.example",
+        "https://acme.customers.example:8443",
+        "https://user:pw@acme.customers.example",
+    ] {
+        let sign_in = MockServer::start().await;
+        Mock::given(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "granted", "refresh_token": "R1", "instance_url": outside
+            })))
+            .mount(&sign_in)
+            .await;
+        let (socket, store) = per_customer(per_customer_spec(&sign_in, &[]));
+        let err = authorize(&socket).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Decode, "{outside}: {err}");
+        assert!(!err.message().contains("example"), "{}", err.message());
+        assert_eq!(store.load(key()).await.unwrap(), None, "{outside}");
+    }
+
+    // A host under the rule is accepted without a call being made to it.
+    let sign_in = MockServer::start().await;
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "granted", "instance_url": "https://acme--dev.sandbox.customers.example"
+        })))
+        .mount(&sign_in)
+        .await;
+    let (socket, _) = per_customer(per_customer_spec(&sign_in, &[]));
+    let granted = authorize(&socket).await.unwrap();
+    assert_eq!(
+        granted.api_base.unwrap().as_str(),
+        "https://acme--dev.sandbox.customers.example/tenant-api/"
+    );
+}
+
+#[tokio::test]
+async fn a_refresh_that_names_a_host_outside_the_providers_rules_changes_nothing_in_the_store() {
+    let sign_in = MockServer::start().await;
+    let customer = MockServer::start().await;
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "hijacked", "expires_in": 3600, "instance_url": "https://elsewhere.example"
+        })))
+        .mount(&sign_in)
+        .await;
+    let (socket, store) = per_customer(per_customer_spec(&sign_in, &[&customer]));
+    let own: url::Url = format!("{}/tenant-api/", customer.uri()).parse().unwrap();
+    let stored = expired(Some("R1")).with_api_base(own);
+    store.save(key(), stored.clone()).await.unwrap();
+
+    let err = socket.request(key(), RawRequest::get("things")).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Decode);
+    assert_eq!(store.load(key()).await.unwrap(), Some(stored));
+    assert!(customer.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn one_customers_token_is_never_sent_to_another_customers_host() {
+    let sign_in = MockServer::start().await;
+    let customer = MockServer::start().await;
+    // The customer's own server tries to pass the call on to another customer.
+    Mock::given(path("/tenant-api/moved"))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("location", "https://globex.customers.example/tenant-api/x"),
+        )
+        .mount(&customer)
+        .await;
+    let (socket, store) = per_customer(per_customer_spec(&sign_in, &[&customer]));
+    let own: url::Url = format!("{}/tenant-api/", customer.uri()).parse().unwrap();
+    store
+        .save(key(), TokenSet::bearer("acme-token").with_api_base(own))
+        .await
+        .unwrap();
+
+    // The rule admits the other customer's host as a host of the provider,
+    // and still not for this connection.
+    let direct = socket
+        .request(key(), RawRequest::get("https://globex.customers.example/tenant-api/x"))
+        .await
+        .unwrap_err();
+    assert_eq!(direct.kind(), ErrorKind::InvalidInput);
+    let redirected = socket.request(key(), RawRequest::get("moved")).await.unwrap_err();
+    assert_eq!(redirected.kind(), ErrorKind::Unexpected);
+    assert!(redirected.message().contains("redirected"), "{redirected}");
+
+    // A connection with no address of its own gets nothing from the rule either.
+    store.save(key(), TokenSet::bearer("bare-token")).await.unwrap();
+    let bare = socket
+        .request(key(), RawRequest::get("https://acme.customers.example/tenant-api/x"))
+        .await
+        .unwrap_err();
+    assert_eq!(bare.kind(), ErrorKind::InvalidInput);
+}
+
+#[tokio::test]
+async fn an_address_altered_in_the_store_receives_no_token_and_spends_no_refresh_token() {
+    let sign_in = MockServer::start().await;
+    Mock::given(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "access_token": "new", "expires_in": 3600 })))
+        .mount(&sign_in)
+        .await;
+    Mock::given(path("/userinfo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "sub": "u1" })))
+        .mount(&sign_in)
+        .await;
+    let (socket, store) = per_customer(per_customer_spec(&sign_in, &[]));
+    let elsewhere: url::Url = "https://elsewhere.example/tenant-api/".parse().unwrap();
+
+    // Whether the token is still good or has expired, the connection is
+    // refused before anything is sent: not to the altered address, not to a
+    // listed host, and not to the token endpoint, where a refresh token that
+    // rotates would be spent for tokens that could not be stored.
+    for altered in [
+        TokenSet::bearer("acme-token").with_api_base(elsewhere.clone()),
+        expired(Some("R1")).with_api_base(elsewhere.clone()),
+    ] {
+        store.save(key(), altered.clone()).await.unwrap();
+        for request in [
+            RawRequest::get("things"),
+            RawRequest::get("https://elsewhere.example/tenant-api/things"),
+            RawRequest::get(format!("{}/userinfo", sign_in.uri())),
+        ] {
+            let err = socket.request(key(), request).await.unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::ReconnectRequired, "{err}");
+            assert!(!err.message().contains("elsewhere"), "{}", err.message());
+        }
+        assert_eq!(store.load(key()).await.unwrap(), Some(altered));
+    }
+    assert!(sign_in.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_token_given_to_an_integration_keeps_to_the_providers_hosts_too() {
+    let sign_in = MockServer::start().await;
+    let customer = MockServer::start().await;
+    Mock::given(path("/tenant-api/things"))
+        .and(header("authorization", "Bearer given-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "ok": true })))
+        .expect(1)
+        .mount(&customer)
+        .await;
+    let spec = per_customer_spec(&sign_in, &[&customer]);
+    let given = |address: &str| {
+        Socket::builder(Arc::new(Untouchable))
+            .integration(Arc::new(PerCustomer {
+                spec: spec.clone(),
+                token: Some(TokenSet::bearer("given-token").with_api_base(address.parse().unwrap())),
+            }))
+            .build()
+    };
+
+    let socket = given(&format!("{}/tenant-api/", customer.uri())).unwrap();
+    socket.request(key(), RawRequest::get("things")).await.unwrap();
+
+    let err = given("https://elsewhere.example/tenant-api/").unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Config);
+    assert!(given("https://acme.customers.example/tenant-api/").is_ok());
+}
+
+#[tokio::test]
+async fn a_definition_for_one_customer_is_refused_until_it_names_the_customer() {
+    let unfilled = || ProviderSpec {
+        id: ProviderId::new("acme").unwrap(),
+        display_name: "Acme".into(),
+        api_base: "https://{tenant}.acme.example/api/".parse().unwrap(),
+        allowed_hosts: vec!["{tenant}.acme.example".into()],
+        content_hosts: Vec::new(),
+        auth: AuthScheme::OAuth2(OAuth2Spec {
+            authorize_url: "https://{tenant}.acme.example/oauth/authorize".parse().unwrap(),
+            token_url: "https://{tenant}.acme.example/oauth/token".parse().unwrap(),
+            default_scopes: Vec::new(),
+            scope_separator: " ".into(),
+            pkce: false,
+            client_auth: ClientAuth::Body,
+            extra_authorize_params: Vec::new(),
+        }),
+    };
+    let build = |spec: ProviderSpec| builder(Arc::new(MemoryTokenStore::new()), spec).build();
+
+    let err = build(unfilled()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Config);
+    assert!(err.message().contains("tenant"), "{err}");
+
+    let socket = build(unfilled().with_tenant("Globex").unwrap()).unwrap();
+    let begun = socket.begin_authorization(key(), None).unwrap();
+    assert_eq!(begun.url.host_str(), Some("globex.acme.example"));
+    assert_eq!(begun.url.path(), "/oauth/authorize");
+
+    for bad in [
+        "",
+        "globex.evil",
+        "globex/evil",
+        "globex@evil",
+        "evil.test#",
+        "a b",
+        "-globex",
+        "{tenant}",
+    ] {
+        let err = unfilled().with_tenant(bad).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Config, "{bad:?}");
+    }
 }

@@ -191,6 +191,7 @@ pub trait OAuthFlow: Send + Sync {
 
     /// Exchanges a refresh token for new tokens. `current` is the connection's
     /// stored tokens; what the provider does not send again is kept from them.
+    /// The connection's own API address is kept by Socket itself, for every flow.
     async fn refresh(&self, context: OAuthContext, current: TokenSet) -> Result<TokenSet> {
         let provider = context.provider().id.clone();
         let Some(refresh_token) = current.refresh_token.clone() else {
@@ -220,6 +221,11 @@ pub trait OAuthFlow: Send + Sync {
     }
 
     /// Reads a granted token response. `now` is the moment it arrived.
+    ///
+    /// A provider that gives each customer their own API host names it here:
+    /// override this and set [`TokenSet::api_base`] from the response
+    /// (Salesforce's `instance_url`, Pipedrive's `api_domain`). Socket refuses
+    /// an address outside the provider's allowed hosts before anything is stored.
     fn parse_token_response(&self, provider: ProviderId, raw: Value, now: SystemTime) -> Result<TokenSet> {
         auth::standard_token_response(&provider, &raw, now)
     }

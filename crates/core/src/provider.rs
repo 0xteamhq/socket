@@ -61,6 +61,12 @@ pub struct ProviderSpec {
     /// Overridable for self-hosted instances.
     pub api_base: Url,
     /// The only hosts that may receive this provider's credentials.
+    ///
+    /// An entry is a host, compared exactly: `"slack.com"`. An entry that
+    /// starts with `*.` is a rule for a service that gives each customer
+    /// their own host: `"*.my.salesforce.com"` admits any host under
+    /// `my.salesforce.com`, and only as the API host of the connection whose
+    /// authorisation named it. See [`ProviderSpec::allows_api_base`].
     pub allowed_hosts: Vec<String>,
     /// Other hosts this provider keeps content on: files, recordings, exports.
     /// Only a content request goes to them. See [`ContentHost`].
@@ -86,6 +92,12 @@ pub struct ContentHost {
     /// must never be given the token as well.
     pub credentials: bool,
 }
+
+/// Where a customer's own name goes in the host of a definition's addresses,
+/// for a service whose sign-in address is the customer's own:
+/// `https://{tenant}.zendesk.com/oauth/authorizations/new`.
+/// [`ProviderSpec::with_tenant`] fills it in.
+pub const TENANT_PLACEHOLDER: &str = "{tenant}";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -159,7 +171,12 @@ impl ProviderSpec {
     /// port, for example `"127.0.0.1:8080"`. Use it only for tests and local
     /// development: a configured HTTP proxy would still receive such a request.
     pub fn allows_host(&self, url: &Url) -> bool {
-        self.allowed_hosts.iter().any(|allowed| names(allowed, url))
+        // A rule is not a host. The URL parser accepts `*` in a host name, so
+        // without this the text of a rule would itself be a host to call.
+        self.allowed_hosts
+            .iter()
+            .filter(|allowed| !allowed.contains('*'))
+            .any(|allowed| names(allowed, url))
     }
 
     /// Whether content may be fetched from `url`, and if it may, whether the
@@ -179,11 +196,103 @@ impl ProviderSpec {
             .map(|content| content.credentials)
     }
 
+    /// True when `base` may be the API address of one connection: the
+    /// address its authorisation named, where each customer has their own.
+    ///
+    /// It is a host credentials may go to anyway, or an `https` host on port
+    /// 443 that falls under one of the `*.` rules of the allowed hosts. It
+    /// carries no username, password, query or fragment.
+    ///
+    /// A rule admits a host only for the connection that was given it. A
+    /// request of another connection to that host is still refused, so one
+    /// customer's token is never sent to another customer's address.
+    pub fn allows_api_base(&self, base: &Url) -> bool {
+        if !base.username().is_empty() || base.password().is_some() || base.query().is_some() {
+            return false;
+        }
+        if base.fragment().is_some() {
+            return false;
+        }
+        if self.allows_host(base) {
+            return true;
+        }
+        let under_a_rule = |host: &str| self.allowed_hosts.iter().any(|entry| falls_under(entry, host));
+        base.scheme() == "https"
+            && base.port_or_known_default() == Some(443)
+            && base.host_str().is_some_and(under_a_rule)
+    }
+
+    /// This definition for one customer: `tenant` written wherever a host
+    /// holds [`TENANT_PLACEHOLDER`], in the API base, the sign-in addresses,
+    /// the allowed hosts and the content hosts.
+    ///
+    /// The value becomes part of the address the client secret is sent to,
+    /// so it has to be one name of a host and nothing else: letters, digits
+    /// and hyphens, at most 63, with no hyphen first or last. Anything else
+    /// is refused, and never reaches an address.
+    pub fn with_tenant(mut self, tenant: &str) -> Result<Self> {
+        let tenant = tenant.trim().to_ascii_lowercase();
+        let config = |message: String| Error::new(ErrorKind::Config, message).with_provider(self.id.clone());
+        if !is_label(&tenant) {
+            // The value is not repeated: it is refused for what it holds.
+            return Err(config(format!(
+                "that is not a name {} can put in a host; use letters, digits and hyphens only",
+                self.id
+            )));
+        }
+        let fill = |url: &mut Url| -> Result<()> {
+            let Some(host) = url.host_str().filter(|host| host.contains(TENANT_PLACEHOLDER)) else {
+                return Ok(());
+            };
+            let host = host.replace(TENANT_PLACEHOLDER, &tenant);
+            url.set_host(Some(&host))
+                .map_err(|_| config(format!("provider {} has an address that cannot take a tenant", self.id)))
+        };
+        fill(&mut self.api_base)?;
+        if let AuthScheme::OAuth2(oauth) = &mut self.auth {
+            fill(&mut oauth.authorize_url)?;
+            fill(&mut oauth.token_url)?;
+        }
+        for entry in &mut self.allowed_hosts {
+            *entry = entry.replace(TENANT_PLACEHOLDER, &tenant);
+        }
+        for content in &mut self.content_hosts {
+            content.host = content.host.replace(TENANT_PLACEHOLDER, &tenant);
+        }
+        Ok(self)
+    }
+
     /// Checks the rules a spec must meet before it is registered.
     pub fn validate(&self) -> Result<()> {
         let fail = |message: String| Err(Error::new(ErrorKind::Config, message).with_provider(self.id.clone()));
         if self.allowed_hosts.is_empty() {
             return fail(format!("provider {} has no allowed hosts", self.id));
+        }
+        // A rule has to keep to one organisation's hosts. `*.com` would not.
+        if let Some(rule) = self
+            .allowed_hosts
+            .iter()
+            .find(|entry| entry.contains('*') && !is_host_rule(entry))
+        {
+            return fail(format!(
+                "provider {} has the host rule {rule:?}; a rule is `*.` and then a domain of at least two names",
+                self.id
+            ));
+        }
+        let unfilled = |host: Option<&str>| host.is_some_and(|host| host.contains(TENANT_PLACEHOLDER));
+        let sign_in = match &self.auth {
+            AuthScheme::OAuth2(oauth) => vec![&oauth.authorize_url, &oauth.token_url],
+            AuthScheme::ApiKey(_) => Vec::new(),
+        };
+        if unfilled(self.api_base.host_str())
+            || sign_in.into_iter().any(|url| unfilled(url.host_str()))
+            || self.allowed_hosts.iter().any(|entry| unfilled(Some(entry)))
+            || self.content_hosts.iter().any(|content| unfilled(Some(&content.host)))
+        {
+            return fail(format!(
+                "provider {} is defined for one customer at a time and names none; give it the customer's tenant",
+                self.id
+            ));
         }
         for (at, content) in self.content_hosts.iter().enumerate() {
             let host = content.host.as_str();
@@ -292,6 +401,38 @@ fn is_host_entry(entry: &str) -> bool {
         is_loopback(&url) && with_port.is_some_and(|written| entry.eq_ignore_ascii_case(&written))
     });
     plain && (a_host || a_loopback_port)
+}
+
+/// True for one name of a host: letters, digits and hyphens, at most 63,
+/// with no hyphen first or last.
+fn is_label(label: &str) -> bool {
+    (1..=63).contains(&label.len())
+        && !label.starts_with('-')
+        && !label.ends_with('-')
+        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// The domain a `*.` entry of the allowed hosts covers, if `entry` is one.
+fn rule_domain(entry: &str) -> Option<&str> {
+    entry.strip_prefix("*.")
+}
+
+/// True when `entry` is a well-formed rule: `*.` and then a domain of at
+/// least two names.
+fn is_host_rule(entry: &str) -> bool {
+    rule_domain(entry).is_some_and(|domain| domain.split('.').count() >= 2 && domain.split('.').all(is_label))
+}
+
+/// True when `host` is under the domain of the rule `entry`, by one name or more.
+fn falls_under(entry: &str, host: &str) -> bool {
+    let Some(domain) = rule_domain(entry).filter(|_| is_host_rule(entry)) else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    let own = host
+        .strip_suffix(&domain.to_ascii_lowercase())
+        .and_then(|rest| rest.strip_suffix('.'));
+    own.is_some_and(|own| own.split('.').all(is_label))
 }
 
 fn is_loopback(url: &Url) -> bool {
@@ -539,6 +680,187 @@ mod tests {
             oauth.token_url = Url::parse("https://user@slack.com/api/oauth.v2.access").unwrap();
         }
         assert_eq!(token.validate().unwrap_err().kind(), ErrorKind::Config);
+    }
+
+    fn per_customer() -> ProviderSpec {
+        let mut spec = slack();
+        spec.allowed_hosts = vec!["slack.com".into(), "*.my.salesforce.com".into()];
+        spec
+    }
+
+    #[test]
+    fn a_host_rule_admits_a_customers_host_as_an_api_base_and_never_as_a_listed_host() {
+        let spec = per_customer();
+        spec.validate().unwrap();
+        let base = |u: &str| spec.allows_api_base(&Url::parse(u).unwrap());
+        assert!(base("https://acme.my.salesforce.com/services/data/v62.0/"));
+        assert!(base("https://ACME.My.Salesforce.com/"), "host comparison ignores case");
+        assert!(
+            base("https://acme--dev.sandbox.my.salesforce.com/"),
+            "a host may be more than one name under the rule"
+        );
+        assert!(base("https://slack.com/api/"), "a listed host is an API base too");
+        for outside in [
+            "https://my.salesforce.com/",
+            "https://evilmy.salesforce.com/",
+            "https://acme.my.salesforce.com.evil.test/",
+            "https://salesforce.com/",
+            "http://acme.my.salesforce.com/",
+            "https://acme.my.salesforce.com:8443/",
+            "https://user@acme.my.salesforce.com/",
+            "https://user:pw@acme.my.salesforce.com/",
+            "https://acme.my.salesforce.com/?to=elsewhere",
+            "https://acme.my.salesforce.com/#fragment",
+            "https://slack.com@acme.my.salesforce.com/",
+            "https://*.my.salesforce.com/",
+            "https://acme.*.my.salesforce.com/",
+            "https://acme.my.salesforce.com./",
+        ] {
+            assert!(!base(outside), "{outside}");
+        }
+        assert!(
+            !spec.allows_host(&Url::parse("https://*.my.salesforce.com/").unwrap()),
+            "the text of a rule is not itself a host"
+        );
+        assert!(
+            !spec.allows_host(&Url::parse("https://acme.my.salesforce.com/").unwrap()),
+            "a rule does not make a customer's host one that any connection may call"
+        );
+    }
+
+    #[test]
+    fn a_name_under_a_rule_is_made_of_whole_host_names() {
+        assert!(falls_under("*.pipedrive.com", "acme.pipedrive.com"));
+        assert!(falls_under("*.PipeDrive.com", "acme.pipedrive.com"));
+        for (rule, host) in [
+            ("*.pipedrive.com", "pipedrive.com"),
+            ("*.pipedrive.com", ".pipedrive.com"),
+            ("*.pipedrive.com", "a..pipedrive.com"),
+            ("*.pipedrive.com", "-a.pipedrive.com"),
+            ("*.pipedrive.com", "a_b.pipedrive.com"),
+            ("*.pipedrive.com", "acmepipedrive.com"),
+            ("pipedrive.com", "acme.pipedrive.com"),
+            ("*.com", "pipedrive.com"),
+        ] {
+            assert!(!falls_under(rule, host), "{rule} {host}");
+        }
+    }
+
+    #[test]
+    fn a_host_rule_must_name_a_domain_of_its_own() {
+        for rule in [
+            "*",
+            "*.",
+            "*.com",
+            "*.a..com",
+            "a.*.com",
+            "*x.example.com",
+            "**.example.com",
+            "*.example.com:443",
+        ] {
+            let mut spec = slack();
+            spec.allowed_hosts.push(rule.into());
+            let err = spec.validate().unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Config, "{rule}");
+        }
+        let mut spec = slack();
+        spec.allowed_hosts.push("*.pipedrive.com".into());
+        spec.validate().unwrap();
+
+        // A rule admits a customer's API host and nothing else: the token
+        // endpoint and the definition's own base have to be listed exactly.
+        let mut base_on_a_rule = per_customer();
+        base_on_a_rule.api_base = Url::parse("https://*.my.salesforce.com/").unwrap();
+        assert_eq!(base_on_a_rule.validate().unwrap_err().kind(), ErrorKind::Config);
+        let mut token_on_a_rule = per_customer();
+        if let AuthScheme::OAuth2(oauth) = &mut token_on_a_rule.auth {
+            oauth.token_url = Url::parse("https://acme.my.salesforce.com/token").unwrap();
+        }
+        assert_eq!(token_on_a_rule.validate().unwrap_err().kind(), ErrorKind::Config);
+    }
+
+    #[test]
+    fn a_loopback_address_listed_with_its_port_may_be_a_connections_api_base() {
+        let mut spec = slack();
+        spec.allowed_hosts.push("127.0.0.1:8080".into());
+        assert!(spec.allows_api_base(&Url::parse("http://127.0.0.1:8080/api/").unwrap()));
+        assert!(!spec.allows_api_base(&Url::parse("http://127.0.0.1:8081/api/").unwrap()));
+    }
+
+    fn for_one_customer() -> ProviderSpec {
+        ProviderSpec {
+            id: ProviderId::new("zendesk").unwrap(),
+            display_name: "Zendesk".into(),
+            api_base: Url::parse("https://{tenant}.zendesk.com/api/v2/").unwrap(),
+            allowed_hosts: vec!["{tenant}.zendesk.com".into()],
+            content_hosts: Vec::new(),
+            auth: AuthScheme::OAuth2(OAuth2Spec {
+                authorize_url: Url::parse("https://{tenant}.zendesk.com/oauth/authorizations/new").unwrap(),
+                token_url: Url::parse("https://{tenant}.zendesk.com/oauth/tokens").unwrap(),
+                default_scopes: vec!["read".into()],
+                scope_separator: " ".into(),
+                pkce: false,
+                client_auth: ClientAuth::Body,
+                extra_authorize_params: Vec::new(),
+            }),
+        }
+    }
+
+    #[test]
+    fn a_tenant_fills_every_host_of_a_definition_written_for_one_customer() {
+        let unfilled = for_one_customer().validate().unwrap_err();
+        assert_eq!(unfilled.kind(), ErrorKind::Config);
+
+        let spec = for_one_customer().with_tenant(" Acme-Support ").unwrap();
+        spec.validate().unwrap();
+        assert_eq!(spec.api_base.as_str(), "https://acme-support.zendesk.com/api/v2/");
+        assert_eq!(spec.allowed_hosts, ["acme-support.zendesk.com"]);
+        let AuthScheme::OAuth2(oauth) = &spec.auth else {
+            panic!("the scheme is kept")
+        };
+        assert_eq!(
+            oauth.authorize_url.as_str(),
+            "https://acme-support.zendesk.com/oauth/authorizations/new"
+        );
+        assert_eq!(
+            oauth.token_url.as_str(),
+            "https://acme-support.zendesk.com/oauth/tokens"
+        );
+
+        // A definition with no placeholder is left as it was.
+        assert_eq!(slack().with_tenant("acme").unwrap(), slack());
+    }
+
+    #[test]
+    fn a_tenant_that_is_not_one_plain_host_name_is_refused_and_not_repeated() {
+        let long = "a".repeat(64);
+        for bad in [
+            "",
+            " ",
+            "acme.evil",
+            "acme/evil",
+            "acme evil",
+            "acme?x",
+            "acme#x",
+            "acme@evil.test",
+            "acme:8443",
+            "-acme",
+            "acme-",
+            "acme_support",
+            "acme%2eevil",
+            "{tenant}",
+            "evil.test/",
+            long.as_str(),
+        ] {
+            let err = for_one_customer().with_tenant(bad).unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Config, "{bad:?}");
+            assert!(
+                bad.trim().is_empty() || !err.message().contains(bad.trim()),
+                "{}",
+                err.message()
+            );
+        }
+        assert!(for_one_customer().with_tenant(&"a".repeat(63)).is_ok());
     }
 
     #[test]
