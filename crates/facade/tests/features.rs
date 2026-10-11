@@ -14,24 +14,32 @@ fn the_slack_feature_exposes_the_slack_crate() {
 }
 
 #[cfg(all(
+    feature = "attio",
     feature = "github",
     feature = "google",
+    feature = "hubspot",
     feature = "linear",
     feature = "microsoft",
     feature = "notion",
+    feature = "pipedrive",
+    feature = "salesforce",
     feature = "slack",
     feature = "zoom"
 ))]
 #[test]
-fn all_seven_integrations_register_together_and_each_offers_identity_and_lookup() {
+fn all_eleven_integrations_register_together_and_each_offers_identity_and_lookup() {
     use std::sync::Arc;
 
     let socket = socketkit::Socket::builder(Arc::new(socketkit::MemoryTokenStore::new()))
+        .integration(Arc::new(socketkit::attio::Attio::new()))
         .integration(Arc::new(socketkit::github::GitHub::new()))
         .integration(Arc::new(socketkit::google::Google::new()))
+        .integration(Arc::new(socketkit::hubspot::HubSpot::new()))
         .integration(Arc::new(socketkit::linear::Linear::new()))
         .integration(Arc::new(socketkit::microsoft::Microsoft::new()))
         .integration(Arc::new(socketkit::notion::Notion::new()))
+        .integration(Arc::new(socketkit::pipedrive::Pipedrive::new()))
+        .integration(Arc::new(socketkit::salesforce::Salesforce::new()))
         .integration(Arc::new(socketkit::slack::Slack::new()))
         .integration(Arc::new(socketkit::zoom::Zoom::new()))
         .build()
@@ -39,11 +47,27 @@ fn all_seven_integrations_register_together_and_each_offers_identity_and_lookup(
     let ids: Vec<String> = socket.providers().into_iter().map(|p| p.id.to_string()).collect();
     assert_eq!(
         ids,
-        ["github", "google", "linear", "microsoft", "notion", "slack", "zoom"]
+        [
+            "attio",
+            "github",
+            "google",
+            "hubspot",
+            "linear",
+            "microsoft",
+            "notion",
+            "pipedrive",
+            "salesforce",
+            "slack",
+            "zoom"
+        ]
     );
     let names: Vec<String> = socket.operations().into_iter().map(|o| o.name).collect();
-    // Every integration has these two; Slack and Microsoft have typed operations besides.
-    assert!(names.len() >= 14);
+    // Every integration has these two; Slack, Microsoft and the four CRMs have typed operations besides.
+    assert!(names.len() >= 22);
+    assert!(names.contains(&"attio.records.query".to_owned()));
+    assert!(names.contains(&"hubspot.objects.search".to_owned()));
+    assert!(names.contains(&"pipedrive.deals.list".to_owned()));
+    assert!(names.contains(&"salesforce.query.run".to_owned()));
     assert!(names.contains(&"slack.chat.post_message".to_owned()));
     assert!(names.contains(&"microsoft.events.create".to_owned()));
     assert!(names.contains(&"microsoft.mail.send".to_owned()));
@@ -88,11 +112,15 @@ fn connection_details_are_given_to_each_integration() {
 }
 
 #[cfg(all(
+    feature = "attio",
     feature = "github",
     feature = "google",
+    feature = "hubspot",
     feature = "linear",
     feature = "microsoft",
     feature = "notion",
+    feature = "pipedrive",
+    feature = "salesforce",
     feature = "slack",
     feature = "zoom"
 ))]
@@ -112,11 +140,15 @@ mod every_integration {
     #[test]
     fn takes_an_oauth_app_and_can_start_connecting_a_user() {
         let integrations: Vec<Arc<dyn Integration>> = vec![
+            Arc::new(socketkit::attio::Attio::with_oauth(client("attio"))),
             Arc::new(socketkit::github::GitHub::with_oauth(client("github"))),
             Arc::new(socketkit::google::Google::with_oauth(client("google"))),
+            Arc::new(socketkit::hubspot::HubSpot::with_oauth(client("hubspot"))),
             Arc::new(socketkit::linear::Linear::with_oauth(client("linear"))),
             Arc::new(socketkit::microsoft::Microsoft::with_oauth(client("microsoft"))),
             Arc::new(socketkit::notion::Notion::with_oauth(client("notion"))),
+            Arc::new(socketkit::pipedrive::Pipedrive::with_oauth(client("pipedrive"))),
+            Arc::new(socketkit::salesforce::Salesforce::with_oauth(client("salesforce"))),
             Arc::new(socketkit::slack::Slack::with_oauth(client("slack"))),
             Arc::new(socketkit::zoom::Zoom::with_oauth(client("zoom"))),
         ];
@@ -143,11 +175,19 @@ mod every_integration {
     #[test]
     fn takes_a_token_and_reports_it_as_the_one_to_use() {
         let integrations: Vec<Arc<dyn Integration>> = vec![
+            Arc::new(socketkit::attio::Attio::with_token("t-attio")),
             Arc::new(socketkit::github::GitHub::with_token("t-github")),
             Arc::new(socketkit::google::Google::with_token("t-google")),
+            Arc::new(socketkit::hubspot::HubSpot::with_token("t-hubspot")),
             Arc::new(socketkit::linear::Linear::with_token("t-linear")),
             Arc::new(socketkit::microsoft::Microsoft::with_token("t-microsoft")),
             Arc::new(socketkit::notion::Notion::with_token("t-notion")),
+            Arc::new(socketkit::pipedrive::Pipedrive::with_token("t-pipedrive")),
+            // A Salesforce token is for one organisation, so it comes with that organisation's address.
+            Arc::new(socketkit::salesforce::Salesforce::with_token(
+                "t-salesforce",
+                "https://acme.my.salesforce.com",
+            )),
             Arc::new(socketkit::slack::Slack::with_token("t-slack")),
             Arc::new(socketkit::zoom::Zoom::with_token("t-zoom")),
         ];
@@ -297,6 +337,95 @@ mod every_integration {
             let err = Socket::in_memory().integration(integration).build().unwrap_err();
             assert_eq!(err.kind(), ErrorKind::Config, "{host:?}");
         }
+    }
+
+    #[test]
+    fn hubspot_asks_for_optional_scopes_as_their_own_parameter() {
+        let settings = socketkit::hubspot::HubSpotOAuth {
+            client: client("hubspot"),
+            scopes: Some(vec!["crm.objects.contacts.read".into()]),
+            optional_scopes: vec!["crm.objects.custom.read".into()],
+        };
+        let url = authorize_url(Arc::new(socketkit::hubspot::HubSpot::with_oauth(settings)));
+        assert_eq!(url.host_str(), Some("app.hubspot.com"));
+        let required = param(&url, "scope").unwrap();
+        assert!(required.contains("crm.objects.contacts.read"), "{required}");
+        assert!(
+            !required.contains("crm.objects.custom.read"),
+            "a scope only some plans have is not required: {required}"
+        );
+        assert_eq!(
+            param(&url, "optional_scope").as_deref(),
+            Some("crm.objects.custom.read")
+        );
+
+        let plain = authorize_url(Arc::new(socketkit::hubspot::HubSpot::with_oauth(client("hubspot"))));
+        assert_eq!(param(&plain, "optional_scope"), None);
+    }
+
+    #[test]
+    fn salesforce_signs_in_at_the_host_it_is_told_and_a_token_keeps_to_its_own_organisation() {
+        use socketkit::salesforce::{LoginHost, Salesforce, SalesforceOAuth};
+
+        let at = |login: Option<LoginHost>| {
+            let settings = SalesforceOAuth {
+                login,
+                ..client("salesforce").into()
+            };
+            authorize_url(Arc::new(Salesforce::with_oauth(settings)))
+        };
+        assert_eq!(at(None).host_str(), Some("login.salesforce.com"));
+        assert_eq!(at(Some(LoginHost::Sandbox)).host_str(), Some("test.salesforce.com"));
+        let own = at(Some(LoginHost::MyDomain("Acme.my.salesforce.com".into())));
+        assert_eq!(own.host_str(), Some("acme.my.salesforce.com"));
+        assert_eq!(own.path(), "/services/oauth2/authorize");
+        assert!(param(&own, "code_challenge").is_some(), "PKCE is on for Salesforce");
+
+        // A host that is not Salesforce's is refused when the socket is built.
+        for host in [
+            "evil.test",
+            "acme.my.salesforce.com.evil.test",
+            "acme.my.salesforce.com/x",
+            "",
+        ] {
+            let settings = SalesforceOAuth {
+                login: Some(LoginHost::MyDomain(host.into())),
+                ..client("salesforce").into()
+            };
+            let integration: Arc<dyn Integration> = Arc::new(Salesforce::with_oauth(settings));
+            let err = Socket::in_memory().integration(integration).build().unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Config, "{host:?}");
+        }
+
+        // A token given directly calls the organisation it was given with.
+        let given = Salesforce::with_token("t", "https://acme.my.salesforce.com");
+        let base = given.fixed_token().unwrap().api_base.unwrap();
+        assert_eq!(base.host_str(), Some("acme.my.salesforce.com"));
+        assert!(base.path().starts_with("/services/data/v"), "{base}");
+        let elsewhere: Arc<dyn Integration> = Arc::new(Salesforce::with_token("t", "https://evil.test"));
+        assert_eq!(
+            Socket::in_memory().integration(elsewhere).build().unwrap_err().kind(),
+            ErrorKind::Config
+        );
+    }
+
+    #[test]
+    fn a_pipedrive_api_token_goes_in_a_header_and_never_in_the_address() {
+        use socketkit::{ApiKeySpec, AuthScheme, KeyPlacement};
+
+        let integration = socketkit::pipedrive::Pipedrive::with_token("t-pipedrive");
+        let AuthScheme::ApiKey(ApiKeySpec { placement }) = integration.provider().auth else {
+            panic!("an API token is not an OAuth connection")
+        };
+        assert!(
+            matches!(placement, KeyPlacement::Header { ref name, prefix: None } if name == "x-api-token"),
+            "{placement:?}"
+        );
+        // Signing in through OAuth is still the definition a plain `new` gives.
+        assert!(matches!(
+            socketkit::pipedrive::Pipedrive::new().provider().auth,
+            AuthScheme::OAuth2(_)
+        ));
     }
 
     #[test]

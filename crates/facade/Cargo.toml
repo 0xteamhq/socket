@@ -10,11 +10,15 @@ publish = false
 
 [features]
 default = []
+attio = ["dep:socketkit-attio"]
 github = ["dep:socketkit-github"]
 slack = ["dep:socketkit-slack"]
+hubspot = ["dep:socketkit-hubspot"]
 linear = ["dep:socketkit-linear"]
 microsoft = ["dep:socketkit-microsoft"]
 notion = ["dep:socketkit-notion"]
+pipedrive = ["dep:socketkit-pipedrive"]
+salesforce = ["dep:socketkit-salesforce"]
 google = ["dep:socketkit-google"]
 zoom = ["dep:socketkit-zoom"]
 
@@ -24,7 +28,19 @@ required-features = ["slack"]
 
 [[example]]
 name = "catalogue"
-required-features = ["github", "google", "linear", "microsoft", "notion", "slack", "zoom"]
+required-features = [
+    "attio",
+    "github",
+    "google",
+    "hubspot",
+    "linear",
+    "microsoft",
+    "notion",
+    "pipedrive",
+    "salesforce",
+    "slack",
+    "zoom",
+]
 
 [dependencies]
 socketkit-core.workspace = true
@@ -35,6 +51,10 @@ socketkit-microsoft = { workspace = true, optional = true }
 socketkit-notion = { workspace = true, optional = true }
 socketkit-google = { workspace = true, optional = true }
 socketkit-zoom = { workspace = true, optional = true }
+socketkit-hubspot = { workspace = true, optional = true }
+socketkit-salesforce = { workspace = true, optional = true }
+socketkit-pipedrive = { workspace = true, optional = true }
+socketkit-attio = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true

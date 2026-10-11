@@ -4,7 +4,7 @@
 
 Socket gives a product the layers it needs to connect to SaaS APIs: a registry of providers, an OAuth and token-refresh engine, and typed operations for each service. The application owns its OAuth apps and its token storage. Nothing is hosted.
 
-> **Status:** Early. The core, the OAuth flow, token refresh and seven providers are built and tested against local servers (~26k lines of Rust, 406 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
+> **Status:** Early. The core, the OAuth flow, token refresh and eleven providers are built and tested against local servers (~53k lines of Rust, 707 tests). Not yet run against the real services. See [the roadmap](docs/roadmap.md) for what is and is not done.
 
 ## Why
 
@@ -16,9 +16,9 @@ Read [the vision](docs/vision.md) for the full picture.
 
 ## Features
 
-- **OAuth 2.0** — begin and complete the flow; signed, expiring state; the application owns the callback route. PKCE is supported by the core. It is on for Microsoft, and switched off for the other six providers until each is confirmed against the real service
+- **OAuth 2.0** — begin and complete the flow; signed, expiring state; the application owns the callback route. PKCE is supported by the core. It is on for Microsoft, Salesforce and Attio, and switched off for the other eight providers until each is confirmed against the real service
 - **Token refresh** — single-flight per connection so concurrent calls never race a refresh token
-- **Host allowlist** — credentials are attached only to HTTPS requests on the provider's declared hosts
+- **Host allowlist** — credentials are attached only to HTTPS requests on the provider's declared hosts. Where each customer has their own API host (Salesforce, Pipedrive), a connection calls the host its own authorisation named and no other customer's
 - **Retry with backoff** — honours `Retry-After`; non-idempotent requests are retried only when safe
 - **Pagination** — one model for every provider: a cursor in, a page and the next cursor out
 - **Error classification** — `ReconnectRequired`, `RateLimited`, `AccessDenied`, `NotFound` and more, each with a stable code
@@ -40,20 +40,25 @@ socket/
 │   │   ├── linear/             # socketkit-linear
 │   │   ├── notion/             # socketkit-notion
 │   │   ├── google/             # socketkit-google
-│   │   └── zoom/               # socketkit-zoom
+│   │   ├── zoom/               # socketkit-zoom
+│   │   ├── microsoft/          # socketkit-microsoft (60 typed methods)
+│   │   ├── hubspot/            # socketkit-hubspot (18 typed methods)
+│   │   ├── salesforce/         # socketkit-salesforce (13 typed methods)
+│   │   ├── pipedrive/          # socketkit-pipedrive (42 typed methods)
+│   │   └── attio/              # socketkit-attio (39 typed methods)
 │   └── testkit/                # socketkit-testkit: wire-test server, conformance suite
 └── docs/
     ├── vision.md               # Why the project exists
     ├── catalogue.md            # The first 100 services and the order they are added
     ├── roadmap.md              # Phases and plans
-    └── integrations/slack.md   # Slack: how to connect, every method and operation
+    └── integrations/           # One guide per integration: how to connect, every method and operation
 ```
 
 | Crate | Purpose |
 | --- | --- |
-| `socketkit` | What an application depends on. One feature per provider: `github`, `google`, `linear`, `microsoft`, `notion`, `slack`, `zoom`. |
+| `socketkit` | What an application depends on. One feature per provider: `attio`, `github`, `google`, `hubspot`, `linear`, `microsoft`, `notion`, `pipedrive`, `salesforce`, `slack`, `zoom`. |
 | `socketkit-core` | Providers, the token store interface, the HTTP transport, OAuth, refresh, and call-by-name. |
-| `socketkit-<provider>` | The provider's definition, plus operations (`identity.get`, `resource.resolve`, and typed methods where they are built: all of Slack, and Microsoft's Outlook calendar, mail, Teams and Teams meetings). |
+| `socketkit-<provider>` | The provider's definition, plus operations (`identity.get`, `resource.resolve`, and typed methods where they are built: all of Slack, Microsoft's Outlook calendar, mail, Teams and Teams meetings, and the four CRMs: HubSpot, Salesforce, Pipedrive and Attio). |
 | `socketkit-testkit` | A local test server and the conformance checks every provider must pass. |
 
 ## Quick start
@@ -63,7 +68,7 @@ socket/
 Neither needs a network or credentials:
 
 ```sh
-# Print the seven providers and their operations
+# Print the eleven providers and their operations
 cargo run -p socketkit --all-features --example catalogue
 
 # Register an integration, invoke an operation by name with JSON
@@ -160,8 +165,14 @@ Keep the pending record tied to the session of the person who started the flow, 
 | Google | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Zoom | OAuth 2.0 | `identity.get`, `resource.resolve` | Wire-tested |
 | Microsoft | OAuth 2.0 | 60 typed methods for the Outlook calendar, Outlook mail, Teams and Teams meetings | Wire-tested |
+| HubSpot | OAuth 2.0 or a private app token | 18 typed methods for CRM records of any object type, associations, properties, pipelines and owners | Wire-tested only |
+| Salesforce | OAuth 2.0 with PKCE, or a token with its instance URL | 13 typed methods for SOQL queries, search, records of any object type, object and field discovery, and the API allowance | Wire-tested only |
+| Pipedrive | OAuth 2.0 or a personal API token | 42 typed methods for deals, persons, organisations, leads, activities and notes, with pipelines, field discovery, users and search | Wire-tested only |
+| Attio | OAuth 2.0 or a workspace API key | 39 typed methods for objects, attributes, records, lists and entries, notes, tasks, comment threads, members, meetings and call recordings | Wire-tested only |
 
-All seven support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
+Wire-tested means every request and response was checked against a local server that answers as the vendor's documentation says; none of the eleven has been run against the real service. Each integration's guide in [docs/integrations](docs/integrations) lists what was confirmed against the vendor's documentation and what was not.
+
+All eleven support the generic authenticated request, so any endpoint of theirs can be called even without a typed operation. The [catalogue](docs/catalogue.md) lists the first 100 services and the order they will be added.
 
 ## How breadth grows
 

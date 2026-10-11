@@ -59,6 +59,19 @@ The core fetches content as well as JSON. A provider's definition may declare co
 
 Not done: sending bytes to an address a provider issues, which Slack's upload needs; a stream, so that a file need not be held in memory; and a content host named by a pattern, which a provider that serves each tenant from its own host name needs (SharePoint, for OneDrive files). No provider declares a content host yet: Slack's and Zoom's file hosts are to be added with the methods that read from them.
 
+## The four CRMs, and a customer's own API host
+
+Four CRMs follow, each a provider with typed methods that are also named operations, and each with a guide that lists what was confirmed against the vendor's documentation and what was not. None has been run against the real service.
+
+- **HubSpot** (`socketkit-hubspot`): 18 methods in `objects`, `associations`, `properties`, `pipelines` and `owners`. One generic client serves every object type, the engagements and custom objects included. Sign-in through OAuth with `optional_scope`, or a private app token. Calls are made at HubSpot's dated API version.
+- **Salesforce** (`socketkit-salesforce`): 13 methods in `query`, `search`, `sobjects`, `records` and `limits`, with helpers that escape a value for SOQL and SOSL. Sign-in with PKCE at the production host, the sandbox host or an organisation's My Domain host. An access token has no stated lifetime and is renewed when Salesforce rejects it.
+- **Pipedrive** (`socketkit-pipedrive`): 42 methods over deals, persons, organizations, leads, activities, notes, pipelines, fields, users and search, on version 2 of Pipedrive's API where an entity has it and version 1 where it does not. Sign-in through OAuth, or a personal API token sent in a header.
+- **Attio** (`socketkit-attio`): 39 methods over objects, attributes, records, lists, entries, notes, tasks, threads, workspace members, meetings and call recordings. An attribute's values keep their history, and the current value is given beside them.
+
+Salesforce and Pipedrive needed one change to the core: a connection's API host can come from its authorisation. A definition declares a rule for its customers' hosts (`*.my.salesforce.com`) beside its exact hosts; the token response names the host; Socket refuses one outside the rule before anything is stored, keeps it with the connection's tokens through every refresh, and sends that connection's token to that host and to no other customer's. A definition can also carry `{tenant}` in its sign-in hosts for a service where the customer is named before authorisation. No provider uses that yet; it is there for Zendesk and Shopify.
+
+Not done here: the core still decides what to retry by HTTP method, so a search or query sent as `POST` is a read that is not repeated after a server error; one `Socket` holds one definition of a provider, so OAuth connections and API-token connections of Pipedrive cannot share one; and a Salesforce token stored without its organisation's address is refused by the typed methods but not by the generic request, which would send it to the sign-in host.
+
 ## Carried forward from reviews
 
 - Decide before the first release whether public data structs (`ProviderSpec`, `OAuth2Spec`, `OperationInfo`, `TokenSet`) become `#[non_exhaustive]` with constructors. Today adding a field breaks every integration crate.
