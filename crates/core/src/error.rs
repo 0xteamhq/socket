@@ -25,8 +25,9 @@ pub enum ErrorKind {
     Config,
     Transport,
     Decode,
-    /// The content is larger than the limit set for the request. It was not
-    /// read, and no part of it is returned.
+    /// The content is larger than the limit set for the request. Reading
+    /// stopped at the limit, if it began at all, and no part of the content
+    /// is returned.
     TooLarge,
     Unexpected,
 }

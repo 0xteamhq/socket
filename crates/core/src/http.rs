@@ -586,7 +586,8 @@ fn resolve_url(spec: &ProviderSpec, path: &str) -> Result<Url> {
 fn address(spec: &ProviderSpec, path: &str) -> Result<Url> {
     let invalid = |message: String| Error::new(ErrorKind::InvalidInput, message).with_provider(spec.id.clone());
     let url = if path.starts_with("https://") || path.starts_with("http://") {
-        Url::parse(path).map_err(|_| invalid(format!("{path:?} is not a URL")))?
+        // The address is not repeated: one that is signed carries its own credential.
+        Url::parse(path).map_err(|_| invalid("the address of the request is not a URL".into()))?
     } else {
         // `Url::join` drops the last segment of a base without a trailing slash,
         // and a leading slash on the path would discard the base's own path.
@@ -595,7 +596,7 @@ fn address(spec: &ProviderSpec, path: &str) -> Result<Url> {
             base.set_path(&format!("{}/", base.path()));
         }
         base.join(path.trim_start_matches('/'))
-            .map_err(|_| invalid(format!("{path:?} is not a valid path")))?
+            .map_err(|_| invalid("the path of the request is not valid".into()))?
     };
     // An HTTP client turns `user:password@host` into a Basic `Authorization`
     // header, which would travel beside or in place of the stored credentials.
@@ -612,7 +613,7 @@ fn address(spec: &ProviderSpec, path: &str) -> Result<Url> {
 /// kept as a string and not parsed.
 async fn read(spec: &ProviderSpec, builder: reqwest::RequestBuilder, text: bool) -> Result<RawResponse> {
     let response = builder.send().await.map_err(|e| unreached(spec, "reach", e))?;
-    answer(spec, response, text).await
+    answer(spec, response, text, unreached).await
 }
 
 /// A request that got no answer, or whose answer broke off. Worth trying again.
@@ -623,6 +624,21 @@ fn unreached(spec: &ProviderSpec, what: &str, e: reqwest::Error) -> Error {
         .with_source(e.without_url())
 }
 
+/// As [`unreached`], for a request that is given its time once. What did not
+/// arrive in the time allowed will not arrive in it the next time either, so
+/// running out of time is not worth trying again: the caller allows more.
+fn unreached_once(spec: &ProviderSpec, what: &str, e: reqwest::Error) -> Error {
+    let out_of_time = e.is_timeout();
+    let error = unreached(spec, what, e);
+    if out_of_time {
+        error
+            .map_message(|m| format!("{m} in the time allowed"))
+            .with_retry(Retry::Never)
+    } else {
+        error
+    }
+}
+
 /// The headers of a response as data. One that is not text is left out.
 fn header_pairs(headers: &HeaderMap) -> Vec<(String, String)> {
     headers
@@ -631,8 +647,14 @@ fn header_pairs(headers: &HeaderMap) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Reads a response that has arrived as data: see [`read`].
-async fn answer(spec: &ProviderSpec, mut response: reqwest::Response, text: bool) -> Result<RawResponse> {
+/// Reads a response that has arrived as data: see [`read`]. `broken` makes
+/// the error for an answer that breaks off.
+async fn answer(
+    spec: &ProviderSpec,
+    mut response: reqwest::Response,
+    text: bool,
+    broken: fn(&ProviderSpec, &str, reqwest::Error) -> Error,
+) -> Result<RawResponse> {
     let status = response.status().as_u16();
     let headers = header_pairs(response.headers());
     // Read in pieces so a broken or hostile provider cannot fill memory.
@@ -640,7 +662,7 @@ async fn answer(spec: &ProviderSpec, mut response: reqwest::Response, text: bool
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|e| unreached(spec, "read the response from", e))?
+        .map_err(|e| broken(spec, "read the response from", e))?
     {
         if bytes.len() + chunk.len() > MAX_BODY_BYTES {
             // An oversized error page still has a status and headers worth

@@ -255,6 +255,15 @@ async fn an_address_on_a_host_that_was_not_declared_is_refused_before_anything_i
             .unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidInput, "{address}: {err}");
     }
+    // An address that cannot be read is not repeated: one that is signed carries its own credential.
+    for address in [
+        "https://exa mple.test/blob?sig=SECRET-SIG",
+        "http://[::bad/blob?sig=SECRET-SIG",
+    ] {
+        let err = socket.fetch(key(), ContentRequest::get(address)).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{address}: {err}");
+        assert!(!format!("{err} {err:?}").contains("SECRET-SIG"), "{err:?}");
+    }
     assert!(elsewhere.received_requests().await.unwrap().is_empty());
     assert!(api.received_requests().await.unwrap().is_empty());
 }
@@ -335,6 +344,19 @@ async fn a_redirect_that_writes_the_credential_into_the_address_of_a_host_denied
         ))
         .mount(&api)
         .await;
+    // The same token under percent-encoding, in the path and inside a longer value.
+    for (route, location) in [
+        ("/api/in-path", "/files/the%2Dtoken/blob"),
+        ("/api/in-value", "/blob?next=Bearer%20the%2dtoken%26more"),
+        ("/api/twice", "/blob/the%252Dtoken"),
+    ] {
+        Mock::given(path(route))
+            .respond_with(
+                ResponseTemplate::new(302).insert_header("location", format!("{}{location}", signed.uri()).as_str()),
+            )
+            .mount(&api)
+            .await;
+    }
     Mock::given(path("/api/fine"))
         .respond_with(
             ResponseTemplate::new(302).insert_header("location", format!("{}/blob?sig=1", signed.uri()).as_str()),
@@ -346,6 +368,10 @@ async fn a_redirect_that_writes_the_credential_into_the_address_of_a_host_denied
     let err = socket.fetch(key(), ContentRequest::get("echo")).await.unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unexpected, "{err}");
     assert!(!err.message().contains("the-token"), "{}", err.message());
+    for route in ["in-path", "in-value", "twice"] {
+        let err = socket.fetch(key(), ContentRequest::get(route)).await.unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Unexpected, "{route}: {err}");
+    }
     assert!(signed.received_requests().await.unwrap().is_empty());
     // The same host is reached when the address does not carry it.
     socket.fetch(key(), ContentRequest::get("fine")).await.unwrap();
@@ -628,9 +654,9 @@ async fn a_body_that_does_not_state_its_length_is_counted_as_it_arrives() {
     assert_eq!(content.content_type.as_deref(), Some("video/mp4"));
 }
 
-/// A server that never finishes its answer: it stops before the headers, or
-/// after the start of the body. Says how many times it was asked.
-fn stalling(after_headers: bool) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+/// A server that never finishes its answer: it sends `start`, which may be
+/// nothing, and then waits. Says how many times it was asked.
+fn stalling(start: &'static str) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
@@ -646,10 +672,7 @@ fn stalling(after_headers: bool) -> (String, Arc<std::sync::atomic::AtomicUsize>
                 while !request.ends_with(b"\r\n\r\n") && stream.read(&mut byte).unwrap_or(0) == 1 {
                     request.push(byte[0]);
                 }
-                if after_headers {
-                    let head = "HTTP/1.1 200 OK\r\ncontent-type: video/mp4\r\ncontent-length: 1000\r\n\r\nstart";
-                    let _ = stream.write_all(head.as_bytes());
-                }
+                let _ = stream.write_all(start.as_bytes());
                 std::thread::sleep(Duration::from_secs(20));
             });
         }
@@ -658,9 +681,20 @@ fn stalling(after_headers: bool) -> (String, Arc<std::sync::atomic::AtomicUsize>
 }
 
 #[tokio::test]
-async fn content_is_given_the_time_its_caller_allows_and_a_slow_file_is_not_asked_for_again() {
-    for after_headers in [true, false] {
-        let (address, asked) = stalling(after_headers);
+async fn content_is_given_the_time_its_caller_allows_and_a_slow_answer_is_not_asked_for_again() {
+    for (stalls, start) in [
+        ("before the headers", ""),
+        (
+            "in the file",
+            "HTTP/1.1 200 OK\r\ncontent-type: video/mp4\r\ncontent-length: 1000\r\n\r\nstart",
+        ),
+        // A refusal that never ends is waited for once as well, though a 503 that ends is asked again.
+        (
+            "in a refusal",
+            "HTTP/1.1 503 Service Unavailable\r\ncontent-type: application/json\r\ncontent-length: 1000\r\n\r\n{",
+        ),
+    ] {
+        let (address, asked) = stalling(start);
         let spec = ProviderSpec {
             id: ProviderId::new("acme").unwrap(),
             display_name: "Acme".into(),
@@ -675,13 +709,25 @@ async fn content_is_given_the_time_its_caller_allows_and_a_slow_file_is_not_aske
         let started = std::time::Instant::now();
         let request = ContentRequest::get("recording").with_timeout(Duration::from_millis(300));
         let err = socket.fetch(key(), request).await.unwrap_err();
-        assert_eq!((err.kind(), err.retry()), (ErrorKind::Transport, Retry::Never), "{err}");
-        assert!(err.message().contains("in the time allowed"), "{}", err.message());
-        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+        assert_eq!(
+            (err.kind(), err.retry()),
+            (ErrorKind::Transport, Retry::Never),
+            "{stalls}: {err}"
+        );
+        assert!(
+            err.message().contains("in the time allowed"),
+            "{stalls}: {}",
+            err.message()
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{stalls}: {:?}",
+            started.elapsed()
+        );
         assert_eq!(
             asked.load(std::sync::atomic::Ordering::SeqCst),
             1,
-            "the same wait would end the same way (stalled after the headers: {after_headers})"
+            "{stalls}: the same wait would end the same way"
         );
     }
 }

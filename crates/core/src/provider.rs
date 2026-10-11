@@ -272,13 +272,26 @@ fn names(entry: &str, url: &Url) -> bool {
     }
 }
 
-/// True when `entry` is written as a host: a name or an address, with a port
-/// for a loopback address. Not a URL, a path or a pattern.
+/// True when `entry` is written as [`names`] will match it: a host with no
+/// port, or a loopback address with one. Not a URL, a path or a pattern, and
+/// not a public host with a port, which would be accepted here and then
+/// match nothing.
 fn is_host_entry(entry: &str) -> bool {
-    !entry.is_empty()
+    let plain = !entry.is_empty()
         && entry
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']'))
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']'));
+    let read_as = |scheme: &str| Url::parse(&format!("{scheme}://{entry}/")).ok();
+    let a_host =
+        read_as("https").is_some_and(|url| url.host_str().is_some_and(|host| entry.eq_ignore_ascii_case(host)));
+    let a_loopback_port = read_as("http").is_some_and(|url| {
+        let with_port = url
+            .host_str()
+            .zip(url.port_or_known_default())
+            .map(|(host, port)| format!("{host}:{port}"));
+        is_loopback(&url) && with_port.is_some_and(|written| entry.eq_ignore_ascii_case(&written))
+    });
+    plain && (a_host || a_loopback_port)
 }
 
 fn is_loopback(url: &Url) -> bool {
@@ -613,7 +626,13 @@ mod tests {
             spec.content_hosts = hosts;
             spec.validate()
         };
-        with(vec![content("files.slack.com", true), content("127.0.0.1:9000", false)]).unwrap();
+        with(vec![
+            content("files.slack.com", true),
+            content("127.0.0.1:9000", false),
+            content("LocalHost:8080", false),
+            content("[::1]:9000", true),
+        ])
+        .unwrap();
         for bad in [
             vec![content("", false)],
             vec![content("https://files.slack.com", true)],
@@ -621,6 +640,12 @@ mod tests {
             vec![content("*.slack.com", false)],
             vec![content("user@files.slack.com", true)],
             vec![content("files slack.com", true)],
+            // A port is for a loopback address. On any other host the entry would match nothing.
+            vec![content("files.slack.com:443", true)],
+            vec![content("files.slack.com:8443", true)],
+            vec![content("10.0.0.5:8080", false)],
+            vec![content("127.0.0.1:", false)],
+            vec![content(":9000", false)],
             // Named twice, or named as an API host too, one entry would contradict the other.
             vec![content("files.slack.com", true), content("FILES.slack.com", false)],
             vec![content("Slack.com", false)],

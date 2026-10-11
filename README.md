@@ -23,7 +23,7 @@ Read [the vision](docs/vision.md) for the full picture.
 - **Pagination** — one model for every provider: a cursor in, a page and the next cursor out
 - **Error classification** — `ReconnectRequired`, `RateLimited`, `AccessDenied`, `NotFound` and more, each with a stable code
 - **Files and recordings** — content is fetched as bytes, unchanged, from the hosts a provider declares; each host is marked to receive the credential or not, a redirect is followed only to a declared host, and content over the caller's limit is the error `too_large`, never a shorter file
-- **Call by name** — a typed method is also an operation callable with JSON, with input and output schemas, so one implementation serves backend code, agents, MCP and other languages. An operation called by name returns text or nothing: bytes are for the typed method
+- **Call by name** — a typed method is also an operation callable with JSON, with input and output schemas, so one implementation serves backend code, agents, MCP and other languages. A file fetched by name comes back as text or not at all: bytes are for the typed method
 - **Generic authenticated request** — call any endpoint of a registered provider with auth, retries and error mapping, even without a typed integration
 - **Per-provider hooks** — token-response parsing and response classification for services that break the standard (Slack, Notion, GitHub)
 

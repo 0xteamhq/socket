@@ -12,9 +12,9 @@ use url::Url;
 
 use super::{
     Classifier, MAX_BODY_BYTES, MAX_REDIRECTS, Transport, USER_AGENT, address, answer, authorized, caller_headers,
-    key_parameter, refuse_key_parameter, too_many_redirects, unreached, without_key_parameter,
+    key_parameter, refuse_key_parameter, too_many_redirects, unreached_once, without_key_parameter,
 };
-use crate::error::{Error, ErrorKind, Result, Retry};
+use crate::error::{Error, ErrorKind, Result};
 use crate::provider::{ProviderId, ProviderSpec};
 use crate::secret::TokenSet;
 
@@ -131,8 +131,8 @@ impl Content {
 
     /// The content as text, for an operation called by name.
     ///
-    /// An operation called by name returns text or nothing: bytes are never
-    /// handed to an agent, in any encoding. So content the host did not say
+    /// Content fetched by an operation called by name comes back as text or
+    /// not at all: bytes are never handed to an agent, in any encoding. So content the host did not say
     /// is text is refused, with a message that names its size and type, and
     /// so is text that is not UTF-8, which would otherwise have to be mended
     /// into something that only looks right: text the host says is in
@@ -301,21 +301,7 @@ impl Transport {
             Some(timeout) => builder.timeout(timeout),
             None => builder,
         };
-        // Content that did not arrive in the time allowed will not arrive in
-        // it the next time either, so running out of time is not tried
-        // again: the caller allows more.
-        let failed = |what: &str, e: reqwest::Error| {
-            let out_of_time = e.is_timeout();
-            let error = unreached(spec, what, e);
-            if out_of_time {
-                error
-                    .map_message(|m| format!("{m} in the time allowed"))
-                    .with_retry(Retry::Never)
-            } else {
-                error
-            }
-        };
-        let mut response = builder.send().await.map_err(|e| failed("reach", e))?;
+        let mut response = builder.send().await.map_err(|e| unreached_once(spec, "reach", e))?;
         let status = response.status().as_u16();
 
         if matches!(status, 301 | 302 | 303 | 307 | 308) {
@@ -346,7 +332,11 @@ impl Transport {
                 .and_then(|stated| stated.to_str().ok())
                 .map(str::to_owned);
             let mut bytes = Vec::new();
-            while let Some(chunk) = response.chunk().await.map_err(|e| failed("read the content from", e))? {
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|e| unreached_once(spec, "read the content from", e))?
+            {
                 if bytes.len() + chunk.len() > limit {
                     return Err(too_large());
                 }
@@ -357,7 +347,7 @@ impl Transport {
 
         // Anything else is the host declining, and is read as an API's error
         // is: an error page is not content, whatever it is made of.
-        let declined = answer(spec, response, false).await?;
+        let declined = answer(spec, response, false, unreached_once).await?;
         let error = match classifier.classify(provider, &declined) {
             // A provider may echo the request, credential included, in its error text.
             Err(error) => error.map_message(|m| m.replace(secret, "[redacted]")),
@@ -399,10 +389,59 @@ fn redirect_target(spec: &ProviderSpec, asked: &Url, location: Option<&HeaderVal
     Some(next)
 }
 
-/// True when `secret` is written in `url`, as it stands or percent-encoded in its query.
+/// True when `secret` is written anywhere in `url`: as it stands, as a form
+/// writes it, or under percent-encoding, in the path or in the query, alone
+/// or inside a longer value.
 fn carries(url: &Url, secret: &str) -> bool {
-    !secret.is_empty()
-        && (url.as_str().contains(secret) || url.query_pairs().any(|(name, value)| name == secret || value == secret))
+    if secret.is_empty() {
+        return false;
+    }
+    let within = |text: &[u8]| text.windows(secret.len()).any(|part| part == secret.as_bytes());
+    // A form writes a space as `+`, which only reading the query as a form undoes.
+    if url
+        .query_pairs()
+        .any(|(name, value)| within(name.as_bytes()) || within(value.as_bytes()))
+    {
+        return true;
+    }
+    // A host may decode what it is sent more than once, so a few layers are taken off.
+    let mut text = url.as_str().as_bytes().to_vec();
+    for _ in 0..3 {
+        if within(&text) {
+            return true;
+        }
+        let decoded = percent_decoded(&text);
+        if decoded == text {
+            return false;
+        }
+        text = decoded;
+    }
+    within(&text)
+}
+
+/// `text` with each `%XX` replaced by the byte it stands for.
+fn percent_decoded(text: &[u8]) -> Vec<u8> {
+    let hex = |byte: u8| char::from(byte).to_digit(16);
+    let mut decoded = Vec::with_capacity(text.len());
+    let mut at = 0;
+    while at < text.len() {
+        let pair = (
+            text.get(at + 1).copied().and_then(hex),
+            text.get(at + 2).copied().and_then(hex),
+        );
+        match (text[at], pair) {
+            (b'%', (Some(high), Some(low))) => {
+                // Two hex digits are at most 255.
+                decoded.push(u8::try_from(high * 16 + low).unwrap_or(b'%'));
+                at += 3;
+            }
+            (byte, _) => {
+                decoded.push(byte);
+                at += 1;
+            }
+        }
+    }
+    decoded
 }
 
 fn not_followed(spec: &ProviderSpec, status: u16) -> Error {
@@ -471,6 +510,17 @@ mod tests {
         let url = |address: &str| Url::parse(address).unwrap();
         assert!(carries(&url("https://x.test/blob?token=a%2Fb%3D"), "a/b="));
         assert!(carries(&url("https://x.test/files/xoxb-1/blob"), "xoxb-1"));
+        // Encoded in the path, inside a longer value, in small letters, as a form writes it, and twice over.
+        assert!(carries(&url("https://x.test/download/a%2Fb%3D"), "a/b="));
+        assert!(carries(&url("https://x.test/blob?next=Bearer%20a%2fb%3d%26x"), "a/b="));
+        assert!(carries(&url("https://x.test/blob?q=two+words"), "two words"));
+        assert!(carries(&url("https://x.test/download/a%252Fb%253D"), "a/b="));
+        assert!(
+            carries(&url("https://x.test/blob?name=a%2Fb%3D"), "a/b="),
+            "the name of a parameter is checked"
+        );
+        assert!(!carries(&url("https://x.test/download/a%2Fc%3D?sig=%zz%2"), "a/b="));
+        assert_eq!(percent_decoded(b"a%2Fb%3d%zz%2"), b"a/b=%zz%2");
         assert!(!carries(&url("https://x.test/blob?sig=abc"), "xoxb-1"));
         assert!(
             !carries(&url("https://x.test/blob"), ""),
