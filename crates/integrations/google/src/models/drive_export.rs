@@ -39,7 +39,7 @@ impl DriveExportFormat {
 pub struct DriveExport {
     /// The format the text is in: the one that was asked for.
     pub mime_type: DriveExportFormat,
-    /// The whole document. Empty when the document is.
+    /// The whole document. Empty when the document is empty.
     pub text: String,
 }
 

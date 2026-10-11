@@ -167,8 +167,12 @@ pub(super) fn decoded(value: &str) -> String {
 
 /// Whether a character shows as nothing, or changes how the text around it
 /// is shown: a control character, a character that only formats (a soft
-/// hyphen, a zero-width space or joiner, a mark that turns the direction of
-/// writing around, a tag), or a separator of lines.
+/// hyphen, a zero-width space, a mark that turns the direction of writing
+/// around, a tag), or a separator of lines.
+///
+/// The two joiners (U+200C and U+200D) are kept. Persian and the scripts of
+/// India are written with them, and so is an emoji made of several; they
+/// change how letters join and neither hide nor reorder anything.
 ///
 /// Someone else's text can use these to hide what it says from a person and
 /// not from a program, or to show an address written backwards.
@@ -179,7 +183,8 @@ fn unseen(character: char) -> bool {
             '\u{ad}'
                 | '\u{61c}'
                 | '\u{180e}'
-                | '\u{200b}'..='\u{200f}'
+                | '\u{200b}'
+                | '\u{200e}'..='\u{200f}'
                 | '\u{2028}'..='\u{202e}'
                 | '\u{2060}'..='\u{206f}'
                 | '\u{feff}'
@@ -356,6 +361,14 @@ mod tests {
     }
 
     #[test]
+    fn the_joiners_a_script_or_an_emoji_is_written_with_are_kept() {
+        // Persian "mi-khaham" with its non-joiner, and a family made of three people.
+        for written in ["می\u{200c}خواهم", "👨\u{200d}👩\u{200d}👧"] {
+            assert_eq!(readable(written), written);
+        }
+    }
+
+    #[test]
     fn what_is_not_seen_becomes_a_space_and_never_reaches_a_reader() {
         // A line break, a mark that turns the writing around, a zero-width
         // space, a soft hyphen, a separator of lines, a byte order mark, a tag.
@@ -367,7 +380,6 @@ mod tests {
             '\u{61c}',
             '\u{180e}',
             '\u{200b}',
-            '\u{200d}',
             '\u{200f}',
             '\u{2028}',
             '\u{2029}',

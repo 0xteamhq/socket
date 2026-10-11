@@ -289,10 +289,11 @@ impl<'a> Reader<'a> {
             Some(object) if object.image_properties.is_some() => "image",
             _ => "object",
         };
-        let described = object
-            .and_then(|object| object.title.as_deref().or(object.description.as_deref()))
-            .map(str::trim)
-            .filter(|described| !described.is_empty());
+        // Its title, or its description when it has no title to speak of.
+        fn said(words: &Option<String>) -> Option<&str> {
+            words.as_deref().map(str::trim).filter(|words| !words.is_empty())
+        }
+        let described = object.and_then(|object| said(&object.title).or_else(|| said(&object.description)));
         match described {
             Some(described) => format!("[{kind}: {described}]"),
             None => format!("[{kind}]"),
@@ -725,7 +726,7 @@ mod tests {
                 "title": "Floor plan", "description": "The ground floor",
                 "imageProperties": { "contentUri": "https://lh3.googleusercontent.com/secret" }
             } } },
-            "kix.img2": { "inlineObjectProperties": { "embeddedObject": { "description": " A chart of sales ", "imageProperties": {} } } },
+            "kix.img2": { "inlineObjectProperties": { "embeddedObject": { "title": "  ", "description": " A chart of sales ", "imageProperties": {} } } },
             "kix.img3": { "inlineObjectProperties": { "embeddedObject": { "imageProperties": {} } } },
             "kix.draw": { "inlineObjectProperties": { "embeddedObject": { "embeddedDrawingProperties": {} } } }
         });

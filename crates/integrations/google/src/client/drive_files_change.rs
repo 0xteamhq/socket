@@ -80,6 +80,13 @@ impl DriveFiles<'_> {
             id => id.to_owned(),
         };
         let current = self.get(file).await?;
+        // The same refusal once both are known by their ids: `root`, and the
+        // top folder named by its id, are one folder.
+        if current.id == folder {
+            return Err(self
+                .0
+                .error(ErrorKind::InvalidInput, "a folder cannot be moved into itself"));
+        }
         let elsewhere: Vec<&str> = current
             .parents
             .iter()

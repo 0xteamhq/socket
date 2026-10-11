@@ -47,9 +47,9 @@ pub struct FreeBusyCalendar {
     pub errors: Vec<FreeBusyError>,
 }
 
-/// A stretch of time in which a calendar is busy.
+/// A stretch of time in which a calendar is busy. One that came without
+/// its start or its end is not read as one.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
 pub struct FreeBusyPeriod {
     pub start: String,
     /// Exclusive.

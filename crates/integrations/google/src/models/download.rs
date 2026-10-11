@@ -10,7 +10,9 @@ pub struct Download {
     /// The most bytes to read: ten megabytes unless set. A file that is
     /// larger is refused with the error `too_large`; it is never cut short.
     pub max_bytes: Option<usize>,
-    /// The longest to wait for the whole file, in seconds. Thirty unless set.
+    /// The longest one try may take, from connecting to the last byte, in
+    /// seconds. Thirty unless set. A fetch that Google throttles or fails
+    /// with a server error is tried again, each try with this much time.
     pub timeout_secs: Option<u64>,
 }
 

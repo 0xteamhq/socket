@@ -84,7 +84,8 @@ pub(super) fn mailbox(text: &str) -> Option<&str> {
             && label.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
     };
     let domain_fits = domain.len() <= 253 && domain.contains('.') && domain.split('.').all(label);
-    (local_fits && domain_fits).then_some(text)
+    // Mail carries an address of at most 254 characters.
+    (local_fits && domain_fits && text.len() <= 254).then_some(text)
 }
 
 /// A name as a header holds it: bare words where they need nothing more,
@@ -455,6 +456,23 @@ mod tests {
             );
         }
         assert_eq!(mailbox("a=b?c@example.test"), Some("a=b?c@example.test"));
+    }
+
+    #[test]
+    fn an_address_longer_than_mail_carries_is_not_a_mailbox() {
+        let domain = |length: usize| {
+            format!(
+                "{}.example.test",
+                ["a".repeat(60).as_str(); 4].join(".")[..length].to_owned()
+            )
+        };
+        // 64 before the `@`, and a domain that makes 254 in all, then 255.
+        let fits = format!("{}@{}", "a".repeat(64), domain(189 - ".example.test".len()));
+        assert_eq!(fits.len(), 254);
+        assert_eq!(mailbox(&fits), Some(fits.as_str()));
+        let over = format!("{}@{}", "a".repeat(64), domain(190 - ".example.test".len()));
+        assert_eq!(over.len(), 255);
+        assert_eq!(mailbox(&over), None);
     }
 
     #[test]

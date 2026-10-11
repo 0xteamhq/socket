@@ -54,6 +54,8 @@ pub struct EventEntryPoint {
     pub meeting_code: Option<String>,
     pub access_code: Option<String>,
     pub passcode: Option<String>,
+    /// The country or region a phone number is for, as two letters: `US`.
+    pub region_code: Option<String>,
     pub password: Option<String>,
 }
 

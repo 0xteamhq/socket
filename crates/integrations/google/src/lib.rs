@@ -10,7 +10,9 @@
 //! `meet_participants`, `meet_transcripts`, `meet_recordings`,
 //! `meet_spaces`), Drive (`drive_files`, `drive_shared_drives`), Docs
 //! (`docs_documents`) and Sheets (`sheets_spreadsheets`). Every typed method
-//! is also a named operation. See `docs/integrations/google.md`.
+//! is also a named operation, except the two that return a file's bytes
+//! (`gmail_messages.attachment_content`, `drive_files.download`): by name
+//! the same file is read as text. See `docs/integrations/google.md`.
 
 mod client;
 pub mod models;

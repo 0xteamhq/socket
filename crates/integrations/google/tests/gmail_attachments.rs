@@ -221,7 +221,9 @@ async fn a_file_that_is_not_text_is_refused_by_name_and_nothing_of_it_is_returne
     // and an escape that would clear the screen it is shown on.
     let zip = b"PK\x03\x04CONFIDENTIAL\0\0".to_vec();
     let escape = b"CONFIDENTIAL \x1b[2J\x1b[H".to_vec();
-    for file in [pdf, png, latin, zip, escape] {
+    // The same escape as one character, which a terminal reads as well.
+    let one_character = "CONFIDENTIAL \u{9b}2J".as_bytes().to_vec();
+    for file in [pdf, png, latin, zip, escape, one_character] {
         let (server, socket, key) = google().await;
         let body = json!({ "size": file.len(), "data": URL_SAFE.encode(&file) });
         Mock::given(any()).respond_with(answer(200, &body)).mount(&server).await;

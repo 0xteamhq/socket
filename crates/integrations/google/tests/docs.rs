@@ -44,7 +44,11 @@ async fn getting_a_document_asks_for_its_tabs_and_for_nothing_written_in_them() 
         .await
         .unwrap();
     let request = only_request(&server).await;
-    assert_eq!(query_of(&request), json!({ "fields": DOCUMENT_FIELDS }));
+    // Google fills in the tabs only when asked to; the mask keeps their text out.
+    assert_eq!(
+        query_of(&request),
+        json!({ "includeTabsContent": "true", "fields": DOCUMENT_FIELDS })
+    );
     let fields = DOCUMENT_FIELDS;
     assert!(
         !fields.contains("documentTab") && !fields.contains("body"),
@@ -204,11 +208,6 @@ async fn text_is_added_exactly_as_given_at_the_end_of_the_first_tab_or_of_the_on
         // No tab: the end of the body of the first one. The location is
         // still named, or Google would not know where the text goes.
         (json!({ "text": "Agreed." }), insert("Agreed.", json!({}))),
-        // A tab that is blank is no tab at all.
-        (
-            json!({ "text": "Agreed.", "tabId": "  " }),
-            insert("Agreed.", json!({})),
-        ),
         (
             json!({ "text": "Agreed.", "tabId": null }),
             insert("Agreed.", json!({})),
@@ -238,6 +237,21 @@ async fn text_is_added_exactly_as_given_at_the_end_of_the_first_tab_or_of_the_on
         assert_eq!(body_of(&request), sent, "{input}");
         assert_eq!(updated["writeControl"]["requiredRevisionId"], REVISION);
     }
+}
+
+#[tokio::test]
+async fn a_tab_that_is_named_and_blank_is_refused_and_not_taken_for_the_first() {
+    // The text would go into a tab the caller did not mean.
+    let (server, socket, key) = google().await;
+    for tab in ["", "  "] {
+        let input = json!({ "document": DOCUMENT, "text": "Agreed.", "tabId": tab });
+        let err = invoke(&socket, &key, "docs_documents.append_text", input)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert!(err.message().contains("`tabId`"), "{}", err.message());
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -651,7 +665,7 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
             (
                 "GET".to_owned(),
                 path.clone(),
-                json!({ "fields": DOCUMENT_FIELDS }),
+                json!({ "includeTabsContent": "true", "fields": DOCUMENT_FIELDS }),
                 Value::Null
             ),
             (

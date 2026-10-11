@@ -170,7 +170,8 @@ impl Api<'_> {
         if paging.limit.is_some_and(|limit| !(1..=most).contains(&limit)) {
             return Err(self.error(ErrorKind::InvalidInput, format!("`limit` is from 1 to {most}")));
         }
-        let cursor = paging.cursor.as_deref().map(str::trim).filter(|c| !c.is_empty());
+        // The token goes back exactly as Google gave it. One that is blank is no token.
+        let cursor = paging.cursor.as_deref().filter(|c| !c.trim().is_empty());
         let request = match paging.limit {
             Some(limit) => request.with_query(size, limit.to_string()),
             None => request,
@@ -193,11 +194,18 @@ impl Api<'_> {
         let Some(fields) = body.as_object_mut() else {
             return Err(self.error(ErrorKind::Decode, format!("google answered without {what}")));
         };
-        let next_cursor = fields
-            .get("nextPageToken")
-            .and_then(Value::as_str)
-            .filter(|token| !token.is_empty())
-            .map(str::to_owned);
+        // A token that is not text cannot be passed back, and taking it for
+        // none would end the list before its last page.
+        let next_cursor = match fields.get("nextPageToken") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(token)) => Some(token.clone()).filter(|token| !token.is_empty()),
+            Some(_) => {
+                return Err(self.error(
+                    ErrorKind::Decode,
+                    format!("google sent {what} with a page token that could not be read"),
+                ));
+            }
+        };
         let items = match fields.remove(field) {
             None | Some(Value::Null) => Vec::new(),
             Some(items) => self.decode(items, what)?,
@@ -235,10 +243,12 @@ impl Api<'_> {
 /// Only the names of our own types' fields are written out. Google also
 /// keys some of its answers by its data: when calendars are busy is keyed by
 /// each calendar's id, which is a person's address. Such a key is not ours
-/// to put in an error, so anything that is not written as a field name is
-/// replaced by `*`.
+/// to put in an error. So what comes under a field that is keyed that way
+/// ([`KEYED`]) is always replaced by `*`, and so is anything else that is
+/// not written as a field name.
 fn place(path: &serde_path_to_error::Path) -> String {
     use serde_path_to_error::Segment;
+    let mut keyed = false;
     let is_field = |name: &str| {
         (1..=40).contains(&name.len())
             && name.starts_with(|c: char| c.is_ascii_alphabetic())
@@ -251,10 +261,11 @@ fn place(path: &serde_path_to_error::Path) -> String {
                 place.push_str(&format!("[{index}]"));
                 continue;
             }
-            Segment::Map { key: name } | Segment::Enum { variant: name } if is_field(name) => name.as_str(),
+            Segment::Map { key: name } | Segment::Enum { variant: name } if is_field(name) && !keyed => name.as_str(),
             Segment::Map { .. } | Segment::Enum { .. } => "*",
             Segment::Unknown => "?",
         };
+        keyed = KEYED.contains(&name);
         if !place.is_empty() {
             place.push('.');
         }
@@ -262,6 +273,11 @@ fn place(path: &serde_path_to_error::Path) -> String {
     }
     place
 }
+
+/// The fields of Google's answers whose own fields are named by data and
+/// not by Google: a calendar's id, the id of a list, a picture or a footnote
+/// in a document.
+const KEYED: [&str; 5] = ["calendars", "groups", "lists", "inlineObjects", "footnotes"];
 
 /// See [`Api::on`].
 fn address(base: &Url, host: &str, path: &str) -> String {
@@ -376,9 +392,10 @@ mod tests {
             "calendars.*[1].start",
             "a calendar's id is a person's address"
         );
+        // Whatever a key looks like: it is still someone's data.
         assert_eq!(
             place_of(json!({ "calendars": { "primary": [{ "start": null }] } })),
-            "calendars.primary[0].start"
+            "calendars.*[0].start"
         );
         assert_eq!(place_of(json!({ "calendars": 5 })), "calendars");
         assert_eq!(place_of(json!(5)), "", "the whole answer has no place");

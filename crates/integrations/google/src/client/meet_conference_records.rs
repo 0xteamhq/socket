@@ -8,7 +8,7 @@ use socketkit_core::{ErrorKind, Page, RawRequest, Result};
 
 use super::meet::{RECORD, SPACE, without_link};
 use super::{Api, MEET};
-use crate::models::{ConferenceRecord, MeetListConferenceRecords, Paging, meet_millis};
+use crate::models::{ConferenceRecord, MeetListConferenceRecords, Paging, meet_instant};
 
 /// The most conference records Google returns in one page.
 const MOST: u32 = 100;
@@ -109,11 +109,11 @@ impl MeetConferenceRecords<'_> {
     /// A time a caller gave as a bound: as it was written, and as a number
     /// to compare it by. Only a timestamp is let through, so what goes into
     /// the filter is digits and the marks a timestamp is written with.
-    fn time<'t>(&self, value: &'t Option<String>, field: &str) -> Result<Option<(&'t str, i64)>> {
+    fn time<'t>(&self, value: &'t Option<String>, field: &str) -> Result<Option<(&'t str, (i64, i64))>> {
         let Some(text) = set(value) else {
             return Ok(None);
         };
-        match meet_millis(text) {
+        match meet_instant(text) {
             Some(at) => Ok(Some((text, at))),
             None => Err(self.0.error(
                 ErrorKind::InvalidInput,

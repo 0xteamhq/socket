@@ -153,6 +153,12 @@ impl Part {
             .trim()
             .to_ascii_lowercase();
         let mut found = Found::default();
+        // A part that was attached is a file, whatever it is made of: what
+        // is inside it is the file's, and no part of what the message says.
+        if kind.starts_with("multipart/") && self.attached() {
+            self.leaf(&kind, &mut found);
+            return found;
+        }
         if kind == "multipart/alternative" {
             // The same content in several forms, the plainest first. The
             // last form that has text is the text, and likewise for HTML.
@@ -167,6 +173,26 @@ impl Part {
             self.leaf(&kind, &mut found);
         }
         found
+    }
+
+    /// Whether the sender attached this part as a file: it is marked as an
+    /// attachment, or has a file's name, or Gmail keeps it to be fetched.
+    fn attached(&self) -> bool {
+        let marked = self.values("Content-Disposition").next().is_some_and(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .eq_ignore_ascii_case("attachment")
+        });
+        let named = self.filename.as_deref().is_some_and(|name| !name.trim().is_empty());
+        let kept = self
+            .body
+            .as_ref()
+            .and_then(|body| body.attachment_id.as_deref())
+            .is_some_and(|id| !id.is_empty());
+        marked || named || kept
     }
 
     /// Reads a part that holds content of its own: a body, or a file.
@@ -290,6 +316,30 @@ mod tests {
 
     fn multipart(kind: &str, parts: Value) -> Value {
         json!({ "mimeType": format!("multipart/{kind}"), "body": { "size": 0 }, "parts": parts })
+    }
+
+    #[test]
+    fn a_part_that_was_attached_is_a_file_whatever_it_is_made_of() {
+        // A message forwarded as a file, written by its sender as a
+        // multipart of its own. What is inside it is not what this message says.
+        let mut attached = multipart(
+            "mixed",
+            json!([
+                part("text/plain", "Wire the money today."),
+                part("text/html", "<p>Wire the money today.</p>")
+            ]),
+        );
+        attached["filename"] = json!("forwarded.eml");
+        attached["headers"] = json!([{ "name": "Content-Disposition", "value": "ATTACHMENT; filename=forwarded.eml" }]);
+        let message = read(multipart(
+            "mixed",
+            json!([part("text/plain", "See attached."), attached]),
+        ));
+        assert_eq!(message.text.as_deref(), Some("See attached."));
+        assert_eq!(message.html, None);
+        assert_eq!(message.attachments.len(), 1);
+        assert_eq!(message.attachments[0].filename, "forwarded.eml");
+        assert_eq!(message.attachments[0].mime_type.as_deref(), Some("multipart/mixed"));
     }
 
     #[test]

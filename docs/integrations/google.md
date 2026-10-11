@@ -205,7 +205,7 @@ for row in &unread.items {
 
 - Header names are matched in any case. A header mail allows once (`subject`, `from`, `date`) is its first occurrence. A list of people written as several headers is joined with commas.
 - Header values are returned with RFC 2047 encoded words read (`=?UTF-8?B?…?=`), in UTF-8, ISO-8859-1 and Windows-1252. A word in another character set is left as it was sent.
-- A header, a subject and a file name are a stranger's text, so what a person would not see in them is returned as a space: control characters, zero-width characters and joiners, soft hyphens, line separators, and the marks that turn the direction of writing around (which can make `exe.fdp` read as `pdf.exe`, or a name read as an address). An emoji joined from several is returned as its parts.
+- A header, a subject and a file name are a stranger's text, so what a person would not see in them is returned as a space: control characters, zero-width spaces, soft hyphens, line separators, and the marks that turn the direction of writing around (which can make `exe.fdp` read as `pdf.exe`, or a name read as an address). The two joiners (U+200C, U+200D) are kept: Persian and Indic scripts are written with them, and so is an emoji made of several.
 - `from`, `to`, `cc`, `bcc` and `replyTo` are written so that the mailbox cannot be mistaken: it is the address in angle brackets, or the one that stands alone. A name beside it is bare only when it is plain words (letters, digits, spaces, `.`, `-`, `'`, `_`), and in quotes otherwise, so a name written to look like an address, with `@` and `<` or with the full-width signs that resemble them, stays a quoted name. What is not one plain mailbox is returned as text in quotes and never as an address: a group, an address with a quoted part or an encoded word in it, and a whole header that ends inside a comment or a quoted name. These fields are for a person or a program to read and decide on. Nothing Socket does is decided by them.
 - `text` is every `text/plain` part that is not a file, and `html` every `text/html` part. Of the alternatives of one message (`multipart/alternative`) one text and one HTML are kept. A body is read in the character set its part names; UTF-8, ASCII, ISO-8859-1 and Windows-1252 are read exactly, and anything else is read as UTF-8 with the replacement character where it is not.
 - `attachments` lists every part that is a file: `attachmentId`, `filename`, `mimeType`, `size`, `inline`, `contentId` and `partId`. A text file that was attached is listed here and is not part of `text`. `inline` is `true` for a part the sender marked to be shown in the body, such as a picture in a signature, which the HTML refers to as `cid:` and its `contentId`.
@@ -1001,6 +1001,7 @@ Across all of Google: incoming events (push notifications and watch channels), i
 - **Attachments on a message that is sent or drafted.** `GmailSendMessage` is text and HTML.
 - **An attachment's bytes from an operation called by name.** `attachment_content` is a typed method only; by name, `attachment_text` returns a file that is UTF-8 text and refuses any other.
 - **Attachments that are text in another encoding** (UTF-16, Windows-1252), read as text. `attachment_content` returns their bytes.
+- **A file Gmail sent inside the message and not as one to fetch.** Such a part is listed in `attachments` with no `attachmentId`, and its bytes are not returned: a small calendar invitation can arrive this way.
 - **Reading part of an attachment.** A file is fetched whole or refused; Gmail offers no range of one.
 - **A draft that is a reply.** `reply` sends at once; `gmail_drafts.create` starts a new thread.
 - **Reply all, and forwarding.** Give `reply` the `to` and `cc` you want.
@@ -1048,6 +1049,7 @@ Across all of Google: incoming events (push notifications and watch channels), i
 - **Permanent deletion**, left out on purpose, and **taking a file out of the bin**.
 - **Sharing**: adding, changing or removing a permission.
 - **Uploading a file, or changing a file's content.** `create_folder` and `copy` are the only ways to make a file here.
+- **A file that needs a resource key.** Some files shared by link before 2021 are opened only with the key in their link (`X-Goog-Drive-Resource-Keys`). `shortcutDetails.targetResourceKey` is returned, but no method sends a key yet, so such a file is refused by Google.
 - **Creating a shortcut**, and following one: read the target by `shortcutDetails.targetId`.
 - **Other fields of a file**, such as `description`, `starred`, `lastModifyingUser`, `capabilities`, `exportLinks` and labels, and **changing anything but a file's name, folder and bin**.
 - **Comments, revisions, change tracking and notifications.**

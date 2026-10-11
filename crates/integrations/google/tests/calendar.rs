@@ -1326,11 +1326,29 @@ async fn a_success_that_does_not_carry_the_result_is_an_error() {
 }
 
 #[tokio::test]
+async fn a_busy_period_without_its_start_or_its_end_is_not_read_as_one() {
+    // Half a period says nothing a caller could plan by.
+    for period in [
+        json!({ "start": "2026-10-12T09:00:00Z" }),
+        json!({ "end": "2026-10-12T10:00:00Z" }),
+        json!({}),
+    ] {
+        let answer = json!({ "kind": "calendar#freeBusy", "calendars": { "primary": { "busy": [period] } } });
+        let (_server, socket, key) = answering(200, answer).await;
+        let input = json!({ "calendars": ["primary"], "timeMin": ONE_DAY[0], "timeMax": ONE_DAY[1] });
+        let err = invoke(&socket, &key, "calendar_freebusy.query", input)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Decode, "{err}");
+    }
+}
+
+#[tokio::test]
 async fn busy_times_that_cannot_be_read_do_not_name_the_person_whose_calendar_it_is() {
     // Google keys the answer by each calendar's id, which is its owner's address.
     let answer = json!({
         "kind": "calendar#freeBusy",
-        "calendars": { "grace@example.test": { "busy": [{ "start": "2026-10-12T09:00:00Z" }, { "start": 9 }] } }
+        "calendars": { "grace@example.test": { "busy": [{ "start": "2026-10-12T09:00:00Z", "end": "2026-10-12T10:00:00Z" }, { "start": 9, "end": "2026-10-12T12:00:00Z" }] } }
     });
     let (_server, socket, key) = answering(200, answer).await;
     let input = json!({ "calendars": ["grace@example.test"], "timeMin": ONE_DAY[0], "timeMax": ONE_DAY[1] });
@@ -1380,7 +1398,7 @@ async fn an_answer_that_cannot_be_read_names_the_field_and_never_repeats_what_go
             "calendar_freebusy.query",
             one_day_of(json!(["primary"])),
             unbusy,
-            "calendars.primary.busy",
+            "calendars.*.busy",
         ),
     ];
     for (operation, input, body, place) in checks {
@@ -1738,4 +1756,50 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
     );
     assert_eq!(sent[6].0, format!("POST {FREEBUSY_PATH}"));
     assert_eq!(sent[7], (format!("DELETE {CALENDAR_EVENT_PATH}"), Value::Null));
+}
+
+#[tokio::test]
+async fn an_answer_set_for_a_guest_is_one_google_knows_and_a_repeating_event_names_its_zone() {
+    let (server, socket, key) = google().await;
+    let times = json!({ "start": { "dateTime": AT_NINE }, "end": { "dateTime": AT_TEN } });
+    // A misspelt answer would be refused by Google after the request was sent.
+    let mut misspelt = times.clone();
+    misspelt["calendar"] = json!("primary");
+    misspelt["attendees"] = json!([{ "email": "grace@example.test", "responseStatus": "acepted" }]);
+    let err = invoke(&socket, &key, "calendar_events.insert", misspelt)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    assert!(err.message().contains("`responseStatus`"), "{}", err.message());
+    let patch = on_the_event(json!({ "attendees": [{ "email": "grace@example.test", "responseStatus": "yes" }] }));
+    let err = invoke(&socket, &key, "calendar_events.patch", patch).await.unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+
+    // Google expands a repeating event in the zone it was made in.
+    for (start, end) in [
+        (json!({ "dateTime": AT_NINE }), json!({ "dateTime": AT_TEN })),
+        (
+            json!({ "dateTime": AT_NINE, "timeZone": "America/Los_Angeles" }),
+            json!({ "dateTime": AT_TEN }),
+        ),
+        (
+            json!({ "dateTime": AT_NINE, "timeZone": " " }),
+            json!({ "dateTime": AT_TEN, "timeZone": "America/Los_Angeles" }),
+        ),
+    ] {
+        let weekly =
+            json!({ "calendar": "primary", "start": start, "end": end, "recurrence": ["RRULE:FREQ=WEEKLY;COUNT=10"] });
+        let err = invoke(&socket, &key, "calendar_events.insert", weekly.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput, "{weekly}");
+        assert!(err.message().contains("`timeZone`"), "{}", err.message());
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+
+    // An all-day event that repeats has dates, and needs no zone.
+    let (server, socket, key) = answering(200, calendar_event()).await;
+    let yearly = json!({ "calendar": "primary", "start": { "date": "2026-10-12" }, "end": { "date": "2026-10-13" }, "recurrence": ["RRULE:FREQ=YEARLY"] });
+    invoke(&socket, &key, "calendar_events.insert", yearly).await.unwrap();
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }

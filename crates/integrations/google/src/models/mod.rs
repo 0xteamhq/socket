@@ -104,4 +104,4 @@ pub(crate) use gmail_draft::GmailWireDraft;
 pub(crate) use gmail_mime::GmailWireMessage;
 pub(crate) use gmail_rfc2822::{GmailThreading, raw as gmail_raw, sendable as gmail_sendable};
 pub(crate) use gmail_thread::GmailWireThread;
-pub(crate) use meet_time::millis as meet_millis;
+pub(crate) use meet_time::instant as meet_instant;

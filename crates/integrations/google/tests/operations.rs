@@ -317,7 +317,7 @@ fn docs_cases() -> Vec<Case> {
     vec![
         // Asks for the names of the document and of its tabs, and nothing written in them.
         Case::new("docs_documents.get", json!({ "document": DOCUMENT }), "GET", document_path.clone())
-            .query(json!({ "fields": DOCUMENT_FIELDS }))
+            .query(json!({ "includeTabsContent": "true", "fields": DOCUMENT_FIELDS }))
             .answers(200, document())
             .returns(json!({ "documentId": DOCUMENT, "title": "Q3 plan", "revisionId": REVISION, "tabs": [
                 { "tabId": "t.0", "title": "Plan", "index": 0, "nestingLevel": 0, "parentTabId": null },
@@ -615,6 +615,14 @@ async fn every_operation_describes_its_input_and_marks_what_it_changes() {
         }
     }
 
+    // The two every integration has are reads as well, and say what they
+    // need: both read Drive.
+    for name in ["google.identity.get", "google.resource.resolve"] {
+        let operation = find(name);
+        assert_eq!(operation.effect, Effect::Read, "{name}");
+        assert_eq!(operation.required_scopes, [scopes::DRIVE_READONLY], "{name}");
+    }
+
     // Only the two Drive and Docs read scopes are asked for by default. An
     // operation that needs another says so, and the application asks for it.
     let socketkit_core::AuthScheme::OAuth2(oauth) = socketkit_google::provider().auth else {
@@ -710,5 +718,60 @@ async fn a_change_is_sent_once_when_google_fails_and_a_read_is_tried_again() {
             "PUT" | "DELETE" => assert_eq!(sent, 2, "{}", case.name),
             other => panic!("{}: {other} is not a verb Google is sent", case.name),
         }
+    }
+}
+
+#[tokio::test]
+async fn a_page_token_goes_back_as_google_gave_it_and_one_that_is_not_text_is_not_the_end() {
+    // The token is Google's own. It is sent exactly as it was returned.
+    let token = " CiAKGjBpNDd2Nmp2Zml2cXRwYjBpOXA= ";
+    let (server, socket, key) = google().await;
+    Mock::given(any())
+        .respond_with(answer(
+            200,
+            &serde_json::json!({ "kind": "calendar#calendarList", "items": [], "nextPageToken": token }),
+        ))
+        .mount(&server)
+        .await;
+    let page = invoke(
+        &socket,
+        &key,
+        "calendar_list.list",
+        serde_json::json!({ "cursor": token }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(page["next_cursor"], token);
+    let received = server.received_requests().await.unwrap();
+    assert_eq!(query_of(&received[0])["pageToken"], token);
+
+    // A blank one is no token: the first page is asked for.
+    let page = invoke(
+        &socket,
+        &key,
+        "calendar_list.list",
+        serde_json::json!({ "cursor": "  " }),
+    )
+    .await;
+    assert!(page.is_ok());
+    let received = server.received_requests().await.unwrap();
+    assert_eq!(query_of(&received[1]).get("pageToken"), None);
+
+    // Taken for none, a token that is not text would end the list before its last page.
+    for token in [
+        serde_json::json!(7),
+        serde_json::json!({ "next": "x" }),
+        serde_json::json!(["x"]),
+    ] {
+        let (server, socket, key) = google().await;
+        let listed = serde_json::json!({ "kind": "calendar#calendarList", "items": [], "nextPageToken": token });
+        Mock::given(any())
+            .respond_with(answer(200, &listed))
+            .mount(&server)
+            .await;
+        let err = invoke(&socket, &key, "calendar_list.list", serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Decode, "{err}");
     }
 }

@@ -11,6 +11,14 @@
 /// timestamp. `None` when `text` is not one. Digits after the third of a
 /// fraction are dropped.
 pub(crate) fn millis(text: &str) -> Option<i64> {
+    let (seconds, billionths) = instant(text)?;
+    Some(seconds * 1_000 + billionths / 1_000_000)
+}
+
+/// The same moment as whole seconds from the start of 1970 (UTC) and the
+/// billionths of a second after them, to tell apart two times that fall in
+/// one millisecond. Digits after the ninth of a fraction are dropped.
+pub(crate) fn instant(text: &str) -> Option<(i64, i64)> {
     let bytes = text.as_bytes();
     // `2026-10-12T16:00:00Z` is the shortest there is.
     if bytes.len() < 20 || !text.is_ascii() {
@@ -39,7 +47,7 @@ pub(crate) fn millis(text: &str) -> Option<i64> {
     // The fraction, when there is one, however fine: what is finer than a
     // thousandth is left off.
     let mut at = 19;
-    let mut thousandths = 0;
+    let mut billionths = 0;
     if is(at, b".") {
         let digits: Vec<i64> = bytes[at + 1..]
             .iter()
@@ -49,9 +57,9 @@ pub(crate) fn millis(text: &str) -> Option<i64> {
         if digits.is_empty() {
             return None;
         }
-        // `.5` is 500 thousandths, `.250999` is 250.
-        for place in 0..3 {
-            thousandths = thousandths * 10 + digits.get(place).copied().unwrap_or(0);
+        // `.5` is 500 thousandths, which is 500,000,000 billionths.
+        for place in 0..9 {
+            billionths = billionths * 10 + digits.get(place).copied().unwrap_or(0);
         }
         at += 1 + digits.len();
     }
@@ -71,7 +79,7 @@ pub(crate) fn millis(text: &str) -> Option<i64> {
     };
 
     let seconds = days_from_1970(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second - ahead_minutes * 60;
-    Some(seconds * 1_000 + thousandths)
+    Some((seconds, billionths))
 }
 
 fn days_in(year: i64, month: i64) -> i64 {
@@ -98,7 +106,7 @@ fn days_from_1970(year: i64, month: i64, day: i64) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::millis;
+    use super::{instant, millis};
 
     #[test]
     fn a_time_is_read_with_and_without_a_fraction() {
@@ -111,6 +119,9 @@ mod tests {
         assert_eq!(millis("2026-10-12T16:00:04.000000001Z"), Some(1_791_820_804_000));
         // Finer than Google is known to write. What is past a thousandth is left off.
         assert_eq!(millis("2026-10-12T16:00:04.2501234567Z"), Some(1_791_820_804_250));
+        // Two times in one millisecond are still told apart.
+        assert!(instant("2026-10-12T16:00:04.0009Z") > instant("2026-10-12T16:00:04.0001Z"));
+        assert_eq!(instant("2026-10-12T16:00:04.000000001+00:00"), Some((1_791_820_804, 1)));
         assert_eq!(millis("2026-10-12t16:00:00z"), Some(1_791_820_800_000));
     }
 

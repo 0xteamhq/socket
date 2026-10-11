@@ -4,9 +4,10 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// A label. Gmail's own have fixed ids (`INBOX`, `UNREAD`, `STARRED`,
-/// `SENT`, `DRAFT`, `TRASH`, `SPAM`, `IMPORTANT`, `CATEGORY_UPDATES`); a
-/// person's own have ids such as `Label_12`.
+/// A label. Gmail's own have fixed ids, such as `INBOX`, `UNREAD`,
+/// `STARRED`, `SENT`, `DRAFT`, `TRASH`, `SPAM`, `IMPORTANT` and the
+/// `CATEGORY_…` ids of the inbox's tabs; a person's own have ids such as
+/// `Label_12`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GmailLabel {

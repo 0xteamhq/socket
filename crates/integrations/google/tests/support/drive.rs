@@ -96,7 +96,7 @@ pub fn files(files: Value) -> Value {
 /// A person who may edit, set on the file itself.
 pub fn writer() -> Value {
     json!({
-        "id": "08412345678901234567",
+        "id": "17523456789012345678",
         "type": "user",
         "role": "writer",
         "emailAddress": "grace@example.test",
@@ -106,7 +106,10 @@ pub fn writer() -> Value {
     })
 }
 
-/// Everyone in a domain may read, by way of the shared drive above the file.
+/// Everyone in a domain may read, by way of the shared drive above the
+/// file: what Drive answers for a file kept in [`SHARED_DRIVE`]. The tests
+/// that list permissions say what the server answers, whichever file is
+/// asked about.
 pub fn domain_reader() -> Value {
     json!({
         "id": "12345678901234567890k",

@@ -58,7 +58,7 @@ impl GmailAttachmentText {
             None => text,
         };
         let written = |character: char| matches!(character, '\t' | '\n' | '\r' | '\u{c}');
-        let binary = |character: char| character.is_ascii_control() && !written(character);
+        let binary = |character: char| character.is_control() && !written(character);
         (!text.contains(binary)).then_some(Self { size, text })
     }
 }

@@ -35,7 +35,11 @@ impl DocsDocuments<'_> {
     /// Gets a document's title, its revision and its tabs, without what is
     /// written in it.
     pub async fn get(&self, document: &str) -> Result<Document> {
-        let request = RawRequest::get(self.path(document)?).with_query("fields", light());
+        // Google fills in `tabs` only when asked to. The mask keeps what is
+        // written in them out of the answer.
+        let request = RawRequest::get(self.path(document)?)
+            .with_query("includeTabsContent", "true")
+            .with_query("fields", light());
         self.document(self.0.send(request).await?)
     }
 
@@ -74,8 +78,11 @@ impl DocsDocuments<'_> {
             return Err(self.0.error(ErrorKind::InvalidInput, "`text` is required"));
         }
         // The end of the body, in the first tab unless another is named.
+        // A tab that is named and blank is a mistake, not the first tab:
+        // the text would go somewhere the caller did not mean.
         let mut end = Map::new();
-        if let Some(tab) = append.tab_id.as_deref().map(str::trim).filter(|tab| !tab.is_empty()) {
+        if let Some(tab) = append.tab_id.as_deref().map(str::trim) {
+            self.0.required("`tabId`", tab)?;
             end.insert("tabId".to_owned(), Value::from(tab));
         }
         let insert = json!({ "insertText": { "text": append.text, "endOfSegmentLocation": end } });

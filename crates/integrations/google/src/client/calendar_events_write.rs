@@ -20,6 +20,18 @@ impl CalendarEvents<'_> {
         let path = self.events(calendar)?;
         self.time("start", &event.start)?;
         self.time("end", &event.end)?;
+        // Google expands a repeating event in the zone it was made in, and
+        // refuses a timed one that names none.
+        let repeats = event.recurrence.as_deref().is_some_and(|rules| !rules.is_empty());
+        let unzoned = |time: &EventTime| {
+            time.date_time.is_some() && time.time_zone.as_deref().is_none_or(|zone| zone.trim().is_empty())
+        };
+        if repeats && (unzoned(&event.start) || unzoned(&event.end)) {
+            return Err(self.0.error(
+                ErrorKind::InvalidInput,
+                "an event that repeats needs a `timeZone` on its `start` and its `end`",
+            ));
+        }
         self.invitees(event.attendees.as_deref())?;
         let (request, content) = self.split(RawRequest::new("POST", path), set(&event))?;
         self.event(self.0.send(request.with_body(Value::Object(content))).await?)
@@ -246,6 +258,16 @@ impl CalendarEvents<'_> {
             .any(|attendee| attendee.email.trim().is_empty())
         {
             return Err(self.0.error(ErrorKind::InvalidInput, "every attendee needs an `email`"));
+        }
+        let answers = attendees
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|a| a.response_status.as_deref());
+        if answers.into_iter().any(|answer| !ANSWERS.contains(&answer)) {
+            return Err(self.0.error(
+                ErrorKind::InvalidInput,
+                "an attendee's `responseStatus` is accepted, declined, tentative or needsAction",
+            ));
         }
         Ok(())
     }

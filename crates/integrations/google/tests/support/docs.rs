@@ -59,9 +59,9 @@ pub fn created_document() -> Value {
 pub fn paragraph(words: &str, style: &str) -> Value {
     json!({
         "startIndex": 1,
-        "endIndex": 1 + words.encode_utf16().count(),
+        "endIndex": 2 + words.encode_utf16().count(),
         "paragraph": {
-            "elements": [{ "startIndex": 1, "endIndex": 2, "textRun": { "content": format!("{words}\n"), "textStyle": {} } }],
+            "elements": [{ "startIndex": 1, "endIndex": 2 + words.encode_utf16().count(), "textRun": { "content": format!("{words}\n"), "textStyle": {} } }],
             "paragraphStyle": { "namedStyleType": style, "direction": "LEFT_TO_RIGHT" }
         }
     })

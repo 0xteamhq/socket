@@ -1734,3 +1734,29 @@ async fn a_move_goes_to_one_folder_and_never_to_a_list_of_them() {
     }
     assert!(server.received_requests().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn the_top_folder_is_not_moved_into_itself_by_either_of_its_names() {
+    // `root` and the id Google gives for it are one folder.
+    let (server, socket, key) = google().await;
+    let top = doc_with(json!({ "id": ROOT_ID, "mimeType": "application/vnd.google-apps.folder", "parents": [] }));
+    Mock::given(method("GET"))
+        .respond_with(answer(200, &top))
+        .mount(&server)
+        .await;
+    let err = invoke(
+        &socket,
+        &key,
+        "drive_files.move_to",
+        json!({ "file": ROOT_ID, "folder": "root" }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    assert_eq!(err.message(), "a folder cannot be moved into itself");
+    let received = server.received_requests().await.unwrap();
+    assert!(
+        received.iter().all(|request| request.method.as_str() == "GET"),
+        "nothing was changed"
+    );
+}

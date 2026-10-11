@@ -1115,3 +1115,19 @@ async fn the_typed_methods_do_what_the_named_operations_do() {
         [json!({ "filter": "space.name = \"spaces/jQCFfuBOdN5z\"" })]
     );
 }
+
+#[tokio::test]
+async fn bounds_that_are_the_wrong_way_round_by_less_than_a_millisecond_are_still_refused() {
+    let (server, socket, key) = google().await;
+    let input = json!({ "startTimeMin": "2026-10-12T16:00:00.0009Z", "startTimeMax": "2026-10-12T16:00:00.0001Z" });
+    let err = invoke(&socket, &key, "meet_conference_records.list", input)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    assert!(
+        err.message().contains("`startTimeMin` is after `startTimeMax`"),
+        "{}",
+        err.message()
+    );
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
