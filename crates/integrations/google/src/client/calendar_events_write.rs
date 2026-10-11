@@ -170,23 +170,22 @@ impl CalendarEvents<'_> {
         // back as it is, it would stand for the whole list. `attendeesOmitted`
         // is how Google is told that it does not: only the answer is changed.
         let partial = current["attendeesOmitted"] == true || current["guestsCanSeeOtherGuests"] == false;
-        let request = if partial {
-            let own = own.take();
-            request.with_body(json!({ "attendeesOmitted": true, "attendees": [own] }))
-        } else {
-            // With the version that was read, Google refuses the change if
-            // the event has changed since: a guest added in between is not
-            // dropped.
-            let Some(etag) = current["etag"].as_str().filter(|etag| !etag.is_empty()) else {
-                return Err(self.0.error(
-                    ErrorKind::Decode,
-                    "google returned the event without its version, so an answer could overwrite a change",
-                ));
-            };
-            request
-                .with_header("If-Match", etag)
-                .with_body(json!({ "attendees": attendees }))
+        // With the version that was read, Google refuses the change if the
+        // event has changed since: a guest added in between is not dropped,
+        // and a note the attendee wrote in between is not written over by
+        // the one that was read.
+        let Some(etag) = current["etag"].as_str().filter(|etag| !etag.is_empty()) else {
+            return Err(self.0.error(
+                ErrorKind::Decode,
+                "google returned the event without its version, so an answer could overwrite a change",
+            ));
         };
+        let body = if partial {
+            json!({ "attendeesOmitted": true, "attendees": [own.take()] })
+        } else {
+            json!({ "attendees": attendees })
+        };
+        let request = request.with_header("If-Match", etag).with_body(body);
         self.event(self.0.send(request).await?)
     }
 

@@ -1095,8 +1095,14 @@ async fn an_answer_on_a_hidden_guest_list_never_stands_for_the_whole_list() {
             2,
             "{what}: nothing else of the event is touched: {sent}"
         );
-        // Nothing but the answer is written, so a change made meanwhile is not at risk.
-        assert!(write.headers.get("if-match").is_none(), "{what}");
+        // The whole of the attendee's own entry goes back, with the note
+        // that was read. Named with the version it was read at, it is not
+        // written over a note the attendee has changed meanwhile.
+        assert_eq!(
+            write.headers.get("if-match").unwrap(),
+            current["etag"].as_str().unwrap(),
+            "{what}"
+        );
     }
 
     // A hidden list the calendar's owner is not on cannot be answered at all.
