@@ -124,7 +124,8 @@ fn expected() -> Vec<(&'static str, Effect, &'static [&'static str])> {
         ("calendar_freebusy.query", Effect::Read, &[scopes::CALENDAR_READONLY]),
         ("calendar_events.insert", Effect::Write, &[scopes::CALENDAR_EVENTS]),
         ("calendar_events.patch", Effect::Destructive, &[scopes::CALENDAR_EVENTS]),
-        ("calendar_events.respond", Effect::Write, &[scopes::CALENDAR_EVENTS]),
+        // The organiser sees an answer at once, and a notice that was sent cannot be taken back.
+        ("calendar_events.respond", Effect::Destructive, &[scopes::CALENDAR_EVENTS]),
         ("calendar_events.delete", Effect::Destructive, &[scopes::CALENDAR_EVENTS]),
 
         // ── meet: effects ──

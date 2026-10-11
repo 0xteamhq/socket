@@ -14,7 +14,7 @@ Neither Calendar scope is among the provider's defaults. An application that use
 | `calendar_freebusy.query(calendars, FreeBusyQuery)` | `FreeBusy`: when each calendar is busy inside a window | read | `calendar.readonly` |
 | `calendar_events.insert(calendar, EventInsert)` | `CalendarEvent`: the new event, with a Google Meet link when asked for | write | `calendar.events` |
 | `calendar_events.patch(calendar, event, EventPatch)` | `CalendarEvent`: the event with the fields given replaced | destructive | `calendar.events` |
-| `calendar_events.respond(calendar, event, EventResponse)` | `CalendarEvent`: the event with the calendar owner's answer set | write | `calendar.events` |
+| `calendar_events.respond(calendar, event, EventResponse)` | `CalendarEvent`: the event with the calendar owner's answer set | destructive | `calendar.events` |
 | `calendar_events.delete(calendar, event, EventDelete)` | nothing | destructive | `calendar.events` |
 
 Scopes are shown by their last part; each is `https://www.googleapis.com/auth/` followed by it. `calendar.events` also lets a token read events, but not the calendar list and not free/busy, so an application that does both asks for both.

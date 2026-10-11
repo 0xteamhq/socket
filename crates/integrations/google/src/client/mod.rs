@@ -89,14 +89,12 @@ impl Api<'_> {
     /// serde's own message quotes the value it could not read, and here that
     /// is the content of someone's mail or calendar. An error is logged and
     /// shown, so only the place of the value goes into it, and serde's error
-    /// is not kept as its cause. The names in the place come from our own types.
+    /// is not kept as its cause. See [`place`] for what a place may name.
     pub(super) fn decode<T: DeserializeOwned>(&self, body: Value, what: &str) -> Result<T> {
         serde_path_to_error::deserialize(body).map_err(|e| {
-            let path = e.path().to_string();
-            let place = if path == "." {
-                String::new()
-            } else {
-                format!(", at `{path}`")
+            let place = match place(e.path()) {
+                place if place.is_empty() => place,
+                place => format!(", at `{place}`"),
             };
             self.error(
                 ErrorKind::Decode,
@@ -179,6 +177,40 @@ impl Api<'_> {
         }
         Ok(encoded(id))
     }
+}
+
+/// Where in an answer a value could not be read, written for an error:
+/// `items[0].start.dateTime`.
+///
+/// Only the names of our own types' fields are written out. Google also
+/// keys some of its answers by its data: when calendars are busy is keyed by
+/// each calendar's id, which is a person's address. Such a key is not ours
+/// to put in an error, so anything that is not written as a field name is
+/// replaced by `*`.
+fn place(path: &serde_path_to_error::Path) -> String {
+    use serde_path_to_error::Segment;
+    let is_field = |name: &str| {
+        (1..=40).contains(&name.len())
+            && name.starts_with(|c: char| c.is_ascii_alphabetic())
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    let mut place = String::new();
+    for segment in path {
+        let name = match segment {
+            Segment::Seq { index } => {
+                place.push_str(&format!("[{index}]"));
+                continue;
+            }
+            Segment::Map { key: name } | Segment::Enum { variant: name } if is_field(name) => name.as_str(),
+            Segment::Map { .. } | Segment::Enum { .. } => "*",
+            Segment::Unknown => "?",
+        };
+        if !place.is_empty() {
+            place.push('.');
+        }
+        place.push_str(name);
+    }
+    place
 }
 
 /// See [`Api::on`].
@@ -271,6 +303,38 @@ mod tests {
         }
         let elsewhere = Url::parse("http://127.0.0.1:4010/").unwrap();
         assert_eq!(address(&elsewhere, SHEETS, "v4/spreadsheets/s1"), "v4/spreadsheets/s1");
+    }
+
+    #[test]
+    fn the_place_of_a_value_names_our_fields_and_never_a_key_of_googles_data() {
+        #[derive(Debug, serde::Deserialize)]
+        #[allow(dead_code)]
+        struct Busy {
+            calendars: std::collections::BTreeMap<String, Vec<Period>>,
+        }
+        #[derive(Debug, serde::Deserialize)]
+        #[allow(dead_code)]
+        struct Period {
+            start: String,
+        }
+        let place_of = |answer: Value| {
+            let unread = serde_path_to_error::deserialize::<_, Busy>(answer).unwrap_err();
+            place(unread.path())
+        };
+        assert_eq!(
+            place_of(json!({ "calendars": { "ada@example.test": [{ "start": "09:00" }, { "start": 9 }] } })),
+            "calendars.*[1].start",
+            "a calendar's id is a person's address"
+        );
+        assert_eq!(
+            place_of(json!({ "calendars": { "primary": [{ "start": null }] } })),
+            "calendars.primary[0].start"
+        );
+        assert_eq!(place_of(json!({ "calendars": 5 })), "calendars");
+        assert_eq!(place_of(json!(5)), "", "the whole answer has no place");
+        for key in ["has space", "1st", "a.b", "naïve", "", &"x".repeat(41)] {
+            assert_eq!(place_of(json!({ "calendars": { key: 5 } })), "calendars.*", "{key:?}");
+        }
     }
 
     #[test]

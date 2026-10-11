@@ -320,7 +320,7 @@ fn build() -> Vec<Operation> {
             |g: Google, c: Connection, i: CalendarEventInsert| async move { g.calendar_events(&c).insert(&i.calendar, i.options).await as Result<CalendarEvent> }),
         operation("calendar_events.patch", "Change an event, replacing the fields given and leaving the rest. Attendees, when given, replace the whole guest list: anyone left out is uninvited.", Destructive, &[scopes::CALENDAR_EVENTS],
             |g: Google, c: Connection, i: CalendarEventPatch| async move { g.calendar_events(&c).patch(&i.calendar, &i.event, i.options).await as Result<CalendarEvent> }),
-        operation("calendar_events.respond", "Answer an invitation on a calendar: accepted, declined, tentative, or needsAction to take an answer back. On primary this is the signed-in person's own answer. Nobody else on the guest list is changed.", Write, &[scopes::CALENDAR_EVENTS],
+        operation("calendar_events.respond", "Answer an invitation on a calendar: accepted, declined, tentative, or needsAction. On primary this is the signed-in person's own answer. The organiser sees it at once, and a notice sent with sendUpdates cannot be taken back. Nobody else on the guest list is changed.", Destructive, &[scopes::CALENDAR_EVENTS],
             |g: Google, c: Connection, i: CalendarEventRespond| async move { g.calendar_events(&c).respond(&i.calendar, &i.event, i.options).await as Result<CalendarEvent> }),
         operation("calendar_events.delete", "Delete an event. Deleting an event the account organised cancels it for its attendees.", Destructive, &[scopes::CALENDAR_EVENTS],
             |g: Google, c: Connection, i: CalendarEventDelete| async move { g.calendar_events(&c).delete(&i.calendar, &i.event, i.options).await as Result<()> }),

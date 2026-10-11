@@ -1221,6 +1221,27 @@ async fn a_success_that_does_not_carry_the_result_is_an_error() {
 }
 
 #[tokio::test]
+async fn busy_times_that_cannot_be_read_do_not_name_the_person_whose_calendar_it_is() {
+    // Google keys the answer by each calendar's id, which is its owner's address.
+    let answer = json!({
+        "kind": "calendar#freeBusy",
+        "calendars": { "grace@example.test": { "busy": [{ "start": "2026-10-12T09:00:00Z" }, { "start": 9 }] } }
+    });
+    let (_server, socket, key) = answering(200, answer).await;
+    let input = json!({ "calendars": ["grace@example.test"], "timeMin": ONE_DAY[0], "timeMax": ONE_DAY[1] });
+    let err = invoke(&socket, &key, "calendar_freebusy.query", input)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Decode);
+    assert!(
+        err.message().ends_with("at `calendars.*.busy[1].start`"),
+        "{}",
+        err.message()
+    );
+    assert!(!format!("{err} {err:?}").contains("grace"), "{err:?}");
+}
+
+#[tokio::test]
 async fn an_answer_that_cannot_be_read_names_the_field_and_never_repeats_what_google_sent() {
     let private = "PRIVATE notes of the meeting";
     let mut unreadable = calendar_event();

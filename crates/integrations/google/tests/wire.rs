@@ -146,7 +146,9 @@ async fn a_file_other_than_the_one_asked_for_is_refused() {
 async fn the_hosts_of_the_apis_that_are_built_may_receive_the_token_and_no_other_google_host_may() {
     let spec = provider();
     let allows = |u: &str| spec.allows_host(&u.parse().unwrap());
-    assert!(allows("https://www.googleapis.com/calendar/v3/calendars/primary/events"));
+    assert!(allows(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    ));
     assert!(allows("https://docs.googleapis.com/v1/documents/x"));
     assert!(allows("https://sheets.googleapis.com/v4/spreadsheets/x"));
     assert!(allows("https://gmail.googleapis.com/gmail/v1/users/me/profile"));
