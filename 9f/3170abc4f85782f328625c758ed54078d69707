@@ -1,0 +1,21 @@
+crates/integrations/google/src/lib.rs
+  s_8c98d26ded7b36::t_8d17125f2a3f4b 111-116
+crates/integrations/google/tests/drive.rs
+  s_8c98d26ded7b36::t_8d17125f2a3f4b 492-497
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9f3170abc4f85782f328625c758ed54078d69707",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
