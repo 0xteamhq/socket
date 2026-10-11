@@ -237,25 +237,24 @@ fn unescaped(text: &str) -> String {
         // An escape is short. Its end is looked for nearby only: looking
         // further would read the rest of the text once for every `&` in it.
         let end = after.as_bytes().iter().take(11).position(|&byte| byte == b';');
-        let read = end.and_then(|end| {
+        // What it stands for is written straight into `out`: a message may
+        // hold millions of these.
+        let read = end.filter(|&end| {
             let name = &after[..end];
-            let symbol = match html_symbols::named(name) {
-                Some(symbol) => Some(symbol.to_owned()),
-                None => {
-                    let code = match name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
-                        Some(hex) => u32::from_str_radix(hex, 16).ok(),
-                        None => name.strip_prefix('#').and_then(|decimal| decimal.parse().ok()),
-                    };
-                    code.and_then(char::from_u32).map(String::from)
-                }
+            if let Some(symbol) = html_symbols::named(name) {
+                out.push_str(symbol);
+                return true;
+            }
+            let code = match name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
+                Some(hex) => u32::from_str_radix(hex, 16).ok(),
+                None => name.strip_prefix('#').and_then(|decimal| decimal.parse().ok()),
             };
-            symbol.map(|symbol| (symbol, end))
+            code.and_then(char::from_u32)
+                .map(|character| out.push(character))
+                .is_some()
         });
         match read {
-            Some((symbol, end)) => {
-                out.push_str(&symbol);
-                rest = &after[end + 1..];
-            }
+            Some(end) => rest = &after[end + 1..],
             None => {
                 out.push('&');
                 rest = after;

@@ -2,7 +2,8 @@
 
 /// The symbol an HTML name stands for: the names a message is likely to
 /// hold, which are punctuation, signs and the accented letters of Latin-1.
-/// The few that are not seen, such as a soft hyphen, stand for nothing.
+/// A soft hyphen and the marks of direction stand for nothing. The joiners
+/// are kept: one makes two emoji one, and both shape words in some scripts.
 pub(super) fn named(name: &str) -> Option<&'static str> {
     const NAMES: &[(&str, &str)] = &[
         ("amp", "&"),
@@ -15,8 +16,8 @@ pub(super) fn named(name: &str) -> Option<&'static str> {
         ("emsp", " "),
         ("thinsp", " "),
         ("shy", ""),
-        ("zwnj", ""),
-        ("zwj", ""),
+        ("zwnj", "\u{200c}"),
+        ("zwj", "\u{200d}"),
         ("lrm", ""),
         ("rlm", ""),
         ("ndash", "\u{2013}"),

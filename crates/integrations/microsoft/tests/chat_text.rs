@@ -119,8 +119,12 @@ fn the_symbols_html_writes_by_name_are_read_as_the_symbols() {
         text_of("caf&eacute; na&iuml;ve &Uuml;ber &ntilde;"),
         "caf\u{e9} na\u{ef}ve \u{dc}ber \u{f1}"
     );
-    // A soft hyphen and a joiner are not seen, and are not kept.
-    assert_eq!(text_of("co&shy;operate&zwnj;d"), "cooperated");
+    // A soft hyphen is where a word may break, and is not kept.
+    assert_eq!(text_of("co&shy;operate"), "cooperate");
+    // A joiner is not seen either, but it is what makes two emoji one, and
+    // in some scripts what shapes a word. It is kept.
+    assert_eq!(text_of("\u{1F469}&zwj;\u{1F4BB}"), "\u{1F469}\u{200d}\u{1F4BB}");
+    assert_eq!(text_of("a&zwnj;b"), "a\u{200c}b");
     // A name that is no symbol's is kept as it was written, and so is one with the wrong case.
     assert_eq!(text_of("&notasymbol; &MDASH; &mdash"), "&notasymbol; &MDASH; &mdash");
 }
