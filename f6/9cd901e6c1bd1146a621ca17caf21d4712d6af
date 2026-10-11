@@ -1,0 +1,22 @@
+crates/integrations/google/src/models/gmail_mime.rs
+  s_8c98d26ded7b36::t_b6f2efd2f7d7f8 113,201
+  s_8c98d26ded7b36::t_b05359cc92e087 340,361,459-490
+  s_8c98d26ded7b36::t_e595ba2e906bcd 69-73,78-80,84-95,99-101,104-112,114-127,231-234,237,359-360,491
+  s_8c98d26ded7b36::t_2e4c81dbefa079 492
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f69cd901e6c1bd1146a621ca17caf21d4712d6af",
+  "prompts": {},
+  "sessions": {
+    "s_8c98d26ded7b36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd545f1f-66dc-4f87-b462-d71efc5afe21",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "vasanth <itsparser@gmail.com>"
+    }
+  }
+}
