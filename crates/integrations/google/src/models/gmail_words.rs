@@ -222,8 +222,28 @@ fn joiner(character: char) -> bool {
 /// ASCII, where it could only make two words that read alike differ: a name
 /// or an address that a person takes for one they know, and a program does not.
 fn joins(before: Option<&char>, after: Option<&char>) -> bool {
-    let beside = |neighbour: Option<&char>| neighbour.is_some_and(|c| !c.is_ascii() && !unseen(*c) && !joiner(*c));
+    let beside = |neighbour: Option<&char>| neighbour.is_some_and(|c| joined(*c));
     beside(before) && beside(after)
+}
+
+/// Whether a character belongs to writing that uses the joiners: the Arabic
+/// script, which Persian and Urdu are written in; the scripts of India and
+/// Sri Lanka; and emoji, with the mark that says a symbol is shown as one.
+/// A joiner between two letters of any other script joins nothing, and is
+/// only a way to make two words that read alike differ.
+fn joined(character: char) -> bool {
+    matches!(
+        character,
+        '\u{600}'..='\u{6ff}'
+            | '\u{750}'..='\u{77f}'
+            | '\u{8a0}'..='\u{8ff}'
+            | '\u{fb50}'..='\u{fdff}'
+            | '\u{fe70}'..='\u{fefc}'
+            | '\u{900}'..='\u{dff}'
+            | '\u{2600}'..='\u{27bf}'
+            | '\u{fe0f}'
+            | '\u{1f000}'..='\u{1faff}'
+    ) && !unseen(character)
 }
 
 /// `text` as encoded words in UTF-8, to be written with a space or a line
@@ -396,6 +416,20 @@ mod tests {
         assert_eq!(readable("\u{200d}می"), "می", "at an end it joins nothing");
         assert_eq!(readable("می\u{200c}\u{200c}خواهم"), "می  خواهم", "nor beside another");
         assert_eq!(readable("a\u{200d}👩"), "a 👩");
+        // An emoji shown as one, joined to another: a heart on fire.
+        assert_eq!(
+            readable("\u{2764}\u{fe0f}\u{200d}\u{1f525}"),
+            "\u{2764}\u{fe0f}\u{200d}\u{1f525}"
+        );
+        // Letters of a script that is not written with joiners, and marks
+        // that only look like those of an address: a joiner between them
+        // joins nothing either.
+        assert_eq!(readable("ра\u{200d}ураl"), "ра ураl");
+        assert_eq!(
+            readable("boss\u{ff20}\u{200d}\u{ff20}corp"),
+            "boss\u{ff20} \u{ff20}corp"
+        );
+        assert_eq!(readable("東\u{200c}京"), "東 京");
     }
 
     #[test]

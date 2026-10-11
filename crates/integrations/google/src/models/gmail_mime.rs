@@ -152,12 +152,16 @@ impl Part {
             .unwrap_or_default()
             .trim()
             .to_ascii_lowercase();
-        // A part that was attached is a file, whatever it is made of: what
-        // is inside it is the file's, and no part of what the message says.
-        // It is listed among the attachments, so nothing is left out unseen.
+        // A part made of other parts that its sender marked as a file. Mail
+        // programs do not agree on such a part: some show what is inside it
+        // as the message, some show a file. A reader that kept its text back
+        // would be blind to what a person may be shown, so the text is read
+        // with the rest; and the part is listed among the attachments, so
+        // that it can be seen that some of the text came marked as a file.
         if kind.starts_with("multipart/") && self.attached() {
             let mut found = Found::default();
             self.leaf(&kind, &mut found);
+            found.add(self.contents());
             return found;
         }
         self.contents()
@@ -334,27 +338,37 @@ mod tests {
     }
 
     #[test]
-    fn a_part_that_was_attached_is_a_file_whatever_it_is_made_of() {
-        // A message forwarded as a file, written by its sender as a
-        // multipart of its own. What is inside it is not what this message says.
-        let mut attached = multipart(
+    fn a_part_marked_as_a_file_is_listed_as_one_and_nothing_in_it_is_kept_from_the_reader() {
+        // A part made of parts, marked by its sender as an attachment. Some
+        // mail programs show its text as the message, so a reader that left
+        // it out would not see what a person may be shown.
+        let mut marked = multipart(
             "mixed",
             json!([
                 part("text/plain", "Wire the money today."),
-                part("text/html", "<p>Wire the money today.</p>")
+                part("text/html", "<p>Wire the money today.</p>"),
+                file("application/pdf", "invoice.pdf", json!([]))
             ]),
         );
-        attached["filename"] = json!("forwarded.eml");
-        attached["headers"] = json!([{ "name": "Content-Disposition", "value": "ATTACHMENT; filename=forwarded.eml" }]);
-        let message = read(multipart(
-            "mixed",
-            json!([part("text/plain", "See attached."), attached]),
-        ));
-        assert_eq!(message.text.as_deref(), Some("See attached."));
-        assert_eq!(message.html, None);
-        assert_eq!(message.attachments.len(), 1);
-        assert_eq!(message.attachments[0].filename, "forwarded.eml");
-        assert_eq!(message.attachments[0].mime_type.as_deref(), Some("multipart/mixed"));
+        marked["filename"] = json!("forwarded.eml");
+        marked["headers"] = json!([{ "name": "Content-Disposition", "value": "ATTACHMENT; filename=forwarded.eml" }]);
+        let message = read(multipart("mixed", json!([part("text/plain", "See attached."), marked])));
+        assert_eq!(message.text.as_deref(), Some("See attached.\nWire the money today."));
+        assert_eq!(message.html.as_deref(), Some("<p>Wire the money today.</p>"));
+        // The part itself is not lost among what it holds: it is the first
+        // of the files, before the one inside it.
+        let files: Vec<(&str, Option<&str>)> = message
+            .attachments
+            .iter()
+            .map(|file| (file.filename.as_str(), file.mime_type.as_deref()))
+            .collect();
+        assert_eq!(
+            files,
+            [
+                ("forwarded.eml", Some("multipart/mixed")),
+                ("invoice.pdf", Some("application/pdf"))
+            ]
+        );
     }
 
     #[test]
